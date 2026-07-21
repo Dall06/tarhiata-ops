@@ -1,4 +1,4 @@
-*Read this in other languages: [English](README.md), [Español](docs/es/README.md)*
+> 🇪🇸 **¿Hablas Español?** [Haz click aquí para leer la documentación en Español](docs/es/README.md)
 
 # 🚀 Tarhiata-ops (Your Private PaaS)
 
