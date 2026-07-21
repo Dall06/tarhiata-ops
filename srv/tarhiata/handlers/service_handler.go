@@ -9,382 +9,22 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Dall06/tarhiata-ops/srv/tarhiata/repositories"
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/domain"
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/ports"
+	"github.com/Dall06/tarhiata-ops/srv/tarhiata/repositories"
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/usecases"
 	"github.com/charmbracelet/huh"
 )
 
-func Run() {
-	fmt.Println("🚀 Tarhiata-ops CLI - Tu PaaS Personalizado en VPS")
-
-	// 1. Inicializar Base de Datos Local (SQLite)
-	homeDir, _ := os.UserHomeDir()
-	dbPath := filepath.Join(homeDir, ".config", "tarhiata", "config.db")
-
-	repo, err := repositories.NewSQLiteRepository(dbPath)
-	if err != nil {
-		fmt.Printf("❌ Error crítico iniciando base de datos: %v\n", err)
-		os.Exit(1)
-	}
-	defer repo.Close()
-
-	// 2. Intentar cargar configuración actual
-	serverConfig, err := repo.GetServerConfig()
-	if err != nil {
-		fmt.Printf("❌ Error leyendo configuración local: %v\n", err)
-	}
-
-	// 3. Menú Principal Infinito
-	for {
-		var action string
-
-		statusStr := "🔴 Sin Configurar"
-		if serverConfig != nil {
-			statusStr = fmt.Sprintf("🟢 Conectado a %s", serverConfig.Host)
-		}
-
-		form := huh.NewForm(
-			huh.NewGroup(
-				huh.NewSelect[string]().
-					Title(fmt.Sprintf("¿Qué te gustaría hacer hoy? [%s]", statusStr)).
-					Options(
-						huh.NewOption("⚙️  Configurar Credenciales del Servidor", "config"),
-						huh.NewOption("🚀 Bootstrapper (Inicializar VPS virgen con Swarm/Traefik)", "bootstrap"),
-						huh.NewOption("📦 Desplegar un Servicio (Tipo PaaS)", "deploy"),
-						huh.NewOption("🗄️  Administrar Bases de Datos", "db"),
-						huh.NewOption("🛠️  Herramientas Avanzadas (Observabilidad, VPN)", "tools"),
-						huh.NewOption("💻 Abrir Shell Interactivo (Terminal Remota)", "shell"),
-						huh.NewOption("❌ Salir", "exit"),
-					).
-					Value(&action),
-			),
-		)
-
-		if err := form.Run(); err != nil {
-			fmt.Println("Cancelado por el usuario.")
-			os.Exit(0)
-		}
-
-		switch action {
-		case "config":
-			serverConfig = handleConfig(repo, serverConfig)
-		case "bootstrap":
-			if serverConfig == nil {
-				fmt.Println("⚠️  Primero debes configurar las credenciales del servidor.")
-				continue
-			}
-			handleBootstrap(*serverConfig)
-		case "deploy":
-			if serverConfig == nil {
-				fmt.Println("⚠️  Primero debes configurar las credenciales del servidor.")
-				continue
-			}
-			handleServices(*serverConfig, repo)
-		case "db":
-			if serverConfig == nil {
-				fmt.Println("⚠️  Primero debes configurar las credenciales del servidor.")
-				continue
-			}
-			handleDatabases(*serverConfig, repo)
-		case "tools":
-			if serverConfig == nil {
-				fmt.Println("⚠️  Primero debes configurar las credenciales del servidor.")
-				continue
-			}
-			handleTools(*serverConfig)
-		case "shell":
-			if serverConfig == nil {
-				fmt.Println("⚠️  Primero debes configurar las credenciales del servidor.")
-				continue
-			}
-			handleShell(*serverConfig)
-		case "exit":
-			fmt.Println("\n¡Hasta luego Ninja! 🥷")
-			os.Exit(0)
-		}
-	}
+type serviceHandler struct {
+	repo ports.ConfigRepository
 }
 
-func handleConfig(repo *repositories.SQLiteRepository, current *domain.ServerConfig) *domain.ServerConfig {
-	var configType string
-	
-	err := huh.NewForm(
-		huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("¿Dónde alojaremos el motor de Tarhiata-ops?").
-				Options(
-					huh.NewOption("🔌 Tengo un servidor existente (Requiere IP y SSH)", "existing"),
-					huh.NewOption("🐳 Crear un servidor desde cero (DigitalOcean / Vultr)", "new"),
-				).Value(&configType),
-		),
-	).Run()
-
-	if err != nil {
-		fmt.Println("Cancelado.")
-		return current
-	}
-
-	var host, user, key, doToken string
-	var portStr string = "22"
-
-	if current != nil {
-		host = current.Host
-		portStr = fmt.Sprintf("%d", current.Port)
-		user = current.User
-		key = current.PrivateKey
-		doToken = current.DOAPIToken
-	}
-
-	if configType == "existing" {
-		form := huh.NewForm(
-			huh.NewGroup(
-				huh.NewInput().Title("IP del Servidor (Host)").Value(&host),
-				huh.NewInput().Title("Puerto SSH").Value(&portStr),
-				huh.NewInput().Title("Usuario").Value(&user),
-				huh.NewInput().Title("Ruta de la Llave Privada (ej. ~/.ssh/id_rsa)").Value(&key),
-				huh.NewInput().Title("DigitalOcean API Token (Opcional, para BDs)").Value(&doToken),
-			),
-		)
-
-		if err := form.Run(); err != nil {
-			fmt.Println("Cancelado.")
-			return current
-		}
-	} else {
-		// Modo Terraform (Desde cero)
-		var providerName string
-		if err := huh.NewForm(
-			huh.NewGroup(
-				huh.NewSelect[string]().
-					Title("Proveedor Cloud").
-					Options(
-						huh.NewOption("DigitalOcean", "digitalocean"),
-						huh.NewOption("Vultr", "vultr"),
-					).Value(&providerName),
-			),
-		).Run(); err != nil {
-			fmt.Println("Cancelado.")
-			return current
-		}
-
-		form := huh.NewForm(
-			huh.NewGroup(
-				huh.NewInput().Title(fmt.Sprintf("%s API Token (Obligatorio)", strings.Title(providerName))).Value(&doToken).Validate(func(s string) error {
-					if strings.TrimSpace(s) == "" {
-						return fmt.Errorf("El Token es obligatorio")
-					}
-					return nil
-				}),
-			),
-		)
-		if err := form.Run(); err != nil {
-			fmt.Println("Cancelado.")
-			return current
-		}
-
-		fmt.Printf("\n⏳ [Terraform] Construyendo el servidor maestro en %s. Esto tardará un poco...\n", providerName)
-		workspace := filepath.Join(os.TempDir(), "tarhiata_tf_master")
-		
-		var provisioner ports.Provisioner
-		var region string
-		if providerName == "digitalocean" {
-			provisioner = repositories.NewDigitalOceanProvisioner(workspace)
-			region = "nyc1" // DigitalOcean Region
-		} else {
-			provisioner = repositories.NewVultrProvisioner(workspace)
-			region = "ewr" // Vultr Region (New Jersey)
-		}
-		
-		newIP, privKey, err := provisioner.ProvisionNode(doToken, "tarhiata-master", region)
-		if err != nil {
-			fmt.Printf("❌ Error provisionando el servidor: %v\n", err)
-			return current
-		}
-
-		host = newIP
-		user = "root" // Ubuntu DO Droplet default root
-		portStr = "22"
-		
-		// Guardar llave privada localmente
-		homeDir, _ := os.UserHomeDir()
-		keyDir := filepath.Join(homeDir, ".ssh")
-		os.MkdirAll(keyDir, 0700)
-		key = filepath.Join(keyDir, "tarhiata_master_rsa")
-		
-		if err := os.WriteFile(key, []byte(privKey), 0600); err != nil {
-			fmt.Printf("❌ Error guardando la llave privada: %v\n", err)
-			return current
-		}
-		
-		fmt.Printf("✅ Servidor maestro creado exitosamente en %s\n", newIP)
-	}
-
-	port, _ := strconv.Atoi(portStr)
-	newConfig := domain.ServerConfig{
-		Host:       host,
-		Port:       port,
-		User:       user,
-		PrivateKey: key,
-		DOAPIToken: doToken,
-	}
-
-	if err := repo.SaveServerConfig(newConfig); err != nil {
-		fmt.Printf("❌ Error guardando configuración: %v\n", err)
-		return current
-	}
-
-	fmt.Println("✅ ¡Configuración guardada exitosamente!")
-	return &newConfig
+func NewServiceHandler(repo ports.ConfigRepository) ports.ServiceHandler {
+	return &serviceHandler{repo: repo}
 }
 
-func handleBootstrap(config domain.ServerConfig) {
-	var installObs bool
-	var acmeEmail string
-	var installTS bool
-	var tsAuthKey string
-	var exposeObs bool
-	
-	err := huh.NewForm(
-		huh.NewGroup(
-			huh.NewConfirm().
-				Title("¿Deseas instalar Tailscale (VPN) para gestionar el servidor de forma privada?").
-				Value(&installTS),
-		),
-	).Run()
-	if err != nil {
-		return
-	}
-
-	if installTS {
-		exposeObs = false
-		huh.NewForm(
-			huh.NewGroup(
-				huh.NewInput().
-					Title("Auth Key de Tailscale (Opcional, déjalo vacío para loguearte mediante URL en los logs)").
-					Value(&tsAuthKey),
-				huh.NewConfirm().
-					Title("¿Deseas instalar el Stack de Observabilidad? (Estará protegido y oculto dentro de la VPN)").
-					Value(&installObs),
-			),
-		).Run()
-	} else {
-		// Regla estricta: Si no hay VPN, NO instalamos observabilidad en el Bootstrapper.
-		// El usuario debe ir explícitamente a la sección de herramientas si la quiere pública.
-		installObs = false
-		exposeObs = false
-	}
-
-	huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Correo para Let's Encrypt (SSL Automático). Déjalo vacío si no usarás dominios públicos.").
-				Value(&acmeEmail),
-		),
-	).Run()
-
-	fmt.Println("\n⏳ Conectando al servidor para inicializar Bootstrapper...")
-	sshExec := repositories.NewCryptoSSHExecutor()
-	if err := sshExec.Connect(config); err != nil {
-		fmt.Printf("❌ Error conectando por SSH: %v\n", err)
-		return
-	}
-	defer sshExec.Close()
-
-	initServerUC := usecases.NewInitServerUseCase(sshExec)
-	fmt.Println("🚀 Ejecutando inicialización (Docker, Swarm, Firewall, Traefik)...")
-
-	if err := initServerUC.Execute(acmeEmail); err != nil {
-		fmt.Printf("❌ Falló la inicialización base: %v\n", err)
-		return
-	}
-
-	if installTS {
-		fmt.Println("🚀 Instalando Tailscale...")
-		tsUC := usecases.NewInstallTailscaleUseCase(sshExec)
-		if err := tsUC.Execute(tsAuthKey); err != nil {
-			fmt.Printf("❌ Falló Tailscale: %v\n", err)
-		}
-	}
-
-	if installObs {
-		fmt.Println("🚀 Desplegando stack de Observabilidad...")
-		obsUC := usecases.NewDeployObservabilityUseCase(sshExec)
-		if err := obsUC.Execute(exposeObs); err != nil {
-			fmt.Printf("❌ Falló Observabilidad: %v\n", err)
-		}
-	}
-
-	fmt.Println("✅ ¡Servidor inicializado y protegido con éxito!")
-	if installTS {
-		fmt.Println("🌐 NOTA: Tailscale fue instalado. Si no proveíste AuthKey o la conexión falló, abre la 'Consola SSH' en el menú y corre 'tailscale up' para autenticarte.")
-	}
-	if installObs {
-		fmt.Printf("📊 Portainer (Dashboard) disponible en: http://[IP_DE_TAILSCALE]:9000\n")
-		fmt.Printf("📝 Dozzle (Logs en vivo) disponible en: http://[IP_DE_TAILSCALE]:8888\n")
-	}
-}
-
-func handleTools(config domain.ServerConfig) {
-	var action string
-	err := huh.NewForm(
-		huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("🛠️ Herramientas Adicionales").
-				Options(
-					huh.NewOption("📈 Instalar Observabilidad PÚBLICA (Portainer/Dozzle sin VPN - ⚠️ Inseguro)", "obs_public"),
-					huh.NewOption("🔙 Volver", "back"),
-				).
-				Value(&action),
-		),
-	).Run()
-	if err != nil || action == "back" {
-		return
-	}
-
-	if action == "obs_public" {
-		var confirm bool
-		huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("⚠️ ¿Estás completamente seguro? Cualquiera con tu IP podrá ver el Login de Portainer y Dozzle").Value(&confirm))).Run()
-		if !confirm {
-			return
-		}
-		
-		fmt.Println("\n⏳ Conectando al servidor...")
-		sshExec := repositories.NewCryptoSSHExecutor()
-		if err := sshExec.Connect(config); err != nil {
-			fmt.Println("❌ Error SSH:", err)
-			return
-		}
-		defer sshExec.Close()
-
-		obsUC := usecases.NewDeployObservabilityUseCase(sshExec)
-		fmt.Println("🚀 Desplegando Observabilidad Pública...")
-		if err := obsUC.Execute(true); err != nil {
-			fmt.Println("❌ Error:", err)
-		} else {
-			fmt.Printf("✅ Observabilidad Pública Instalada exitosamente.\n")
-			fmt.Printf("📊 Portainer: http://%s:9000\n", config.Host)
-			fmt.Printf("📝 Dozzle: http://%s:8888\n", config.Host)
-		}
-	}
-}
-
-func handleShell(config domain.ServerConfig) {
-	fmt.Println("\n💻 Abriendo túnel seguro interactivo (Escribe 'exit' para salir)...")
-	sshExec := repositories.NewCryptoSSHExecutor()
-	if err := sshExec.Connect(config); err != nil {
-		fmt.Printf("❌ Error conectando por SSH: %v\n", err)
-		return
-	}
-	defer sshExec.Close()
-
-	if err := sshExec.InteractiveShell(); err != nil {
-		fmt.Printf("\nSesión terminada: %v\n", err)
-	}
-}
-
-func handleServices(config domain.ServerConfig, repo *repositories.SQLiteRepository) {
+func (h *serviceHandler) Execute(config domain.ServerConfig) {
 	fmt.Println("\n⏳ Conectando al clúster para sincronizar estado de servicios...")
 	sshExec := repositories.NewCryptoSSHExecutor()
 	if err := sshExec.Connect(config); err != nil {
@@ -406,7 +46,7 @@ func handleServices(config domain.ServerConfig, repo *repositories.SQLiteReposit
 	}
 
 	// 2. Obtener el catálogo guardado en SQLite
-	savedServices, err := repo.GetServices()
+	savedServices, err := h.repo.GetServices()
 	if err != nil {
 		fmt.Printf("❌ Error leyendo catálogo local: %v\n", err)
 		return
@@ -443,21 +83,21 @@ func handleServices(config domain.ServerConfig, repo *repositories.SQLiteReposit
 	}
 
 	if selectedAction == "add_new" {
-		runAddServiceWizard(repo)
+		h.runAddServiceWizard()
 	} else if selectedAction == "map" {
-		showNetworkMap(repo, config)
+		h.showNetworkMap(config)
 	} else if selectedAction == "global_link" {
-		runGlobalLinkWizard(repo)
+		h.runGlobalLinkWizard()
 	} else {
 		stackName := strings.TrimPrefix(selectedAction, "manage_")
-		runManageServiceMenu(stackName, repo, sshExec)
+		h.runManageServiceMenu(stackName, sshExec)
 	}
 }
 
-func runGlobalLinkWizard(repo *repositories.SQLiteRepository) {
+func (h *serviceHandler) runGlobalLinkWizard() {
 	fmt.Println("\n🔗 --- ASISTENTE GLOBAL DE INTERCONEXIÓN ---")
-	allSvc, _ := repo.GetServices()
-	allDBs, _ := repo.GetDatabases()
+	allSvc, _ := h.repo.GetServices()
+	allDBs, _ := h.repo.GetDatabases()
 
 	if len(allSvc) == 0 {
 		fmt.Println("⚠️  No tienes servicios creados. Crea al menos un servicio origen primero.")
@@ -480,7 +120,7 @@ func runGlobalLinkWizard(repo *repositories.SQLiteRepository) {
 	}
 
 	// Obtener el servicio original para poder guardar su .env
-	svc, err := repo.GetService(originName)
+	svc, err := h.repo.GetService(originName)
 	if err != nil || svc == nil {
 		fmt.Println("❌ Error leyendo el servicio origen.")
 		return
@@ -524,7 +164,7 @@ func runGlobalLinkWizard(repo *repositories.SQLiteRepository) {
 	if err == nil && envVarName != "" {
 		if svc.EnvFilePath == "" {
 			svc.EnvFilePath = filepath.Join(os.TempDir(), "tarhiata_"+svc.Name+".env")
-			repo.SaveService(*svc)
+			h.repo.SaveService(*svc)
 		}
 
 		f, err := os.OpenFile(svc.EnvFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -549,9 +189,9 @@ func runGlobalLinkWizard(repo *repositories.SQLiteRepository) {
 	}
 }
 
-func showNetworkMap(repo *repositories.SQLiteRepository, config domain.ServerConfig) {
-	services, _ := repo.GetServices()
-	databases, _ := repo.GetDatabases()
+func (h *serviceHandler) showNetworkMap(config domain.ServerConfig) {
+	services, _ := h.repo.GetServices()
+	databases, _ := h.repo.GetDatabases()
 
 	fmt.Println("\n\033[1;36m========================================================\033[0m")
 	fmt.Println("\033[1;36m      🗺️   T A R H I A T A   T O P O L O G Y   M A P    \033[0m")
@@ -560,7 +200,7 @@ func showNetworkMap(repo *repositories.SQLiteRepository, config domain.ServerCon
 	for _, svc := range services {
 		fmt.Printf("\033[1;32m🚀 SERVICIO: %s\033[0m\n", svc.Name)
 		fmt.Printf(" ├─ 🔌 \033[33mDNS Interno\033[0m : http://%s:%d \033[90m(Visible en Swarm)\033[0m\n", svc.Name, svc.Port)
-		
+
 		if svc.Expose {
 			if svc.Domain != "" {
 				protocol := "http://"
@@ -621,7 +261,7 @@ func showNetworkMap(repo *repositories.SQLiteRepository, config domain.ServerCon
 					if strings.Contains(line, "=") {
 						parts := strings.SplitN(line, "=", 2)
 						val := parts[1]
-						
+
 						for _, otherSvc := range services {
 							if otherSvc.Name != svc.Name && strings.Contains(val, otherSvc.Name) {
 								fmt.Printf(" \033[1;32m[%s]\033[0m ────(\033[36m%s\033[0m)────▶ \033[1;32m[%s]\033[0m\n", svc.Name, parts[0], otherSvc.Name)
@@ -639,7 +279,7 @@ func showNetworkMap(repo *repositories.SQLiteRepository, config domain.ServerCon
 			}
 		}
 	}
-	
+
 	if !hasConnections {
 		fmt.Println(" \033[90mNingún servicio está interconectado mediante variables aún.\033[0m")
 	}
@@ -649,7 +289,7 @@ func showNetworkMap(repo *repositories.SQLiteRepository, config domain.ServerCon
 	fmt.Scanln()
 }
 
-func runAddServiceWizard(repo *repositories.SQLiteRepository) {
+func (h *serviceHandler) runAddServiceWizard() {
 	fmt.Println("\n📦 Agregando nuevo servicio al catálogo (Aún no se desplegará)...")
 
 	var (
@@ -697,7 +337,7 @@ func runAddServiceWizard(repo *repositories.SQLiteRepository) {
 		if err := huh.NewForm(huh.NewGroup(huh.NewInput().Title("Dominio (Opcional, deja vacío para usar IP)").Value(&domainName))).Run(); err != nil {
 			return
 		}
-		
+
 		if domainName != "" {
 			if err := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("¿Habilitar SSL Automático (HTTPS) para este dominio?").Value(&enableSSL))).Run(); err != nil {
 				return
@@ -719,7 +359,7 @@ func runAddServiceWizard(repo *repositories.SQLiteRepository) {
 		if err := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("No proveíste un archivo. ¿Deseas abrir el editor para crearlo ahora?").Value(&createEnv))).Run(); err != nil {
 			return
 		}
-		
+
 		if createEnv {
 			tempFile := filepath.Join(os.TempDir(), "tarhiata_"+serviceName+".env")
 			editor := os.Getenv("EDITOR")
@@ -751,7 +391,7 @@ func runAddServiceWizard(repo *repositories.SQLiteRepository) {
 		HealthcheckCmd: healthcheckCmd,
 	}
 
-	if err := repo.SaveService(newService); err != nil {
+	if err := h.repo.SaveService(newService); err != nil {
 		fmt.Printf("❌ Error guardando servicio: %v\n", err)
 		return
 	}
@@ -759,8 +399,8 @@ func runAddServiceWizard(repo *repositories.SQLiteRepository) {
 	fmt.Printf("✅ ¡Servicio %s guardado en tu catálogo local! Ahora puedes seleccionarlo para desplegarlo.\n", serviceName)
 }
 
-func runManageServiceMenu(serviceName string, repo *repositories.SQLiteRepository, sshExec ports.SSHExecutor) {
-	svc, err := repo.GetService(serviceName)
+func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.SSHExecutor) {
+	svc, err := h.repo.GetService(serviceName)
 	if err != nil || svc == nil {
 		fmt.Println("❌ No se encontró el servicio en la base de datos.")
 		return
@@ -812,7 +452,7 @@ func runManageServiceMenu(serviceName string, repo *repositories.SQLiteRepositor
 		).Run()
 		if err == nil && newImage != "" {
 			svc.ImageSource = newImage
-			repo.SaveService(*svc)
+			h.repo.SaveService(*svc)
 			fmt.Println("✅ Imagen actualizada localmente. Recuerda hacer un 'Desplegar / Actualizar' para aplicar los cambios.")
 		}
 
@@ -826,10 +466,10 @@ func runManageServiceMenu(serviceName string, repo *repositories.SQLiteRepositor
 		if err != nil {
 			return
 		}
-		
+
 		var isPublic bool = svc.Expose
 		var domainName string = svc.Domain
-		
+
 		if err := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("¿Hacer este servicio accesible desde Internet?").Value(&isPublic))).Run(); err != nil {
 			return
 		}
@@ -843,7 +483,7 @@ func runManageServiceMenu(serviceName string, repo *repositories.SQLiteRepositor
 		svc.Port, _ = strconv.Atoi(portStr)
 		svc.Expose = isPublic
 		svc.Domain = domainName
-		repo.SaveService(*svc)
+		h.repo.SaveService(*svc)
 		fmt.Println("✅ Configuración de red actualizada. Recuerda hacer un 'Desplegar / Actualizar' para aplicar los cambios.")
 
 	case "edit_env":
@@ -851,12 +491,12 @@ func runManageServiceMenu(serviceName string, repo *repositories.SQLiteRepositor
 		if svc.EnvFilePath == "" {
 			svc.EnvFilePath = filepath.Join(os.TempDir(), "tarhiata_"+svc.Name+".env")
 		}
-		
+
 		editor := os.Getenv("EDITOR")
 		if editor == "" {
 			editor = "nano"
 		}
-		
+
 		cmd := exec.Command(editor, svc.EnvFilePath)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
@@ -864,7 +504,7 @@ func runManageServiceMenu(serviceName string, repo *repositories.SQLiteRepositor
 		if err := cmd.Run(); err == nil {
 			if _, statErr := os.Stat(svc.EnvFilePath); statErr == nil {
 				// Guardamos la nueva ruta por si antes no tenía
-				repo.SaveService(*svc)
+				h.repo.SaveService(*svc)
 				fmt.Println("✅ Archivo .env guardado localmente. Recuerda hacer un 'Desplegar / Actualizar' para aplicar los cambios.")
 			} else {
 				fmt.Println("⚠️  No se guardó ningún archivo.")
@@ -874,9 +514,9 @@ func runManageServiceMenu(serviceName string, repo *repositories.SQLiteRepositor
 		}
 
 	case "link_service":
-		allSvc, _ := repo.GetServices()
-		allDBs, _ := repo.GetDatabases()
-		
+		allSvc, _ := h.repo.GetServices()
+		allDBs, _ := h.repo.GetDatabases()
+
 		var linkOptions []huh.Option[string]
 		for _, s := range allSvc {
 			val := fmt.Sprintf("%s:%d", s.Name, s.Port)
@@ -890,12 +530,12 @@ func runManageServiceMenu(serviceName string, repo *repositories.SQLiteRepositor
 			val := fmt.Sprintf("%s://admin:password@%s:%d/db", dbInfo.Engine, dbInfo.Name, dbInfo.InternalPort)
 			linkOptions = append(linkOptions, huh.NewOption(fmt.Sprintf("🗄️ BD: %s (%s)", dbInfo.Name, dbInfo.Engine), val))
 		}
-		
+
 		if len(linkOptions) == 0 {
 			fmt.Println("⚠️  No hay otros servicios o bases de datos para vincular.")
 			return
 		}
-		
+
 		var targetHost, protocol, envVarName string
 		err := huh.NewForm(
 			huh.NewGroup(
@@ -911,20 +551,20 @@ func runManageServiceMenu(serviceName string, repo *repositories.SQLiteRepositor
 				huh.NewInput().Title("Nombre de la Variable (ej. API_URL, DATABASE_URL)").Value(&envVarName),
 			),
 		).Run()
-		
+
 		if err == nil && envVarName != "" {
 			if svc.EnvFilePath == "" {
 				svc.EnvFilePath = filepath.Join(os.TempDir(), "tarhiata_"+svc.Name+".env")
-				repo.SaveService(*svc)
+				h.repo.SaveService(*svc)
 			}
-			
+
 			f, err := os.OpenFile(svc.EnvFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 			if err != nil {
 				fmt.Printf("❌ Error abriendo archivo .env: %v\n", err)
 				return
 			}
 			defer f.Close()
-			
+
 			// Si el targetHost ya contiene un protocolo (ej. BDs postgres://), no agregamos el seleccionado
 			finalURL := fmt.Sprintf("%s%s", protocol, targetHost)
 			if strings.Contains(targetHost, "://") {
@@ -968,7 +608,7 @@ func runManageServiceMenu(serviceName string, repo *repositories.SQLiteRepositor
 
 		if mountAction == "clear" {
 			svc.MountsJSON = "[]"
-			repo.SaveService(*svc)
+			h.repo.SaveService(*svc)
 			fmt.Println("✅ Todos los archivos inyectados fueron eliminados. Recuerda Desplegar para aplicar.")
 			return
 		}
@@ -980,7 +620,7 @@ func runManageServiceMenu(serviceName string, repo *repositories.SQLiteRepositor
 				huh.NewInput().Title("Ruta destino en el contenedor (ej. /app/config.json)").Value(&destPath),
 			),
 		).Run()
-		
+
 		if err == nil && localPath != "" && destPath != "" {
 			mounts = append(mounts, domain.ServiceMount{
 				LocalPath: localPath,
@@ -988,13 +628,13 @@ func runManageServiceMenu(serviceName string, repo *repositories.SQLiteRepositor
 			})
 			newJSON, _ := json.Marshal(mounts)
 			svc.MountsJSON = string(newJSON)
-			repo.SaveService(*svc)
+			h.repo.SaveService(*svc)
 			fmt.Printf("✅ Archivo %s agregado. Recuerda hacer un 'Desplegar / Actualizar' para montar el archivo.\n", localPath)
 		}
 
 	case "deploy":
 		fmt.Printf("\n🚀 Desplegando %s en el clúster...\n", svc.Name)
-		
+
 		deployConfig := domain.DeployConfig{
 			ImageSource:    svc.ImageSource,
 			IsURL:          svc.IsURL,
@@ -1042,7 +682,7 @@ func runManageServiceMenu(serviceName string, repo *repositories.SQLiteRepositor
 	case "delete":
 		// Apagamos primero por si acaso
 		sshExec.RunCommand(fmt.Sprintf("docker stack rm %s", svc.Name))
-		if err := repo.DeleteService(svc.Name); err != nil {
+		if err := h.repo.DeleteService(svc.Name); err != nil {
 			fmt.Printf("❌ Error eliminando del catálogo: %v\n", err)
 		} else {
 			fmt.Println("✅ Servicio eliminado del catálogo local.")
@@ -1051,106 +691,3 @@ func runManageServiceMenu(serviceName string, repo *repositories.SQLiteRepositor
 }
 
 // --- Gestión de Bases de Datos ---
-
-func handleDatabases(config domain.ServerConfig, repo *repositories.SQLiteRepository) {
-	dbs, err := repo.GetDatabases()
-	if err != nil {
-		fmt.Printf("❌ Error leyendo bases de datos: %v\n", err)
-		return
-	}
-
-	var selectedAction string
-	options := []huh.Option[string]{
-		huh.NewOption("➕ Agregar Base de Datos", "add_new"),
-	}
-
-	for _, dbInfo := range dbs {
-		options = append(options, huh.NewOption(fmt.Sprintf("🗄️  %s (%s - %s)", dbInfo.Name, dbInfo.Engine, dbInfo.DeployType), "manage_"+dbInfo.Name))
-	}
-	options = append(options, huh.NewOption("🔙 Volver al Menú Principal", "back"))
-
-	err = huh.NewForm(
-		huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("Gestión de Bases de Datos").
-				Options(options...).
-				Value(&selectedAction),
-		),
-	).Run()
-
-	if err != nil || selectedAction == "back" {
-		return
-	}
-
-	if selectedAction == "add_new" {
-		runAddDatabaseWizard(repo)
-	} else {
-		dbName := strings.TrimPrefix(selectedAction, "manage_")
-		// runManageDatabaseMenu(dbName, repo, config) -> Para futura implementación del despliegue en sí
-		fmt.Printf("\n🚧 Gestión del despliegue para %s en desarrollo (Siguiente iteración).\n", dbName)
-	}
-}
-
-func runAddDatabaseWizard(repo *repositories.SQLiteRepository) {
-	fmt.Println("\n🗄️  Agregando Base de Datos al catálogo...")
-
-	var dbName, engine, deployType, externalURL, hostPath string
-	var internalPort int
-
-	err := huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().Title("Nombre (ej. mi-postgres)").Value(&dbName),
-			huh.NewSelect[string]().Title("Motor de Base de Datos").
-				Options(
-					huh.NewOption("PostgreSQL", "postgres"),
-					huh.NewOption("MongoDB", "mongo"),
-				).Value(&engine),
-			huh.NewSelect[string]().Title("Topología de Despliegue").
-				Options(
-					huh.NewOption("1. Externa (URL pública, ej. Supabase)", "external"),
-					huh.NewOption("2. Clúster Dedicado (Nuevo VPS - Requiere Terraform)", "multi-node"),
-					huh.NewOption("3. Todo-en-Uno (Contenedor local con volumen)", "single-node"),
-				).Value(&deployType),
-		),
-	).Run()
-
-	if err != nil {
-		return
-	}
-
-	switch deployType {
-	case "external":
-		if err := huh.NewForm(huh.NewGroup(huh.NewInput().Title("URL de Conexión (ej. postgres://user:pass@...)").Value(&externalURL))).Run(); err != nil {
-			return
-		}
-	case "single-node":
-		if engine == "postgres" {
-			internalPort = 5432
-		} else {
-			internalPort = 27017
-		}
-		defaultPath := fmt.Sprintf("/opt/tarhiata/data/%s", dbName)
-		if err := huh.NewForm(huh.NewGroup(huh.NewInput().Title("Ruta del Volumen en Host").Value(&defaultPath))).Run(); err != nil {
-			return
-		}
-		hostPath = defaultPath
-	case "multi-node":
-		fmt.Println("🚧 [Próximamente] Se activará el módulo de Terraform para provisionar la nueva VM y unirla al Swarm.")
-		return
-	}
-
-	newDB := domain.SavedDatabase{
-		Name:           dbName,
-		Engine:         engine,
-		DeployType:     deployType,
-		ExternalURL:    externalURL,
-		InternalPort:   internalPort,
-		VolumeHostPath: hostPath,
-	}
-
-	if err := repo.SaveDatabase(newDB); err != nil {
-		fmt.Printf("❌ Error guardando BD: %v\n", err)
-	} else {
-		fmt.Printf("✅ Base de datos %s guardada exitosamente.\n", dbName)
-	}
-}
