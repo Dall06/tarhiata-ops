@@ -22,6 +22,11 @@ type ConfigRepository interface {
 	GetDatabase(name string) (*domain.SavedDatabase, error)
 	DeleteDatabase(name string) error
 
+	// --- Observabilidad ---
+	SaveObservability(obs domain.SavedObservability) error
+	GetObservability() (*domain.SavedObservability, error)
+	DeleteObservability() error
+
 	// Close cierra la conexión a la base de datos local.
 	Close() error
 }

@@ -22,6 +22,10 @@ type ToolHandler interface {
 	Execute(config domain.ServerConfig)
 }
 
+type ObservabilityHandler interface {
+	Execute(config domain.ServerConfig)
+}
+
 type ShellHandler interface {
 	Execute(config domain.ServerConfig)
 }

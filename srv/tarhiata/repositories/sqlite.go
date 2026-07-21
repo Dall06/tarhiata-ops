@@ -116,6 +116,18 @@ func (r *SQLiteRepository) migrate() error {
 		return errAlter4
 	}
 
+	// Tabla de Observabilidad
+	queryObs := `
+	CREATE TABLE IF NOT EXISTS observability_config (
+		id INTEGER PRIMARY KEY CHECK (id = 1), 
+		deploy_type TEXT NOT NULL,
+		external_url TEXT NOT NULL,
+		node_ip TEXT NOT NULL
+	);`
+	if _, err := r.db.Exec(queryObs); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -269,5 +281,40 @@ func (r *SQLiteRepository) GetDatabase(name string) (*domain.SavedDatabase, erro
 
 func (r *SQLiteRepository) DeleteDatabase(name string) error {
 	_, err := r.db.Exec("DELETE FROM databases WHERE name = ?", name)
+	return err
+}
+
+// --- Operaciones de Observabilidad ---
+
+func (r *SQLiteRepository) SaveObservability(obs domain.SavedObservability) error {
+	query := `
+	INSERT INTO observability_config (id, deploy_type, external_url, node_ip) 
+	VALUES (1, ?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET 
+		deploy_type=excluded.deploy_type, 
+		external_url=excluded.external_url, 
+		node_ip=excluded.node_ip;`
+
+	_, err := r.db.Exec(query, obs.DeployType, obs.ExternalURL, obs.NodeIP)
+	return err
+}
+
+func (r *SQLiteRepository) GetObservability() (*domain.SavedObservability, error) {
+	query := `SELECT id, deploy_type, external_url, node_ip FROM observability_config WHERE id = 1;`
+	row := r.db.QueryRow(query)
+
+	var obs domain.SavedObservability
+	err := row.Scan(&obs.ID, &obs.DeployType, &obs.ExternalURL, &obs.NodeIP)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil // No hay error, no hay configuración aún
+		}
+		return nil, err
+	}
+	return &obs, nil
+}
+
+func (r *SQLiteRepository) DeleteObservability() error {
+	_, err := r.db.Exec("DELETE FROM observability_config WHERE id = 1")
 	return err
 }

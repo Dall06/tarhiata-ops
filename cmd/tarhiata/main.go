@@ -46,10 +46,11 @@ func main() {
 					Options(
 						huh.NewOption("⚙️  Configurar Credenciales del Servidor", "config"),
 						huh.NewOption("🚀 Bootstrapper (Inicializar VPS virgen con Swarm/Traefik)", "bootstrap"),
-						huh.NewOption("📦 Desplegar un Servicio (Tipo PaaS)", "deploy"),
-						huh.NewOption("🗄️  Administrar Bases de Datos", "db"),
-						huh.NewOption("🛠️  Herramientas Avanzadas (Observabilidad, VPN)", "tools"),
-						huh.NewOption("💻 Abrir Shell Interactivo (Terminal Remota)", "shell"),
+						huh.NewOption("📦 Desplegar o Administrar Servicios", "services"),
+						huh.NewOption("🗄️  Administrar Bases de Datos", "databases"),
+						huh.NewOption("📊 Logs y Observabilidad", "observability"),
+						huh.NewOption("🛠️  Herramientas Avanzadas", "tools"),
+						huh.NewOption("💻 Abrir Terminal SSH", "shell"),
 						huh.NewOption("❌ Salir", "exit"),
 					).
 					Value(&action),
@@ -70,18 +71,24 @@ func main() {
 				continue
 			}
 			handlers.NewBootstrapHandler(repo).Execute(*serverConfig)
-		case "deploy":
+		case "services":
 			if serverConfig == nil {
 				fmt.Println("⚠️  Primero debes configurar las credenciales del servidor.")
 				continue
 			}
 			handlers.NewServiceHandler(repo).Execute(*serverConfig)
-		case "db":
+		case "databases":
 			if serverConfig == nil {
 				fmt.Println("⚠️  Primero debes configurar las credenciales del servidor.")
 				continue
 			}
 			handlers.NewDatabaseHandler(repo).Execute(*serverConfig)
+		case "observability":
+			if serverConfig == nil {
+				fmt.Println("⚠️  Primero debes configurar las credenciales del servidor.")
+				continue
+			}
+			handlers.NewObservabilityHandler(repo).Execute(*serverConfig)
 		case "tools":
 			if serverConfig == nil {
 				fmt.Println("⚠️  Primero debes configurar las credenciales del servidor.")
