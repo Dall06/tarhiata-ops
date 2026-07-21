@@ -62,6 +62,7 @@ type SavedDatabase struct {
 	InternalPort   int    // Puerto interno en el cluster (ej 5432)
 	VolumeHostPath string // Ruta en el servidor para persistencia local
 	NodeIP         string // Si es multi-node
+	Password       string // Contraseña auto-generada
 }
 
 // DeployConfig contiene las opciones estilo "Vercel" que define el usuario.

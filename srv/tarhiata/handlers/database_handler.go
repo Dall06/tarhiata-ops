@@ -1,11 +1,15 @@
 package handlers
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strings"
 
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/domain"
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/ports"
+	"github.com/Dall06/tarhiata-ops/srv/tarhiata/repositories"
+	"github.com/Dall06/tarhiata-ops/srv/tarhiata/usecases"
 	"github.com/charmbracelet/huh"
 )
 
@@ -51,8 +55,7 @@ func (h *databaseHandler) Execute(config domain.ServerConfig) {
 		h.runAddDatabaseWizard()
 	} else {
 		dbName := strings.TrimPrefix(selectedAction, "manage_")
-		// h.runManageDatabaseMenu(dbName, config) -> Para futura implementación del despliegue en sí
-		fmt.Printf("\n🚧 Gestión del despliegue para %s en desarrollo (Siguiente iteración).\n", dbName)
+		h.runManageDatabaseMenu(dbName, config)
 	}
 }
 
@@ -113,9 +116,75 @@ func (h *databaseHandler) runAddDatabaseWizard() {
 		VolumeHostPath: hostPath,
 	}
 
+	if deployType != "external" {
+		b := make([]byte, 16)
+		rand.Read(b)
+		newDB.Password = hex.EncodeToString(b)
+	}
+
 	if err := h.repo.SaveDatabase(newDB); err != nil {
 		fmt.Printf("❌ Error guardando BD: %v\n", err)
 	} else {
 		fmt.Printf("✅ Base de datos %s guardada exitosamente.\n", dbName)
+	}
+}
+
+func (h *databaseHandler) runManageDatabaseMenu(dbName string, config domain.ServerConfig) {
+	db, err := h.repo.GetDatabase(dbName)
+	if err != nil || db == nil {
+		fmt.Println("❌ No se encontró la base de datos.")
+		return
+	}
+
+	var action string
+	err = huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title(fmt.Sprintf("Administrando BD: %s (%s)", db.Name, db.Engine)).
+				Options(
+					huh.NewOption("🚀 Desplegar / Actualizar ahora", "deploy"),
+					huh.NewOption("🛑 Eliminar / Apagar BD", "delete"),
+					huh.NewOption("🔙 Volver", "back"),
+				).
+				Value(&action),
+		),
+	).Run()
+
+	if err != nil || action == "back" {
+		return
+	}
+
+	if action == "deploy" {
+		if db.DeployType == "external" {
+			fmt.Println("⚠️ Las bases de datos externas no se pueden desplegar, ya existen en otro lugar.")
+			return
+		}
+
+		fmt.Println("\n⏳ Conectando al servidor principal...")
+		sshExec := repositories.NewCryptoSSHExecutor()
+		if err := sshExec.Connect(config); err != nil {
+			fmt.Println("❌ Error SSH:", err)
+			return
+		}
+		defer sshExec.Close()
+
+		deployUC := usecases.NewDeployDatabaseUseCase(sshExec)
+		if err := deployUC.Execute(*db, config); err != nil {
+			fmt.Println("❌ Error en despliegue:", err)
+		}
+	} else if action == "delete" {
+		var confirm bool
+		huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("⚠️ ¿Seguro que quieres apagar y eliminar la BD? (Los datos persistirán en el volumen físico)").Value(&confirm))).Run()
+		if confirm {
+			if db.DeployType != "external" {
+				sshExec := repositories.NewCryptoSSHExecutor()
+				if err := sshExec.Connect(config); err == nil {
+					sshExec.RunCommand(fmt.Sprintf("docker service rm %s", db.Name))
+					sshExec.Close()
+				}
+			}
+			h.repo.DeleteDatabase(db.Name)
+			fmt.Println("✅ Base de datos eliminada del catálogo y apagada.")
+		}
 	}
 }

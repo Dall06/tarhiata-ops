@@ -14,6 +14,10 @@ type DeployObservabilityUseCase interface {
 	Execute(exposePublic bool) error
 }
 
+type DeployDatabaseUseCase interface {
+	Execute(db domain.SavedDatabase, config domain.ServerConfig) error
+}
+
 type DeployServiceUseCase interface {
 	Execute(service domain.CustomService, config domain.DeployConfig) error
 }

@@ -104,10 +104,16 @@ func (r *SQLiteRepository) migrate() error {
 		external_url TEXT NOT NULL,
 		internal_port INTEGER NOT NULL,
 		volume_host_path TEXT NOT NULL,
-		node_ip TEXT NOT NULL
+		node_ip TEXT NOT NULL,
+		password TEXT NOT NULL DEFAULT ''
 	);`
 	if _, err := r.db.Exec(queryDBs); err != nil {
 		return err
+	}
+
+	_, errAlter4 := r.db.Exec("ALTER TABLE databases ADD COLUMN password TEXT NOT NULL DEFAULT '';")
+	if errAlter4 != nil && !strings.Contains(errAlter4.Error(), "duplicate column name") {
+		return errAlter4
 	}
 
 	return nil
@@ -212,22 +218,23 @@ func (r *SQLiteRepository) DeleteService(name string) error {
 
 func (r *SQLiteRepository) SaveDatabase(db domain.SavedDatabase) error {
 	query := `
-	INSERT INTO databases (name, engine, deploy_type, external_url, internal_port, volume_host_path, node_ip)
-	VALUES (?, ?, ?, ?, ?, ?, ?)
+	INSERT INTO databases (name, engine, deploy_type, external_url, internal_port, volume_host_path, node_ip, password)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(name) DO UPDATE SET
 		engine=excluded.engine,
 		deploy_type=excluded.deploy_type,
 		external_url=excluded.external_url,
 		internal_port=excluded.internal_port,
 		volume_host_path=excluded.volume_host_path,
-		node_ip=excluded.node_ip;`
+		node_ip=excluded.node_ip,
+		password=excluded.password;`
 
-	_, err := r.db.Exec(query, db.Name, db.Engine, db.DeployType, db.ExternalURL, db.InternalPort, db.VolumeHostPath, db.NodeIP)
+	_, err := r.db.Exec(query, db.Name, db.Engine, db.DeployType, db.ExternalURL, db.InternalPort, db.VolumeHostPath, db.NodeIP, db.Password)
 	return err
 }
 
 func (r *SQLiteRepository) GetDatabases() ([]domain.SavedDatabase, error) {
-	query := `SELECT id, name, engine, deploy_type, external_url, internal_port, volume_host_path, node_ip FROM databases ORDER BY name ASC;`
+	query := `SELECT id, name, engine, deploy_type, external_url, internal_port, volume_host_path, node_ip, password FROM databases ORDER BY name ASC;`
 	rows, err := r.db.Query(query)
 	if err != nil {
 		return nil, err
@@ -237,7 +244,7 @@ func (r *SQLiteRepository) GetDatabases() ([]domain.SavedDatabase, error) {
 	var dbs []domain.SavedDatabase
 	for rows.Next() {
 		var d domain.SavedDatabase
-		if err := rows.Scan(&d.ID, &d.Name, &d.Engine, &d.DeployType, &d.ExternalURL, &d.InternalPort, &d.VolumeHostPath, &d.NodeIP); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Engine, &d.DeployType, &d.ExternalURL, &d.InternalPort, &d.VolumeHostPath, &d.NodeIP, &d.Password); err != nil {
 			return nil, err
 		}
 		dbs = append(dbs, d)
@@ -246,11 +253,11 @@ func (r *SQLiteRepository) GetDatabases() ([]domain.SavedDatabase, error) {
 }
 
 func (r *SQLiteRepository) GetDatabase(name string) (*domain.SavedDatabase, error) {
-	query := `SELECT id, name, engine, deploy_type, external_url, internal_port, volume_host_path, node_ip FROM databases WHERE name = ?;`
+	query := `SELECT id, name, engine, deploy_type, external_url, internal_port, volume_host_path, node_ip, password FROM databases WHERE name = ?;`
 	row := r.db.QueryRow(query, name)
 
 	var d domain.SavedDatabase
-	err := row.Scan(&d.ID, &d.Name, &d.Engine, &d.DeployType, &d.ExternalURL, &d.InternalPort, &d.VolumeHostPath, &d.NodeIP)
+	err := row.Scan(&d.ID, &d.Name, &d.Engine, &d.DeployType, &d.ExternalURL, &d.InternalPort, &d.VolumeHostPath, &d.NodeIP, &d.Password)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil // No encontrado
