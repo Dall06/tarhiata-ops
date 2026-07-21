@@ -63,3 +63,14 @@ type SavedDatabase struct {
 	VolumeHostPath string // Ruta en el servidor para persistencia local
 	NodeIP         string // Si es multi-node
 }
+
+// DeployConfig contiene las opciones estilo "Vercel" que define el usuario.
+type DeployConfig struct {
+	ImageSource    string // URL o nombre en Docker Hub
+	IsURL          bool   // True si es un ZIP/TAR, False si es DockerHub
+	Port           int    // Puerto interno del contenedor (ej. 3000)
+	Domain         string // Dominio (ej. api.gymbro.com). Vacío = enruta por Path/IP
+	Expose         bool   // Si es true, Traefik lo rutea hacia afuera. Si es false, queda interno.
+	EnableSSL      bool   // Si es true, añade el resolver de Let's Encrypt
+	HealthcheckCmd string // Comando para healthcheck
+}

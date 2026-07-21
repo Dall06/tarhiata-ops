@@ -1,4 +1,4 @@
-package terraform
+package repositories
 
 import (
 	"context"
@@ -13,19 +13,19 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 )
 
-// DigitalOceanProvisioner implementa ports.Provisioner usando Terraform
-type DigitalOceanProvisioner struct {
+// VultrProvisioner implementa ports.Provisioner usando Terraform para Vultr
+type VultrProvisioner struct {
 	workspace string // Directorio donde se guardan los .tf y el estado
 }
 
-func NewDigitalOceanProvisioner(workspace string) *DigitalOceanProvisioner {
-	return &DigitalOceanProvisioner{
+func NewVultrProvisioner(workspace string) *VultrProvisioner {
+	return &VultrProvisioner{
 		workspace: workspace,
 	}
 }
 
 // ProvisionNode descarga terraform (si no existe), genera el .tf y ejecuta tf apply
-func (p *DigitalOceanProvisioner) ProvisionNode(token string, nodeName string, region string) (string, string, error) {
+func (p *VultrProvisioner) ProvisionNode(token string, nodeName string, region string) (string, string, error) {
 	fmt.Println("⏳ [Terraform] Preparando binario de Terraform...")
 	
 	// 1. Descarga e instala Terraform automáticamente de forma silenciosa
@@ -44,13 +44,13 @@ func (p *DigitalOceanProvisioner) ProvisionNode(token string, nodeName string, r
 		return "", "", fmt.Errorf("error creando workspace de terraform: %w", err)
 	}
 
-	// 3. Escribe el main.tf dinámicamente (Plantilla HCL para DigitalOcean Droplet + Firewall + SSH)
+	// 3. Escribe el main.tf dinámicamente (Plantilla HCL para Vultr Instance + SSH)
 	tfTemplate := fmt.Sprintf(`
 terraform {
   required_providers {
-    digitalocean = {
-      source  = "digitalocean/digitalocean"
-      version = "~> 2.0"
+    vultr = {
+      source  = "vultr/vultr"
+      version = "~> 2.15"
     }
     tls = {
       source  = "hashicorp/tls"
@@ -59,10 +59,12 @@ terraform {
   }
 }
 
-variable "do_token" {}
+variable "vultr_api_key" {}
 
-provider "digitalocean" {
-  token = var.do_token
+provider "vultr" {
+  api_key     = var.vultr_api_key
+  rate_limit  = 700
+  retry_limit = 3
 }
 
 resource "tls_private_key" "node_key" {
@@ -70,17 +72,18 @@ resource "tls_private_key" "node_key" {
   rsa_bits  = 4096
 }
 
-resource "digitalocean_ssh_key" "node_key" {
-  name       = "tarhiata-key-%%s"
-  public_key = tls_private_key.node_key.public_key_openssh
+resource "vultr_ssh_key" "node_key" {
+  name     = "tarhiata-key-%%s"
+  ssh_key  = tls_private_key.node_key.public_key_openssh
 }
 
-resource "digitalocean_droplet" "node" {
-  image  = "ubuntu-22-04-x64"
-  name   = "%%s"
-  region = "%%s"
-  size   = "s-1vcpu-1gb"
-  ssh_keys = [digitalocean_ssh_key.node_key.fingerprint]
+resource "vultr_instance" "node" {
+  plan        = "vc2-1c-1gb"
+  region      = "%%s"
+  os_id       = 1743 # Ubuntu 22.04 LTS x64
+  label       = "%%s"
+  hostname    = "%%s"
+  ssh_key_ids = [vultr_ssh_key.node_key.id]
   
   # user_data (Cloud-init) para instalar Docker de fábrica
   user_data = <<-EOF
@@ -92,7 +95,7 @@ resource "digitalocean_droplet" "node" {
 }
 
 output "public_ip" {
-  value = digitalocean_droplet.node.ipv4_address
+  value = vultr_instance.node.main_ip
 }
 
 output "private_key" {
@@ -100,17 +103,16 @@ output "private_key" {
   sensitive = true
 }
 `)
-	// Usamos Sprintf dos veces porque el template original usa %s y queremos que evalúe nodeName y region.
-	// Haremos fmt.Sprintf del template ya con nodeName para SSH y Droplet
+	// Usamos Sprintf para inyectar las variables donde estaban los %%s
 	tfTemplate = strings.ReplaceAll(tfTemplate, "%%s", "%s")
-	tfContent := fmt.Sprintf(tfTemplate, nodeName, nodeName, region)
+	tfContent := fmt.Sprintf(tfTemplate, nodeName, region, nodeName, nodeName)
 
 	tfFilePath := filepath.Join(p.workspace, "main.tf")
 	if err := os.WriteFile(tfFilePath, []byte(tfContent), 0644); err != nil {
 		return "", "", fmt.Errorf("error escribiendo main.tf: %w", err)
 	}
 
-	fmt.Println("🚀 [Terraform] Inicializando módulos...")
+	fmt.Println("🚀 [Terraform] Inicializando módulos de Vultr...")
 	tf, err := tfexec.NewTerraform(p.workspace, execPath)
 	if err != nil {
 		return "", "", fmt.Errorf("error creando instancia tfexec: %w", err)
@@ -121,8 +123,8 @@ output "private_key" {
 		return "", "", fmt.Errorf("error en tf init: %w", err)
 	}
 
-	fmt.Println("🏗️  [Terraform] Aprovisionando infraestructura (esto puede tomar 1-2 minutos)...")
-	err = tf.Apply(context.Background(), tfexec.Var("do_token="+token))
+	fmt.Println("🏗️  [Terraform] Aprovisionando infraestructura en Vultr (esto puede tomar 1-2 minutos)...")
+	err = tf.Apply(context.Background(), tfexec.Var("vultr_api_key="+token))
 	if err != nil {
 		return "", "", fmt.Errorf("error en tf apply: %w", err)
 	}
@@ -147,7 +149,7 @@ output "private_key" {
 	return ipStr, pkStr, nil
 }
 
-func (p *DigitalOceanProvisioner) DestroyNode(token string, nodeName string) error {
+func (p *VultrProvisioner) DestroyNode(token string, nodeName string) error {
 	// A implementar con tf.Destroy()
 	return nil
 }

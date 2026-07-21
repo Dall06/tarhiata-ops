@@ -10,8 +10,6 @@ import (
 	"strings"
 
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/repositories"
-	"github.com/Dall06/tarhiata-ops/srv/tarhiata/infrastructure/ssh"
-	"github.com/Dall06/tarhiata-ops/srv/tarhiata/infrastructure/terraform"
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/domain"
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/ports"
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/usecases"
@@ -192,10 +190,10 @@ func handleConfig(repo *repositories.SQLiteRepository, current *domain.ServerCon
 		var provisioner ports.Provisioner
 		var region string
 		if providerName == "digitalocean" {
-			provisioner = terraform.NewDigitalOceanProvisioner(workspace)
+			provisioner = repositories.NewDigitalOceanProvisioner(workspace)
 			region = "nyc1" // DigitalOcean Region
 		} else {
-			provisioner = terraform.NewVultrProvisioner(workspace)
+			provisioner = repositories.NewVultrProvisioner(workspace)
 			region = "ewr" // Vultr Region (New Jersey)
 		}
 		
@@ -287,7 +285,7 @@ func handleBootstrap(config domain.ServerConfig) {
 	).Run()
 
 	fmt.Println("\n⏳ Conectando al servidor para inicializar Bootstrapper...")
-	sshExec := ssh.NewCryptoSSHExecutor()
+	sshExec := repositories.NewCryptoSSHExecutor()
 	if err := sshExec.Connect(config); err != nil {
 		fmt.Printf("❌ Error conectando por SSH: %v\n", err)
 		return
@@ -338,7 +336,7 @@ func handleTools(config domain.ServerConfig) {
 		}
 		
 		fmt.Println("\n⏳ Conectando al servidor...")
-		sshExec := ssh.NewCryptoSSHExecutor()
+		sshExec := repositories.NewCryptoSSHExecutor()
 		if err := sshExec.Connect(config); err != nil {
 			fmt.Println("❌ Error SSH:", err)
 			return
@@ -359,7 +357,7 @@ func handleTools(config domain.ServerConfig) {
 
 func handleShell(config domain.ServerConfig) {
 	fmt.Println("\n💻 Abriendo túnel seguro interactivo (Escribe 'exit' para salir)...")
-	sshExec := ssh.NewCryptoSSHExecutor()
+	sshExec := repositories.NewCryptoSSHExecutor()
 	if err := sshExec.Connect(config); err != nil {
 		fmt.Printf("❌ Error conectando por SSH: %v\n", err)
 		return
@@ -373,7 +371,7 @@ func handleShell(config domain.ServerConfig) {
 
 func handleServices(config domain.ServerConfig, repo *repositories.SQLiteRepository) {
 	fmt.Println("\n⏳ Conectando al clúster para sincronizar estado de servicios...")
-	sshExec := ssh.NewCryptoSSHExecutor()
+	sshExec := repositories.NewCryptoSSHExecutor()
 	if err := sshExec.Connect(config); err != nil {
 		fmt.Printf("❌ Error conectando por SSH: %v\n", err)
 		return
@@ -982,7 +980,7 @@ func runManageServiceMenu(serviceName string, repo *repositories.SQLiteRepositor
 	case "deploy":
 		fmt.Printf("\n🚀 Desplegando %s en el clúster...\n", svc.Name)
 		
-		deployConfig := usecases.DeployConfig{
+		deployConfig := domain.DeployConfig{
 			ImageSource:    svc.ImageSource,
 			IsURL:          svc.IsURL,
 			Port:           svc.Port,

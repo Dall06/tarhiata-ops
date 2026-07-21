@@ -13,7 +13,7 @@ type BootstrapperUseCase struct {
 }
 
 // NewBootstrapperUseCase crea una nueva instancia del caso de uso.
-func NewBootstrapperUseCase(ssh ports.SSHExecutor) *BootstrapperUseCase {
+func NewBootstrapperUseCase(ssh ports.SSHExecutor) ports.BootstrapperUseCase {
 	return &BootstrapperUseCase{
 		ssh: ssh,
 	}

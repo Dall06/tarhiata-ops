@@ -14,25 +14,16 @@ type DeployerUseCase struct {
 	ssh ports.SSHExecutor
 }
 
-func NewDeployerUseCase(ssh ports.SSHExecutor) *DeployerUseCase {
+func NewDeployerUseCase(ssh ports.SSHExecutor) ports.DeployerUseCase {
 	return &DeployerUseCase{
 		ssh: ssh,
 	}
 }
 
-// DeployConfig contiene las opciones estilo "Vercel" que define el usuario.
-type DeployConfig struct {
-	ImageSource    string // URL o nombre en Docker Hub
-	IsURL          bool   // True si es un ZIP/TAR, False si es DockerHub
-	Port           int    // Puerto interno del contenedor (ej. 3000)
-	Domain         string // Dominio (ej. api.gymbro.com). Vacío = enruta por Path/IP
-	Expose         bool   // Si es true, Traefik lo rutea hacia afuera. Si es false, queda interno.
-	EnableSSL      bool   // Si es true, añade el resolver de Let's Encrypt
-	HealthcheckCmd string // Comando para healthcheck
-}
+
 
 // DeployService orquesta la subida de archivos, descarga de la imagen y el despliegue dinámico.
-func (uc *DeployerUseCase) DeployService(service domain.CustomService, config DeployConfig) error {
+func (uc *DeployerUseCase) DeployService(service domain.CustomService, config domain.DeployConfig) error {
 	// 1. Aprovisionar Imagen (Remotamente en el servidor)
 	if err := uc.provisionImage(config); err != nil {
 		return fmt.Errorf("error aprovisionando imagen: %w", err)
@@ -81,7 +72,7 @@ func (uc *DeployerUseCase) DeployService(service domain.CustomService, config De
 }
 
 // provisionImage manda los comandos para bajar la imagen desde Hub o URL.
-func (uc *DeployerUseCase) provisionImage(config DeployConfig) error {
+func (uc *DeployerUseCase) provisionImage(config domain.DeployConfig) error {
 	if !config.IsURL {
 		// Asumimos Docker Hub (Por ahora público. Aquí luego se inyecta docker login)
 		res, err := uc.ssh.RunCommand(fmt.Sprintf("docker pull %s", config.ImageSource))
@@ -128,7 +119,7 @@ func (uc *DeployerUseCase) writeRemoteFile(remotePath, content string) error {
 }
 
 // generateCompose construye el YAML on-the-fly con las etiquetas de enrutamiento de Traefik.
-func (uc *DeployerUseCase) generateCompose(service domain.CustomService, config DeployConfig) string {
+func (uc *DeployerUseCase) generateCompose(service domain.CustomService, config domain.DeployConfig) string {
 	imageName := config.ImageSource
 	if config.IsURL {
 		imageName = fmt.Sprintf("%s_local_image:latest", service.Name) // Placeholder si la imagen es cargada por tar
