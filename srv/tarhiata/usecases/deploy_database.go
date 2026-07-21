@@ -22,17 +22,31 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 
 	fmt.Printf("\n🚀 Desplegando Base de Datos: %s (%s)...\n", db.Name, db.Engine)
 
-	// 1. Crear el volumen físico en el disco del host
-	fmt.Printf("📁 Creando directorio local: %s...\n", db.VolumeHostPath)
-	mkdirCmd := fmt.Sprintf("mkdir -p %s", db.VolumeHostPath)
-	if _, err := uc.ssh.RunCommand(mkdirCmd); err != nil {
-		return fmt.Errorf("error creando directorio físico: %w", err)
+	constraint := `"node.role == manager"`
+	if db.DeployType == "multi-node" {
+		constraint = fmt.Sprintf(`"node.labels.type == db_%s"`, db.Name)
 	}
+
+	fmt.Printf("📁 Preparando almacenamiento persistente en el nodo (%s)...\n", db.DeployType)
+	var uid string
+	if db.Engine == "postgres" {
+		uid = "70:70"
+	} else {
+		uid = "999:999"
+	}
+
+	// Usamos un servicio efímero de Swarm para crear la carpeta y asignar permisos en el nodo correcto
+	initCmd := fmt.Sprintf(`docker service create --name init-perms-%s --restart-condition none --constraint %s --mount type=bind,source=/,destination=/host alpine sh -c "mkdir -p /host%s && chown -R %s /host%s"`, db.Name, constraint, db.VolumeHostPath, uid, db.VolumeHostPath)
+	uc.ssh.RunCommand(initCmd)
+
+	// Esperamos a que termine y limpiamos
+	uc.ssh.RunCommand(fmt.Sprintf("docker service rm init-perms-%s", db.Name))
 
 	// 2. Apagar la BD si ya existía para actualizarla
 	uc.ssh.RunCommand(fmt.Sprintf("docker service rm %s", db.Name))
 
 	// 3. Construir el comando de docker service create
+
 	var createCmd string
 	if db.Engine == "postgres" {
 		createCmd = fmt.Sprintf(
@@ -43,9 +57,9 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 			-e POSTGRES_USER=admin \
 			-e POSTGRES_PASSWORD=%s \
 			-e POSTGRES_DB=db \
-			--constraint "node.role == manager" \
+			--constraint %s \
 			postgres:15-alpine`,
-			db.Name, db.VolumeHostPath, db.Password,
+			db.Name, db.VolumeHostPath, db.Password, constraint,
 		)
 	} else if db.Engine == "mongo" {
 		createCmd = fmt.Sprintf(
@@ -55,9 +69,9 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 			--mount type=bind,source=%s,destination=/data/db \
 			-e MONGO_INITDB_ROOT_USERNAME=admin \
 			-e MONGO_INITDB_ROOT_PASSWORD=%s \
-			--constraint "node.role == manager" \
+			--constraint %s \
 			mongo:6`,
-			db.Name, db.VolumeHostPath, db.Password,
+			db.Name, db.VolumeHostPath, db.Password, constraint,
 		)
 	} else {
 		return fmt.Errorf("motor de base de datos no soportado: %s", db.Engine)
@@ -67,22 +81,6 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 	res, err := uc.ssh.RunCommand(createCmd)
 	if err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("error creando servicio de BD: %s", res.Output)
-	}
-
-	// 5. Configurar permisos especiales (A veces Postgres requiere ajustes de chown dependiendo del usuario)
-	// Como estamos ejecutando todo por root y type=bind crea las carpetas como root, postgres (uid 70)
-	// en Alpine necesita ser dueño.
-	if db.Engine == "postgres" {
-		// Damos unos segundos a que levante el contenedor para luego cambiar el permiso local
-		chownCmd := fmt.Sprintf("chown -R 70:70 %s", db.VolumeHostPath)
-		uc.ssh.RunCommand(chownCmd)
-		// Y reiniciamos el servicio para que tome los permisos
-		uc.ssh.RunCommand(fmt.Sprintf("docker service update --force %s", db.Name))
-	} else if db.Engine == "mongo" {
-		// Mongo suele usar el uid 999
-		chownCmd := fmt.Sprintf("chown -R 999:999 %s", db.VolumeHostPath)
-		uc.ssh.RunCommand(chownCmd)
-		uc.ssh.RunCommand(fmt.Sprintf("docker service update --force %s", db.Name))
 	}
 
 	// Limpiamos el output por seguridad

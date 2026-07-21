@@ -12,11 +12,15 @@ type InstallTailscaleUseCase interface {
 
 type DeployObservabilityUseCase interface {
 	Execute(exposePublic bool) error
-	ExecutePersistent(exposePublic bool) error
+	ExecutePersistent(exposePublic bool, deployType string) error
 }
 
 type DeployDatabaseUseCase interface {
 	Execute(db domain.SavedDatabase, config domain.ServerConfig) error
+}
+
+type ProvisionWorkerUseCase interface {
+	Execute(config domain.ServerConfig, nodeName string, labelType string) (string, error)
 }
 
 type DeployServiceUseCase interface {

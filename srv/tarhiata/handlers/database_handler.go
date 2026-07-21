@@ -103,8 +103,16 @@ func (h *databaseHandler) runAddDatabaseWizard() {
 		}
 		hostPath = defaultPath
 	case "multi-node":
-		fmt.Println("🚧 [Próximamente] Se activará el módulo de Terraform para provisionar la nueva VM y unirla al Swarm.")
-		return
+		if engine == "postgres" {
+			internalPort = 5432
+		} else {
+			internalPort = 27017
+		}
+		defaultPath := fmt.Sprintf("/opt/tarhiata/data/%s", dbName)
+		if err := huh.NewForm(huh.NewGroup(huh.NewInput().Title("Ruta del Volumen en Host del Nuevo Servidor").Value(&defaultPath))).Run(); err != nil {
+			return
+		}
+		hostPath = defaultPath
 	}
 
 	newDB := domain.SavedDatabase{
@@ -168,9 +176,28 @@ func (h *databaseHandler) runManageDatabaseMenu(dbName string, config domain.Ser
 		}
 		defer sshExec.Close()
 
-		deployUC := usecases.NewDeployDatabaseUseCase(sshExec)
-		if err := deployUC.Execute(*db, config); err != nil {
+		if db.DeployType == "multi-node" {
+			if db.NodeIP == "" {
+				// Necesitamos provisionar el nodo
+				workerUC := usecases.NewProvisionWorkerUseCase(sshExec)
+				nodeName := fmt.Sprintf("tarhiata-db-%s", db.Name)
+				newIP, err := workerUC.Execute(config, nodeName, "db_"+db.Name)
+				if err != nil {
+					fmt.Println("❌ Error provisionando nodo:", err)
+					return
+				}
+				db.NodeIP = newIP
+				h.repo.SaveDatabase(*db) // Actualizamos la BD con la nueva IP
+			}
+		}
+
+		dbUC := usecases.NewDeployDatabaseUseCase(sshExec)
+		if err := dbUC.Execute(*db, config); err != nil {
 			fmt.Println("❌ Error en despliegue:", err)
+		} else {
+			if db.DeployType == "multi-node" {
+				fmt.Printf("✅ Base de Datos anclada al nodo Worker: %s\n", db.NodeIP)
+			}
 		}
 	} else if action == "delete" {
 		var confirm bool

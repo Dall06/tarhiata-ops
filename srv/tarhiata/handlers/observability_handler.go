@@ -79,9 +79,6 @@ func (h *observabilityHandler) runConfigureWizard() {
 		if err := huh.NewForm(huh.NewGroup(huh.NewInput().Title("URL del Panel de Observabilidad (ej. https://mi-grafana.com)").Value(&externalURL))).Run(); err != nil {
 			return
 		}
-	case "multi-node":
-		fmt.Println("🚧 [Próximamente] Se activará el módulo de Terraform para provisionar la nueva VM y anclar el Stack PLG.")
-		return
 	}
 
 	newObs := domain.SavedObservability{
@@ -133,15 +130,30 @@ func (h *observabilityHandler) runManageMenu(obs *domain.SavedObservability, con
 		}
 		defer sshExec.Close()
 
+		if obs.DeployType == "multi-node" {
+			if obs.NodeIP == "" {
+				workerUC := usecases.NewProvisionWorkerUseCase(sshExec)
+				nodeName := "tarhiata-obs-worker"
+				newIP, err := workerUC.Execute(config, nodeName, "obs")
+				if err != nil {
+					fmt.Println("❌ Error provisionando nodo de logs:", err)
+					return
+				}
+				obs.NodeIP = newIP
+				h.repo.SaveObservability(*obs)
+			}
+		}
+
 		obsUC := usecases.NewDeployObservabilityUseCase(sshExec)
-		if err := obsUC.ExecutePersistent(exposePublic); err != nil {
+		if err := obsUC.ExecutePersistent(exposePublic, obs.DeployType); err != nil {
 			fmt.Println("❌ Error en despliegue:", err)
 		} else {
 			fmt.Println("✅ ¡Stack de Observabilidad desplegado exitosamente!")
-			if obs.DeployType == "single-node" {
-				fmt.Printf("👉 Grafana: http://%s:3001 (User: admin / Pass: admin)\n", config.Host)
-				fmt.Printf("👉 Portainer: http://%s:9000\n", config.Host)
+			if obs.DeployType == "multi-node" {
+				fmt.Printf("✅ Logs anclados al nodo Worker: %s\n", obs.NodeIP)
 			}
+			fmt.Printf("👉 Grafana: http://%s:3001 (User: admin / Pass: admin)\n", config.Host)
+			fmt.Printf("👉 Portainer: http://%s:9000\n", config.Host)
 		}
 	} else if action == "delete" {
 		var confirm bool

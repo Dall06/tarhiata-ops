@@ -68,7 +68,7 @@ volumes:
 	return nil
 }
 
-func (uc *DeployObservabilityUseCase) ExecutePersistent(exposePublic bool) error {
+func (uc *DeployObservabilityUseCase) ExecutePersistent(exposePublic bool, deployType string) error {
 	if exposePublic {
 		uc.ssh.RunCommand("ufw allow 9000/tcp && ufw allow 3001/tcp")
 	} else {
@@ -76,13 +76,18 @@ func (uc *DeployObservabilityUseCase) ExecutePersistent(exposePublic bool) error
 		uc.ssh.RunCommand(blockCmd)
 	}
 
-	// 1. Crear directorios para los configs y data
-	uc.ssh.RunCommand("mkdir -p /opt/tarhiata/obs/config /opt/tarhiata/obs/data/loki /opt/tarhiata/obs/data/grafana /opt/tarhiata/obs/data/portainer")
+	constraint := `"node.role == manager"`
+	if deployType == "multi-node" {
+		constraint = `"node.labels.type == obs"`
+	}
 
-	// Permisos para Grafana (uid 472) y Loki (uid 10001)
-	uc.ssh.RunCommand("chown -R 472:472 /opt/tarhiata/obs/data/grafana && chown -R 10001:10001 /opt/tarhiata/obs/data/loki")
+	// 1. Crear directorios y permisos usando un servicio efímero (para que corra en el nodo correcto)
+	initCmd := fmt.Sprintf(`docker service create --name init-perms-obs --restart-condition none --constraint %s --mount type=bind,source=/,destination=/host alpine sh -c "mkdir -p /host/opt/tarhiata/obs/config /host/opt/tarhiata/obs/data/loki /host/opt/tarhiata/obs/data/grafana /host/opt/tarhiata/obs/data/portainer && chown -R 472:472 /host/opt/tarhiata/obs/data/grafana && chown -R 10001:10001 /host/opt/tarhiata/obs/data/loki"`, constraint)
+	uc.ssh.RunCommand(initCmd)
+	uc.ssh.RunCommand("docker service rm init-perms-obs")
 
 	// 2. Escribir Loki Config
+	// Necesitamos escribirlo en el nodo correcto. Usaremos un comando echo dentro del container init-config.
 	lokiConfig := `auth_enabled: false
 server:
   http_listen_port: 3100
@@ -116,8 +121,6 @@ compactor:
 limits_config:
   reject_old_samples: true
   reject_old_samples_max_age: 168h`
-
-	uc.ssh.RunCommand(fmt.Sprintf("cat << 'EOF' > /opt/tarhiata/obs/config/loki.yaml\n%s\nEOF", lokiConfig))
 
 	// 3. Escribir Promtail Config
 	promtailConfig := `server:
@@ -161,7 +164,16 @@ scrape_configs:
   - output:
       source: output`
 
-	uc.ssh.RunCommand(fmt.Sprintf("cat << 'EOF' > /opt/tarhiata/obs/config/promtail.yaml\n%s\nEOF", promtailConfig))
+	writeConfigCmd := fmt.Sprintf(`docker service create --name write-configs-obs --restart-condition none --constraint %s --mount type=bind,source=/,destination=/host alpine sh -c "cat << 'EOF' > /host/opt/tarhiata/obs/config/loki.yaml
+%s
+EOF
+cat << 'EOF' > /host/opt/tarhiata/obs/config/promtail.yaml
+%s
+EOF
+"`, constraint, lokiConfig, promtailConfig)
+
+	uc.ssh.RunCommand(writeConfigCmd)
+	uc.ssh.RunCommand("docker service rm write-configs-obs")
 
 	// 4. Stack Compose
 	compose := `version: '3.8'
@@ -187,7 +199,7 @@ services:
       - /opt/tarhiata/obs/data/loki:/loki
     deploy:
       placement:
-        constraints: [node.role == manager]
+        constraints: [%s]
 
   promtail:
     image: grafana/promtail:2.9.2
@@ -210,10 +222,10 @@ services:
       - /opt/tarhiata/obs/data/grafana:/var/lib/grafana
     deploy:
       placement:
-        constraints: [node.role == manager]
+        constraints: [%s]
 `
 
-	writeCmd := fmt.Sprintf("cat << 'EOF' > /tmp/obs-persist-stack.yml\n%s\nEOF", compose)
+	writeCmd := fmt.Sprintf("cat << 'EOF' > /tmp/obs-persist-stack.yml\n%s\nEOF", fmt.Sprintf(compose, constraint, constraint))
 	if _, err := uc.ssh.RunCommand(writeCmd); err != nil {
 		return fmt.Errorf("falló al escribir observability compose: %w", err)
 	}
