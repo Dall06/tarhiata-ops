@@ -26,6 +26,11 @@ func (uc *InitServerUseCase) Execute(acmeEmail string) error {
 	fmt.Println("⏳ [Bootstrapper] Comprobando integridad del servidor y liberando dpkg locks si es necesario...")
 	uc.ssh.RunCommand("export DEBIAN_FRONTEND=noninteractive; killall -9 apt apt-get dpkg 2>/dev/null; dpkg --configure -a 2>/dev/null")
 	
+	// 0.5. Actualizar el Sistema Operativo por seguridad
+	if err := uc.updateOS(); err != nil {
+		return fmt.Errorf("error actualizando sistema operativo: %w", err)
+	}
+	
 	// 1. Configurar rotación de logs a nivel daemonr Docker
 	if err := uc.ensureDockerInstalled(); err != nil {
 		return fmt.Errorf("error asegurando docker: %w", err)
@@ -57,6 +62,16 @@ func (uc *InitServerUseCase) Execute(acmeEmail string) error {
 }
 
 
+
+func (uc *InitServerUseCase) updateOS() error {
+	fmt.Println("📦 [Bootstrapper] Actualizando paquetes del Sistema Operativo...")
+	cmd := "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get upgrade -y && apt-get autoremove -y"
+	res, err := uc.ssh.RunCommand(cmd)
+	if err != nil || res.ExitCode != 0 {
+		return fmt.Errorf("falló la actualización del sistema: %s", res.Output)
+	}
+	return nil
+}
 
 func (uc *InitServerUseCase) ensureDockerInstalled() error {
 	res, err := uc.ssh.RunCommand("command -v docker")
