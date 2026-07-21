@@ -1,4 +1,6 @@
-# 🚀 Tarhiata-ops (Tu PaaS Privado)
+*Read this in other languages: [English](README.md), [Español](docs/es/README.md)*
+
+# 🚀 Tarhiata-ops (Your Private PaaS)
 
 ![Go Version](https://img.shields.io/badge/Go-1.21%2B-00ADD8?style=for-the-badge&logo=go)
 ![Docker Swarm](https://img.shields.io/badge/Docker_Swarm-2496ED?style=for-the-badge&logo=docker&logoColor=white)
@@ -6,34 +8,34 @@
 ![SQLite](https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
 ![Status](https://img.shields.io/badge/Status-Production_Ready-success?style=for-the-badge)
 
-**Tarhiata-ops** es una herramienta de terminal interactiva (TUI) diseñada para simplificar el despliegue de microservicios, bases de datos y la gestión de infraestructura remota. Funciona como tu propio **PaaS privado** (estilo Vercel, Heroku o Railway) pero ejecutándose 100% en tus propios servidores VPS.
+**Tarhiata-ops** is an interactive Terminal User Interface (TUI) tool designed to simplify the deployment of microservices, databases, and remote infrastructure management. It works as your own **private PaaS** (similar to Vercel, Heroku, or Railway) but runs 100% on your own VPS servers.
 
-Olvídate de editar interminables archivos YAML, entrar por SSH manualmente a configurar proxies o recordar largos comandos de Docker. Tarhiata gestiona todo mediante menús interactivos, inyecta variables de entorno y traza tu arquitectura de red en tiempo real.
-
----
-
-## ✨ Características Principales
-
-- **🎩 Interfaz TUI Interactiva:** Desarrollado con `Charmbracelet (huh)`. Todo es *Point-and-Click* desde tu teclado.
-- **🛡️ Bootstrapper Seguro:** Aprovisiona un servidor virgen en minutos. Instala Docker v27, inicializa Swarm, configura UFW (Firewall) y despliega Traefik v3 automáticamente.
-- **🔌 Inyección de Dependencias (Global Link):** Conecta microservicios entre sí con un asistente visual. El CLI construye dinámicamente las URLs internas (HTTP, gRPC, TCP, etc.) y las inyecta en variables de entorno (ej. `DATABASE_URL`).
-- **🗺️ Mapa de Topología ANSI:** Visualiza las conexiones en vivo entre tus servicios, puertos y dominios públicos con un hermoso árbol generado dinámicamente leyendo los archivos `.env`.
-- **🗄️ Catálogo de Bases de Datos:** Instala y asegura bases de datos (PostgreSQL, MongoDB, Redis, MySQL, MariaDB) con 1 clic en la red interna (overlay) sin exponerlas a internet.
-- **📁 Sistema de Mounts:** Inyecta múltiples archivos de configuración locales (`config.json`, `certs`, etc.) directamente en los contenedores remotos.
+Forget about editing endless YAML files, manually logging via SSH to configure proxies, or memorizing long Docker commands. Tarhiata manages everything through interactive menus, injects environment variables, and maps your network architecture in real-time.
 
 ---
 
-## 🛠️ Instalación y Arranque
+## ✨ Key Features
 
-Asegúrate de tener **Go 1.21+** instalado en tu máquina local.
+- **🎩 Interactive TUI Interface:** Built with `Charmbracelet (huh)`. Everything is *Point-and-Click* straight from your keyboard.
+- **🛡️ Secure Bootstrapper:** Provision a fresh server in minutes. It installs Docker v27, initializes Swarm, secures your server with UFW and Fail2Ban, and deploys Traefik v3 automatically.
+- **🔌 Dependency Injection (Global Link):** Connect microservices with a visual wizard. The CLI dynamically builds internal URLs (HTTP, gRPC, TCP, etc.) and injects them into environment variables (e.g. `DATABASE_URL`).
+- **🗺️ ANSI Topology Map:** Visualize live connections between your services, ports, and public domains with a beautiful dynamically generated tree by reading your `.env` files.
+- **🗄️ Database Catalog:** Install and secure databases (PostgreSQL, MongoDB, Redis, MySQL, MariaDB) with 1 click in the internal network (overlay) without exposing them to the internet.
+- **📁 Mount System:** Inject multiple local configuration files (`config.json`, `certs`, etc.) directly into remote containers.
 
-Puedes probar la herramienta directamente con:
+---
+
+## 🛠️ Installation & Setup
+
+Make sure you have **Go 1.21+** installed on your local machine.
+
+You can test the tool directly with:
 
 ```bash
 go run cmd/tarhiata/main.go
 ```
 
-O compilar el binario para usarlo globalmente desde cualquier parte de tu sistema:
+Or compile the binary to use it globally from anywhere in your system:
 
 ```bash
 go build -o bin/tarhiata cmd/tarhiata/main.go
@@ -42,59 +44,59 @@ sudo mv bin/tarhiata /usr/local/bin/tarhiata
 
 ---
 
-## 📖 Guía Rápida de Uso
+## 📖 Quick Start Guide
 
-### 1. Configurar Servidor Destino
-Abre el CLI y selecciona **"⚙️  Configurar Credenciales del Servidor"**. Provee la IP pública de tu VPS, tu usuario (ej. `root`) y la ruta a tu llave SSH. Todo se guarda localmente en tu máquina. Usa **"Probar Conexión"** para validar.
+### 1. Configure Target Server
+Open the CLI and select **"⚙️ Configure Server Credentials"**. Provide your VPS public IP, your username (e.g. `root`) and the path to your SSH key. Everything is saved locally on your machine. Use **"Test Connection"** to validate.
 
-### 2. Inicializar el Servidor (Bootstrapper)
-Selecciona **"🚀 Inicializar Servidor Virgen (Instalar Docker/Swarm)"**. 
-Tarhiata se conectará por SSH e instalará y blindará el entorno. Al terminar, tu servidor estará corriendo Traefik y listo para recibir peticiones web de forma segura con auto-renovación de SSL.
+### 2. Initialize Server (Bootstrapper)
+Select **"🚀 Initialize Virgin Server (Install Docker/Swarm)"**. 
+Tarhiata will connect via SSH, install, and secure the environment. Upon finishing, your server will be running Traefik and will be ready to securely route web requests with auto-renewing SSL.
 
-### 3. Crear Bases de Datos
-Si tu proyecto requiere almacenamiento, ve a **"🗄️  Gestionar Bases de Datos"**. Despliega un motor y el CLI garantizará que nadie fuera del clúster pueda acceder a ella.
+### 3. Create Databases
+If your project requires storage, go to **"🗄️ Manage Databases"**. Deploy an engine and the CLI will guarantee that no one outside the cluster can access it.
 
-### 4. Desplegar Microservicios
-Ve a **"📦 Desplegar o Administrar Servicios"** > **"➕ Agregar Servicio al Catálogo"**.
-Ponle un nombre, indica en qué puerto corre tu código y elige la imagen de Docker. Si decides exponerlo, puedes asignarle un dominio (ej. `api.midominio.com`) y el CLI generará el certificado SSL automáticamente.
+### 4. Deploy Microservices
+Go to **"📦 Deploy or Manage Services"** > **"➕ Add Service to Catalog"**.
+Give it a name, indicate on which port your code runs, and choose the Docker image. If you decide to expose it, you can assign it a domain (e.g. `api.mydomain.com`) and the CLI will generate the SSL certificate automatically.
 
-### 5. Vincular Servicios Mágicamente 🔗
-Si tu API necesita hablar con la Base de Datos:
-1. En el menú de Servicios, elige **"🔗 Vincular Servicios Rápidamente"**.
-2. Selecciona quién recibe la conexión y quién es el destino.
-3. Escribe el nombre de la variable (ej. `DB_URI`).
-4. Entra a administrar tu servicio y dale a **"🚀 Desplegar / Actualizar ahora"**. Tarhiata se encarga de inyectar el secreto por debajo.
+### 5. Link Services Magically 🔗
+If your API needs to talk to the Database:
+1. In the Services menu, choose **"🔗 Quickly Link Services"**.
+2. Select who receives the connection and who is the destination.
+3. Type the variable name (e.g. `DB_URI`).
+4. Go to manage your service and hit **"🚀 Deploy / Update now"**. Tarhiata will take care of injecting the secret under the hood.
 
-### 6. Mapa Topológico de Red 🗺️
-Entra a **"🗺️  Ver Mapa de Interconexión (URLs)"** para ver una obra de arte en tu terminal:
+### 6. Network Topology Map 🗺️
+Enter **"🗺️ View Interconnection Map (URLs)"** to see a piece of art in your terminal:
 
 ```text
-🚀 SERVICIO: backend-api
- ├─ 🔌 DNS Interno : http://backend-api:3000 (Visible en Swarm)
- ├─ 🌐 Red Pública : https://api.midominio.com
- ├─ 📁 Mounts      : 1 archivos inyectados
- └─ 📝 Variables   : /Users/diego/.env
-    │  └─ DATABASE_URL=postgres://admin:password@mi-postgres:5432/db
+🚀 SERVICE: backend-api
+ ├─ 🔌 Internal DNS : http://backend-api:3000 (Visible in Swarm)
+ ├─ 🌐 Public Net   : https://api.mydomain.com
+ ├─ 📁 Mounts       : 1 injected files
+ └─ 📝 Variables    : /Users/diego/.env
+    │  └─ DATABASE_URL=postgres://admin:password@my-postgres:5432/db
 
-🗄️  BASE DE DATOS: mi-postgres (postgres)
- ├─ 🔌 DNS Interno : postgres://admin:password@mi-postgres:5432/db
- └─ 🔒 Red Pública : [ACCESO DENEGADO - Seguro por defecto]
+🗄️  DATABASE: my-postgres (postgres)
+ ├─ 🔌 Internal DNS : postgres://admin:password@my-postgres:5432/db
+ └─ 🔒 Public Net   : [ACCESS DENIED - Secure by default]
 
 ========================================================
-      🕸️   GRAFO DE DEPENDENCIAS (Interconexiones)    
+      🕸️   DEPENDENCY GRAPH (Interconnections)    
 ========================================================
 
- [backend-api] ────(DATABASE_URL)────▶ [mi-postgres (BD)]
+ [backend-api] ────(DATABASE_URL)────▶ [my-postgres (DB)]
 ```
 
 ---
 
-## 🔐 Arquitectura y Seguridad
+## 🔐 Architecture and Security
 
-* **Estado Offline:** Todo tu catálogo de servicios, variables y configuraciones se guarda **exclusivamente local** en una base de datos SQLite en `~/.config/tarhiata/config.db`.
-* **Cero Telemetría:** No hay servidores intermediarios. Tu terminal se comunica 1 a 1 vía cifrado SSH directamente con tu VPS.
-* **Seguridad por Defecto:** Las bases de datos nunca se exponen al host público. Todos los contenedores usan `overlay networks` de Swarm, y el puerto público 80/443 está exclusivamente mediado por Traefik.
-* **Protección Anti-Crash:** Los `locks` de instalación en Linux (ej. `dpkg` trancado) se auto-resuelven durante el Bootstrapping.
+* **Offline State:** Your entire catalog of services, variables, and configurations is saved **exclusively locally** in an SQLite database at `~/.config/tarhiata/config.db`.
+* **Zero Telemetry:** There are no intermediary servers. Your terminal communicates 1-to-1 via SSH encryption directly with your VPS.
+* **Secure by Default:** Databases are never exposed to the public host. All containers use Swarm `overlay networks`, and public ports 80/443 are exclusively mediated by Traefik. Password login via SSH is blocked and Fail2Ban is built-in.
+* **Anti-Crash Protection:** Linux installation `locks` (e.g. stuck `dpkg`) are self-resolved during Bootstrapping.
 
 ---
-*Hecho con ❤️ para dominar la infraestructura desde la terminal.*
+*Made with ❤️ to rule infrastructure from the terminal.*
