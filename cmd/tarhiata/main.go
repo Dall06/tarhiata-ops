@@ -292,13 +292,28 @@ func handleBootstrap(config domain.ServerConfig) {
 	}
 	defer sshExec.Close()
 
-	bootstrapper := usecases.NewBootstrapperUseCase(sshExec)
+	initServerUC := usecases.NewInitServerUseCase(sshExec)
 	fmt.Println("🚀 Ejecutando inicialización (Docker, Swarm, Firewall, Traefik)...")
 
-	if err := bootstrapper.InitServer(installObs, acmeEmail, installTS, tsAuthKey, exposeObs); err != nil {
-		fmt.Printf("❌ Falló el Bootstrapper: %v\n", err)
-		// No hacemos return porque si Tailscale falló por AuthKey vacío, 
-		// necesitamos mostrarle el comando al usuario para que se loguee.
+	if err := initServerUC.Execute(acmeEmail); err != nil {
+		fmt.Printf("❌ Falló la inicialización base: %v\n", err)
+		return
+	}
+
+	if installTS {
+		fmt.Println("🚀 Instalando Tailscale...")
+		tsUC := usecases.NewInstallTailscaleUseCase(sshExec)
+		if err := tsUC.Execute(tsAuthKey); err != nil {
+			fmt.Printf("❌ Falló Tailscale: %v\n", err)
+		}
+	}
+
+	if installObs {
+		fmt.Println("🚀 Desplegando stack de Observabilidad...")
+		obsUC := usecases.NewDeployObservabilityUseCase(sshExec)
+		if err := obsUC.Execute(exposeObs); err != nil {
+			fmt.Printf("❌ Falló Observabilidad: %v\n", err)
+		}
 	}
 
 	fmt.Println("✅ ¡Servidor inicializado y protegido con éxito!")
@@ -343,9 +358,9 @@ func handleTools(config domain.ServerConfig) {
 		}
 		defer sshExec.Close()
 
-		bootstrapper := usecases.NewBootstrapperUseCase(sshExec)
+		obsUC := usecases.NewDeployObservabilityUseCase(sshExec)
 		fmt.Println("🚀 Desplegando Observabilidad Pública...")
-		if err := bootstrapper.DeployObservability(true); err != nil {
+		if err := obsUC.Execute(true); err != nil {
 			fmt.Println("❌ Error:", err)
 		} else {
 			fmt.Printf("✅ Observabilidad Pública Instalada exitosamente.\n")
@@ -1008,8 +1023,8 @@ func runManageServiceMenu(serviceName string, repo *repositories.SQLiteRepositor
 			customService.Mounts = mounts
 		}
 
-		deployer := usecases.NewDeployerUseCase(sshExec)
-		if err := deployer.DeployService(customService, deployConfig); err != nil {
+		deployer := usecases.NewDeployServiceUseCase(sshExec)
+		if err := deployer.Execute(customService, deployConfig); err != nil {
 			fmt.Printf("❌ Falló el despliegue: %v\n", err)
 			return
 		}

@@ -10,12 +10,12 @@ import (
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/ports"
 )
 
-type DeployerUseCase struct {
+type DeployServiceUseCase struct {
 	ssh ports.SSHExecutor
 }
 
-func NewDeployerUseCase(ssh ports.SSHExecutor) ports.DeployerUseCase {
-	return &DeployerUseCase{
+func NewDeployServiceUseCase(ssh ports.SSHExecutor) ports.DeployServiceUseCase {
+	return &DeployServiceUseCase{
 		ssh: ssh,
 	}
 }
@@ -23,7 +23,7 @@ func NewDeployerUseCase(ssh ports.SSHExecutor) ports.DeployerUseCase {
 
 
 // DeployService orquesta la subida de archivos, descarga de la imagen y el despliegue dinámico.
-func (uc *DeployerUseCase) DeployService(service domain.CustomService, config domain.DeployConfig) error {
+func (uc *DeployServiceUseCase) Execute(service domain.CustomService, config domain.DeployConfig) error {
 	// 1. Aprovisionar Imagen (Remotamente en el servidor)
 	if err := uc.provisionImage(config); err != nil {
 		return fmt.Errorf("error aprovisionando imagen: %w", err)
@@ -72,7 +72,7 @@ func (uc *DeployerUseCase) DeployService(service domain.CustomService, config do
 }
 
 // provisionImage manda los comandos para bajar la imagen desde Hub o URL.
-func (uc *DeployerUseCase) provisionImage(config domain.DeployConfig) error {
+func (uc *DeployServiceUseCase) provisionImage(config domain.DeployConfig) error {
 	if !config.IsURL {
 		// Asumimos Docker Hub (Por ahora público. Aquí luego se inyecta docker login)
 		res, err := uc.ssh.RunCommand(fmt.Sprintf("docker pull %s", config.ImageSource))
@@ -92,7 +92,7 @@ func (uc *DeployerUseCase) provisionImage(config domain.DeployConfig) error {
 }
 
 // transferFiles lee de la máquina local y usa Base64 para escribirlos en el servidor vía SSH.
-func (uc *DeployerUseCase) transferFiles(files []domain.ServiceFile, remoteDir string) error {
+func (uc *DeployServiceUseCase) transferFiles(files []domain.ServiceFile, remoteDir string) error {
 	for _, f := range files {
 		content, err := os.ReadFile(f.LocalPath)
 		if err != nil {
@@ -108,7 +108,7 @@ func (uc *DeployerUseCase) transferFiles(files []domain.ServiceFile, remoteDir s
 }
 
 // writeRemoteFile usa base64 para evitar inyecciones raras de comillas o saltos de línea al mandar texto por SSH.
-func (uc *DeployerUseCase) writeRemoteFile(remotePath, content string) error {
+func (uc *DeployServiceUseCase) writeRemoteFile(remotePath, content string) error {
 	encoded := base64.StdEncoding.EncodeToString([]byte(content))
 	cmd := fmt.Sprintf("echo '%s' | base64 -d > %s", encoded, remotePath)
 	res, err := uc.ssh.RunCommand(cmd)
@@ -119,7 +119,7 @@ func (uc *DeployerUseCase) writeRemoteFile(remotePath, content string) error {
 }
 
 // generateCompose construye el YAML on-the-fly con las etiquetas de enrutamiento de Traefik.
-func (uc *DeployerUseCase) generateCompose(service domain.CustomService, config domain.DeployConfig) string {
+func (uc *DeployServiceUseCase) generateCompose(service domain.CustomService, config domain.DeployConfig) string {
 	imageName := config.ImageSource
 	if config.IsURL {
 		imageName = fmt.Sprintf("%s_local_image:latest", service.Name) // Placeholder si la imagen es cargada por tar
