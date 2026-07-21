@@ -25,21 +25,21 @@ type ServiceFile struct {
 // CustomService representa el stack estándar a desplegar con sus archivos adjuntos.
 type CustomService struct {
 	Name        string
-	ComposeFile string // Nombre o ruta del stack.yml estándar
-	Files       []ServiceFile // Archivos extra que se copiarán al servidor
+	ComposeFile string         // Nombre o ruta del stack.yml estándar
+	Files       []ServiceFile  // Archivos extra que se copiarán al servidor
 	Mounts      []ServiceMount // Archivos que se montarán en el contenedor
 	EnvVars     map[string]string
 }
 
 // SavedService representa la configuración persistida de un servicio en el catálogo local.
 type SavedService struct {
-	ID          int
-	Name        string
-	ImageSource string
-	IsURL       bool
-	Port        int
-	Domain      string
-	Expose      bool
+	ID             int
+	Name           string
+	ImageSource    string
+	IsURL          bool
+	Port           int
+	Domain         string
+	Expose         bool
 	EnvFilePath    string // Ruta local al archivo .env asociado (si aplica)
 	EnableSSL      bool
 	HealthcheckCmd string // Comando para matar zombies (ej: curl -f http://localhost/ || exit 1)

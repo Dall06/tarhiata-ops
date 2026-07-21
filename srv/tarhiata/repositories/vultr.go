@@ -27,7 +27,7 @@ func NewVultrProvisioner(workspace string) *VultrProvisioner {
 // ProvisionNode descarga terraform (si no existe), genera el .tf y ejecuta tf apply
 func (p *VultrProvisioner) ProvisionNode(token string, nodeName string, region string) (string, string, error) {
 	fmt.Println("⏳ [Terraform] Preparando binario de Terraform...")
-	
+
 	// 1. Descarga e instala Terraform automáticamente de forma silenciosa
 	installer := &releases.ExactVersion{
 		Product: product.Terraform,

@@ -20,8 +20,6 @@ func NewDeployServiceUseCase(ssh ports.SSHExecutor) ports.DeployServiceUseCase {
 	}
 }
 
-
-
 // DeployService orquesta la subida de archivos, descarga de la imagen y el despliegue dinámico.
 func (uc *DeployServiceUseCase) Execute(service domain.CustomService, config domain.DeployConfig) error {
 	// 1. Aprovisionar Imagen (Remotamente en el servidor)
@@ -47,7 +45,7 @@ func (uc *DeployServiceUseCase) Execute(service domain.CustomService, config dom
 		// Guardarlos en una carpeta config/ dentro del workdir
 		remoteConfDir := fmt.Sprintf("%s/configs", workDir)
 		uc.ssh.RunCommand(fmt.Sprintf("mkdir -p %s", remoteConfDir))
-		
+
 		fileName := filepath.Base(m.LocalPath)
 		remotePath := fmt.Sprintf("%s/%s", remoteConfDir, fileName)
 		if err := uc.writeRemoteFile(remotePath, string(content)); err != nil {
@@ -126,7 +124,7 @@ func (uc *DeployServiceUseCase) generateCompose(service domain.CustomService, co
 	}
 
 	compose := fmt.Sprintf("version: '3.8'\nservices:\n  %s:\n    image: %s\n", service.Name, imageName)
-	
+
 	if len(service.Files) > 0 {
 		compose += "    env_file:\n"
 		for _, f := range service.Files {
@@ -158,23 +156,23 @@ func (uc *DeployServiceUseCase) generateCompose(service domain.CustomService, co
 	if config.Expose {
 		compose += "    deploy:\n      labels:\n"
 		compose += "        - \"traefik.enable=true\"\n"
-		
+
 		rule := ""
 		if config.Domain != "" {
 			rule = fmt.Sprintf("Host(`%s`)", config.Domain)
 		} else {
 			// Si no hay dominio, enrutamos por un Path Prefix como fallback
-			rule = fmt.Sprintf("PathPrefix(`/%s`)", service.Name) 
-			
+			rule = fmt.Sprintf("PathPrefix(`/%s`)", service.Name)
+
 			// Magia pura: Agregar StripPrefix para que el contenedor reciba '/' en vez de '/nombre-servicio'
 			compose += fmt.Sprintf("        - \"traefik.http.middlewares.%s-strip.stripprefix.prefixes=/%s\"\n", service.Name, service.Name)
 			compose += fmt.Sprintf("        - \"traefik.http.routers.%s.middlewares=%s-strip\"\n", service.Name, service.Name)
 		}
-		
+
 		compose += fmt.Sprintf("        - \"traefik.http.routers.%s.rule=%s\"\n", service.Name, rule)
 		compose += fmt.Sprintf("        - \"traefik.http.services.%s.loadbalancer.server.port=%d\"\n", service.Name, config.Port)
 		compose += fmt.Sprintf("        - \"traefik.http.routers.%s.entrypoints=web,websecure\"\n", service.Name)
-		
+
 		if config.EnableSSL {
 			compose += fmt.Sprintf("        - \"traefik.http.routers.%s.tls.certresolver=leresolver\"\n", service.Name)
 		}

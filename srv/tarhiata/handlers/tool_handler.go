@@ -26,6 +26,7 @@ func (h *toolHandler) Execute(config domain.ServerConfig) {
 				Title("🛠️ Herramientas Adicionales").
 				Options(
 					huh.NewOption("📈 Instalar Observabilidad PÚBLICA (Portainer/Dozzle sin VPN - ⚠️ Inseguro)", "obs_public"),
+					huh.NewOption("📦 Actualizar dependencias del OS (⚠️ Peligro)", "update_os"),
 					huh.NewOption("🔙 Volver", "back"),
 				).
 				Value(&action),
@@ -58,6 +59,29 @@ func (h *toolHandler) Execute(config domain.ServerConfig) {
 			fmt.Printf("✅ Observabilidad Pública Instalada exitosamente.\n")
 			fmt.Printf("📊 Portainer: http://%s:9000\n", config.Host)
 			fmt.Printf("📝 Dozzle: http://%s:8888\n", config.Host)
+		}
+	} else if action == "update_os" {
+		var confirm bool
+		huh.NewForm(huh.NewGroup(
+			huh.NewConfirm().
+				Title("⚠️ ¡PELIGRO! ¿Estás seguro de actualizar el SO?\nEsto descargará nuevas dependencias sin contexto y podría romper Docker o contenedores en ejecución.\n¿Continuar bajo tu propio riesgo?").
+				Value(&confirm),
+		)).Run()
+		if !confirm {
+			return
+		}
+
+		fmt.Println("\n⏳ Conectando al servidor...")
+		sshExec := repositories.NewCryptoSSHExecutor()
+		if err := sshExec.Connect(config); err != nil {
+			fmt.Println("❌ Error SSH:", err)
+			return
+		}
+		defer sshExec.Close()
+
+		updateUC := usecases.NewUpdateServerUseCase(sshExec)
+		if err := updateUC.Execute(); err != nil {
+			fmt.Println("❌ Error:", err)
 		}
 	}
 }

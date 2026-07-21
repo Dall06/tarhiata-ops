@@ -6,7 +6,7 @@ import "github.com/Dall06/tarhiata-ops/srv/tarhiata/domain"
 type ConfigRepository interface {
 	// SaveServerConfig guarda la configuración principal del servidor activo.
 	SaveServerConfig(config domain.ServerConfig) error
-	
+
 	// GetServerConfig obtiene la configuración del servidor activo. Retorna nil si no existe.
 	GetServerConfig() (*domain.ServerConfig, error)
 
@@ -15,13 +15,13 @@ type ConfigRepository interface {
 	GetServices() ([]domain.SavedService, error)
 	GetService(name string) (*domain.SavedService, error)
 	DeleteService(name string) error
-	
+
 	// --- Catálogo de Bases de Datos ---
 	SaveDatabase(db domain.SavedDatabase) error
 	GetDatabases() ([]domain.SavedDatabase, error)
 	GetDatabase(name string) (*domain.SavedDatabase, error)
 	DeleteDatabase(name string) error
-	
+
 	// Close cierra la conexión a la base de datos local.
 	Close() error
 }
@@ -36,7 +36,7 @@ type SSHExecutor interface {
 
 	// InteractiveShell abre una consola interactiva en el servidor.
 	InteractiveShell() error
-	
+
 	// InteractiveCommand ejecuta un comando específico con PTY interactivo (ej. para seguir logs)
 	InteractiveCommand(cmd string) error
 
@@ -51,7 +51,7 @@ type SSHExecutor interface {
 type Provisioner interface {
 	// ProvisionNode crea o actualiza un nodo (Droplet/EC2) y retorna su IP Pública y la llave privada SSH generada
 	ProvisionNode(token string, nodeName string, region string) (string, string, error)
-	
+
 	// DestroyNode destruye la infraestructura de un nodo por su nombre
 	DestroyNode(token string, nodeName string) error
 }

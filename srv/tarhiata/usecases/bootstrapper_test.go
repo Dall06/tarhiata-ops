@@ -1,9 +1,9 @@
 package usecases
 
 import (
+	"github.com/Dall06/tarhiata-ops/srv/tarhiata/domain"
 	"strings"
 	"testing"
-	"github.com/Dall06/tarhiata-ops/srv/tarhiata/domain"
 )
 
 // MockSSHExecutor simula la conexión SSH para pruebas
@@ -15,15 +15,14 @@ type MockSSHExecutor struct {
 }
 
 func (m *MockSSHExecutor) Connect(config domain.ServerConfig) error { return nil }
-func (m *MockSSHExecutor) Close() error { return nil }
-func (m *MockSSHExecutor) CheckConnection() bool { return true }
+func (m *MockSSHExecutor) Close() error                             { return nil }
+func (m *MockSSHExecutor) CheckConnection() bool                    { return true }
 func (m *MockSSHExecutor) RunCommand(cmd string) (*domain.CommandResult, error) {
 	m.CommandsExecuted = append(m.CommandsExecuted, cmd)
 	return &domain.CommandResult{Output: m.MockOutput, ExitCode: m.MockExitCode}, m.MockError
 }
-func (m *MockSSHExecutor) InteractiveShell() error { return nil }
+func (m *MockSSHExecutor) InteractiveShell() error             { return nil }
 func (m *MockSSHExecutor) InteractiveCommand(cmd string) error { return nil }
-
 
 func TestBootstrapper_InitServer(t *testing.T) {
 	tests := []struct {

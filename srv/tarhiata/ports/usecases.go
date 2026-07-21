@@ -17,3 +17,7 @@ type DeployObservabilityUseCase interface {
 type DeployServiceUseCase interface {
 	Execute(service domain.CustomService, config domain.DeployConfig) error
 }
+
+type UpdateServerUseCase interface {
+	Execute() error
+}

@@ -54,7 +54,7 @@ services:
 volumes:
   portainer_data:
 `
-	
+
 	writeCmd := fmt.Sprintf("cat << 'EOF' > /tmp/observability-stack.yml\n%s\nEOF", compose)
 	if _, err := uc.ssh.RunCommand(writeCmd); err != nil {
 		return fmt.Errorf("falló al escribir observability compose: %w", err)

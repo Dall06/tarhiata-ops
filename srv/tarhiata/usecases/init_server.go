@@ -21,16 +21,19 @@ func NewInitServerUseCase(ssh ports.SSHExecutor) ports.InitServerUseCase {
 
 // InitServer prepara el servidor: instala dependencias, Docker,// InitServer prepara el servidor con la capa 1 y capa 2
 func (uc *InitServerUseCase) Execute(acmeEmail string) error {
-	
+
 	// 0. Liberar posibles bloqueos de apt por procesos de cloud-init atascados (ej. get-docker.sh sin noninteractive)
 	fmt.Println("⏳ [Bootstrapper] Comprobando integridad del servidor y liberando dpkg locks si es necesario...")
 	uc.ssh.RunCommand("export DEBIAN_FRONTEND=noninteractive; killall -9 apt apt-get dpkg 2>/dev/null; dpkg --configure -a 2>/dev/null")
-	
-	// 0.5. Actualizar el Sistema Operativo por seguridad
-	if err := uc.updateOS(); err != nil {
-		return fmt.Errorf("error actualizando sistema operativo: %w", err)
+
+	// 0.5. Hardening de SSH y prevención de Fuerza Bruta
+	if err := uc.hardenSSH(); err != nil {
+		return fmt.Errorf("error asegurando SSH: %w", err)
 	}
-	
+	if err := uc.installFail2Ban(); err != nil {
+		return fmt.Errorf("error instalando fail2ban: %w", err)
+	}
+
 	// 1. Configurar rotación de logs a nivel daemonr Docker
 	if err := uc.ensureDockerInstalled(); err != nil {
 		return fmt.Errorf("error asegurando docker: %w", err)
@@ -56,21 +59,42 @@ func (uc *InitServerUseCase) Execute(acmeEmail string) error {
 		return fmt.Errorf("error desplegando traefik: %w", err)
 	}
 
-
-
 	return nil
 }
 
+func (uc *InitServerUseCase) hardenSSH() error {
+	fmt.Println("🔒 [Bootstrapper] Asegurando servicio SSH (Deshabilitando contraseñas)...")
+	// Bloquear autenticación por contraseña y permitir solo llaves
+	cmd := `sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config && sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config && systemctl restart ssh || systemctl restart sshd`
+	_, err := uc.ssh.RunCommand(cmd)
+	return err
+}
 
+func (uc *InitServerUseCase) installFail2Ban() error {
+	fmt.Println("🛡️  [Bootstrapper] Instalando Fail2Ban para prevenir fuerza bruta...")
 
-func (uc *InitServerUseCase) updateOS() error {
-	fmt.Println("📦 [Bootstrapper] Actualizando paquetes del Sistema Operativo...")
-	cmd := "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get upgrade -y && apt-get autoremove -y"
-	res, err := uc.ssh.RunCommand(cmd)
-	if err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("falló la actualización del sistema: %s", res.Output)
+	// Solo instala fail2ban si no existe
+	res, _ := uc.ssh.RunCommand("command -v fail2ban-server")
+	if res.ExitCode != 0 {
+		_, err := uc.ssh.RunCommand("export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y fail2ban")
+		if err != nil {
+			return err
+		}
 	}
-	return nil
+
+	// Configurar bantime a 15 minutos (900s) para sshd
+	jailConfig := `[sshd]
+enabled = true
+port = ssh
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = 3
+bantime = 900
+findtime = 600
+`
+	writeCmd := fmt.Sprintf("cat << 'EOF' > /etc/fail2ban/jail.local\n%s\nEOF\nsystemctl restart fail2ban", jailConfig)
+	_, err := uc.ssh.RunCommand(writeCmd)
+	return err
 }
 
 func (uc *InitServerUseCase) ensureDockerInstalled() error {
@@ -122,7 +146,7 @@ func (uc *InitServerUseCase) ensureSwarmActive() error {
 		return nil
 	}
 
-	// Inicializar Swarm (Si el VPS tiene múltiples interfaces, Docker elegirá la default, 
+	// Inicializar Swarm (Si el VPS tiene múltiples interfaces, Docker elegirá la default,
 	// pero podríamos pasarle --advertise-addr de la VLAN en el futuro si es necesario).
 	res, err = uc.ssh.RunCommand("docker swarm init")
 	if err != nil || res.ExitCode != 0 {
@@ -234,5 +258,3 @@ volumes:
 
 	return nil
 }
-
-

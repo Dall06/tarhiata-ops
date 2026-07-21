@@ -10,7 +10,7 @@ import (
 func TestSQLiteServiceCatalog(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
-	
+
 	repo, err := NewSQLiteRepository(dbPath)
 	if err != nil {
 		t.Fatalf("Fallo al inicializar base de datos: %v", err)
@@ -84,7 +84,7 @@ func TestSQLiteServiceCatalog(t *testing.T) {
 func TestSQLiteDatabaseCatalog(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
-	
+
 	repo, err := NewSQLiteRepository(dbPath)
 	if err != nil {
 		t.Fatalf("Fallo al inicializar base de datos: %v", err)

@@ -22,7 +22,7 @@ func (uc *InstallTailscaleUseCase) Execute(authKey string) error {
 			return err
 		}
 	}
-	
+
 	if authKey != "" {
 		res, err := uc.ssh.RunCommand("tailscale up --authkey=" + authKey)
 		if err != nil || res.ExitCode != 0 {

@@ -31,7 +31,7 @@ func NewSQLiteRepository(dbPath string) (*SQLiteRepository, error) {
 	}
 
 	repo := &SQLiteRepository{db: db}
-	
+
 	// Auto-Migración de las tablas
 	if err := repo.migrate(); err != nil {
 		return nil, fmt.Errorf("falló migración sqlite: %w", err)
@@ -55,7 +55,7 @@ func (r *SQLiteRepository) migrate() error {
 	if _, err := r.db.Exec(query); err != nil {
 		return err
 	}
-	
+
 	_, errAlter0 := r.db.Exec("ALTER TABLE server_config ADD COLUMN do_api_token TEXT NOT NULL DEFAULT '';")
 	if errAlter0 != nil && !strings.Contains(errAlter0.Error(), "duplicate column name") {
 		return errAlter0
@@ -79,7 +79,7 @@ func (r *SQLiteRepository) migrate() error {
 	if _, err := r.db.Exec(queryServices); err != nil {
 		return err
 	}
-	
+
 	// Mini migración para bases de datos existentes
 	_, errAlter1 := r.db.Exec("ALTER TABLE services ADD COLUMN enable_ssl BOOLEAN NOT NULL DEFAULT 0;")
 	if errAlter1 != nil && !strings.Contains(errAlter1.Error(), "duplicate column name") {
@@ -109,7 +109,7 @@ func (r *SQLiteRepository) migrate() error {
 	if _, err := r.db.Exec(queryDBs); err != nil {
 		return err
 	}
-	
+
 	return nil
 }
 
@@ -124,7 +124,7 @@ func (r *SQLiteRepository) SaveServerConfig(config domain.ServerConfig) error {
 		user=excluded.user, 
 		private_key=excluded.private_key,
 		do_api_token=excluded.do_api_token;`
-	
+
 	_, err := r.db.Exec(query, config.Host, config.Port, config.User, config.PrivateKey, config.DOAPIToken)
 	return err
 }
@@ -264,4 +264,3 @@ func (r *SQLiteRepository) DeleteDatabase(name string) error {
 	_, err := r.db.Exec("DELETE FROM databases WHERE name = ?", name)
 	return err
 }
-
