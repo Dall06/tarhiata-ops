@@ -25,7 +25,8 @@ func (h *toolHandler) Execute(config domain.ServerConfig) {
 			huh.NewSelect[string]().
 				Title("🛠️ Herramientas Adicionales").
 				Options(
-					huh.NewOption("📈 Instalar Observabilidad PÚBLICA (Portainer/Dozzle sin VPN - ⚠️ Inseguro)", "obs_public"),
+					huh.NewOption("📈 Instalar Observabilidad Ligera (Portainer + Dozzle)", "obs_light"),
+					huh.NewOption("📊 Instalar Observabilidad Persistente (Portainer + Grafana + Loki + Promtail)", "obs_persist"),
 					huh.NewOption("📦 Actualizar dependencias del OS (⚠️ Peligro)", "update_os"),
 					huh.NewOption("🔙 Volver", "back"),
 				).
@@ -36,12 +37,9 @@ func (h *toolHandler) Execute(config domain.ServerConfig) {
 		return
 	}
 
-	if action == "obs_public" {
-		var confirm bool
-		huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("⚠️ ¿Estás completamente seguro? Cualquiera con tu IP podrá ver el Login de Portainer y Dozzle").Value(&confirm))).Run()
-		if !confirm {
-			return
-		}
+	if action == "obs_light" || action == "obs_persist" {
+		var exposePublic bool
+		huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("⚠️ ¿Exponer los paneles al internet público? (Inseguro, se recomienda mantener privado y usar Tailscale)").Value(&exposePublic))).Run()
 
 		fmt.Println("\n⏳ Conectando al servidor...")
 		sshExec := repositories.NewCryptoSSHExecutor()
@@ -52,13 +50,25 @@ func (h *toolHandler) Execute(config domain.ServerConfig) {
 		defer sshExec.Close()
 
 		obsUC := usecases.NewDeployObservabilityUseCase(sshExec)
-		fmt.Println("🚀 Desplegando Observabilidad Pública...")
-		if err := obsUC.Execute(true); err != nil {
+		fmt.Println("🚀 Desplegando Stack de Observabilidad...")
+
+		var err error
+		if action == "obs_persist" {
+			err = obsUC.ExecutePersistent(exposePublic)
+		} else {
+			err = obsUC.Execute(exposePublic)
+		}
+
+		if err != nil {
 			fmt.Println("❌ Error:", err)
 		} else {
-			fmt.Printf("✅ Observabilidad Pública Instalada exitosamente.\n")
-			fmt.Printf("📊 Portainer: http://%s:9000\n", config.Host)
-			fmt.Printf("📝 Dozzle: http://%s:8888\n", config.Host)
+			fmt.Printf("✅ Observabilidad Instalada exitosamente.\n")
+			fmt.Printf("👉 Portainer: http://%s:9000\n", config.Host)
+			if action == "obs_persist" {
+				fmt.Printf("👉 Grafana: http://%s:3001 (User: admin / Pass: admin)\n", config.Host)
+			} else {
+				fmt.Printf("👉 Dozzle: http://%s:8888\n", config.Host)
+			}
 		}
 	} else if action == "update_os" {
 		var confirm bool

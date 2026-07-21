@@ -12,6 +12,7 @@ type InstallTailscaleUseCase interface {
 
 type DeployObservabilityUseCase interface {
 	Execute(exposePublic bool) error
+	ExecutePersistent(exposePublic bool) error
 }
 
 type DeployDatabaseUseCase interface {
