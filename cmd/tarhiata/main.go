@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Dall06/tarhiata-ops/srv/tarhiata/adapters/db"
-	"github.com/Dall06/tarhiata-ops/srv/tarhiata/adapters/ssh"
-	"github.com/Dall06/tarhiata-ops/srv/tarhiata/adapters/terraform"
+	"github.com/Dall06/tarhiata-ops/srv/tarhiata/repositories"
+	"github.com/Dall06/tarhiata-ops/srv/tarhiata/infrastructure/ssh"
+	"github.com/Dall06/tarhiata-ops/srv/tarhiata/infrastructure/terraform"
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/domain"
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/ports"
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/usecases"
@@ -25,7 +25,7 @@ func main() {
 	homeDir, _ := os.UserHomeDir()
 	dbPath := filepath.Join(homeDir, ".config", "tarhiata", "config.db")
 
-	repo, err := db.NewSQLiteRepository(dbPath)
+	repo, err := repositories.NewSQLiteRepository(dbPath)
 	if err != nil {
 		fmt.Printf("❌ Error crítico iniciando base de datos: %v\n", err)
 		os.Exit(1)
@@ -109,7 +109,7 @@ func main() {
 	}
 }
 
-func handleConfig(repo *db.SQLiteRepository, current *domain.ServerConfig) *domain.ServerConfig {
+func handleConfig(repo *repositories.SQLiteRepository, current *domain.ServerConfig) *domain.ServerConfig {
 	var configType string
 	
 	err := huh.NewForm(
@@ -371,7 +371,7 @@ func handleShell(config domain.ServerConfig) {
 	}
 }
 
-func handleServices(config domain.ServerConfig, repo *db.SQLiteRepository) {
+func handleServices(config domain.ServerConfig, repo *repositories.SQLiteRepository) {
 	fmt.Println("\n⏳ Conectando al clúster para sincronizar estado de servicios...")
 	sshExec := ssh.NewCryptoSSHExecutor()
 	if err := sshExec.Connect(config); err != nil {
@@ -441,7 +441,7 @@ func handleServices(config domain.ServerConfig, repo *db.SQLiteRepository) {
 	}
 }
 
-func runGlobalLinkWizard(repo *db.SQLiteRepository) {
+func runGlobalLinkWizard(repo *repositories.SQLiteRepository) {
 	fmt.Println("\n🔗 --- ASISTENTE GLOBAL DE INTERCONEXIÓN ---")
 	allSvc, _ := repo.GetServices()
 	allDBs, _ := repo.GetDatabases()
@@ -536,7 +536,7 @@ func runGlobalLinkWizard(repo *db.SQLiteRepository) {
 	}
 }
 
-func showNetworkMap(repo *db.SQLiteRepository, config domain.ServerConfig) {
+func showNetworkMap(repo *repositories.SQLiteRepository, config domain.ServerConfig) {
 	services, _ := repo.GetServices()
 	databases, _ := repo.GetDatabases()
 
@@ -636,7 +636,7 @@ func showNetworkMap(repo *db.SQLiteRepository, config domain.ServerConfig) {
 	fmt.Scanln()
 }
 
-func runAddServiceWizard(repo *db.SQLiteRepository) {
+func runAddServiceWizard(repo *repositories.SQLiteRepository) {
 	fmt.Println("\n📦 Agregando nuevo servicio al catálogo (Aún no se desplegará)...")
 
 	var (
@@ -746,7 +746,7 @@ func runAddServiceWizard(repo *db.SQLiteRepository) {
 	fmt.Printf("✅ ¡Servicio %s guardado en tu catálogo local! Ahora puedes seleccionarlo para desplegarlo.\n", serviceName)
 }
 
-func runManageServiceMenu(serviceName string, repo *db.SQLiteRepository, sshExec ports.SSHExecutor) {
+func runManageServiceMenu(serviceName string, repo *repositories.SQLiteRepository, sshExec ports.SSHExecutor) {
 	svc, err := repo.GetService(serviceName)
 	if err != nil || svc == nil {
 		fmt.Println("❌ No se encontró el servicio en la base de datos.")
@@ -1039,7 +1039,7 @@ func runManageServiceMenu(serviceName string, repo *db.SQLiteRepository, sshExec
 
 // --- Gestión de Bases de Datos ---
 
-func handleDatabases(config domain.ServerConfig, repo *db.SQLiteRepository) {
+func handleDatabases(config domain.ServerConfig, repo *repositories.SQLiteRepository) {
 	dbs, err := repo.GetDatabases()
 	if err != nil {
 		fmt.Printf("❌ Error leyendo bases de datos: %v\n", err)
@@ -1078,7 +1078,7 @@ func handleDatabases(config domain.ServerConfig, repo *db.SQLiteRepository) {
 	}
 }
 
-func runAddDatabaseWizard(repo *db.SQLiteRepository) {
+func runAddDatabaseWizard(repo *repositories.SQLiteRepository) {
 	fmt.Println("\n🗄️  Agregando Base de Datos al catálogo...")
 
 	var dbName, engine, deployType, externalURL, hostPath string
