@@ -25,7 +25,7 @@ func NewServiceHandler(repo ports.ConfigRepository) ports.ServiceHandler {
 }
 
 func (h *serviceHandler) Execute(config domain.ServerConfig) {
-	fmt.Println("\n⏳ Conectando al clúster para sincronizar estado de servicios...")
+	fmt.Printf("\n⏳ Conectando al clúster para sincronizar estado de servicios...")
 	sshExec := repositories.NewCryptoSSHExecutor()
 	if err := sshExec.Connect(config); err != nil {
 		fmt.Printf("❌ Error conectando por SSH: %v\n", err)
@@ -95,7 +95,7 @@ func (h *serviceHandler) Execute(config domain.ServerConfig) {
 }
 
 func (h *serviceHandler) runGlobalLinkWizard() {
-	fmt.Println("\n🔗 --- ASISTENTE GLOBAL DE INTERCONEXIÓN ---")
+	fmt.Printf("\n🔗 --- ASISTENTE GLOBAL DE INTERCONEXIÓN ---")
 	allSvc, _ := h.repo.GetServices()
 	allDBs, _ := h.repo.GetDatabases()
 
@@ -193,9 +193,10 @@ func (h *serviceHandler) showNetworkMap(config domain.ServerConfig) {
 	services, _ := h.repo.GetServices()
 	databases, _ := h.repo.GetDatabases()
 
-	fmt.Println("\n\033[1;36m========================================================\033[0m")
+	fmt.Printf("\n\033[1;36m========================================================\033[0m")
 	fmt.Println("\033[1;36m      🗺️   T A R H I A T A   T O P O L O G Y   M A P    \033[0m")
-	fmt.Println("\033[1;36m========================================================\033[0m\n")
+	fmt.Println("\033[1;36m========================================================\033[0m")
+	fmt.Println()
 
 	for _, svc := range services {
 		fmt.Printf("\033[1;32m🚀 SERVICIO: %s\033[0m\n", svc.Name)
@@ -249,7 +250,8 @@ func (h *serviceHandler) showNetworkMap(config domain.ServerConfig) {
 
 	fmt.Println("\033[1;36m========================================================\033[0m")
 	fmt.Println("\033[1;36m      🕸️   GRAFO DE DEPENDENCIAS (Interconexiones)    \033[0m")
-	fmt.Println("\033[1;36m========================================================\033[0m\n")
+	fmt.Println("\033[1;36m========================================================\033[0m")
+	fmt.Println()
 
 	hasConnections := false
 	for _, svc := range services {
@@ -284,13 +286,13 @@ func (h *serviceHandler) showNetworkMap(config domain.ServerConfig) {
 		fmt.Println(" \033[90mNingún servicio está interconectado mediante variables aún.\033[0m")
 	}
 
-	fmt.Println("\n\033[1;36m========================================================\033[0m")
+	fmt.Printf("\n\033[1;36m========================================================\033[0m")
 	fmt.Println("\033[90mPresiona Enter para continuar...\033[0m")
 	fmt.Scanln()
 }
 
 func (h *serviceHandler) runAddServiceWizard() {
-	fmt.Println("\n📦 Agregando nuevo servicio al catálogo (Aún no se desplegará)...")
+	fmt.Printf("\n📦 Agregando nuevo servicio al catálogo (Aún no se desplegará)...")
 
 	var (
 		serviceName string

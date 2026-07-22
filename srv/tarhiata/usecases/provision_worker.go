@@ -14,6 +14,8 @@ import (
 
 type ProvisionWorkerUseCase struct {
 	managerSSH ports.SSHExecutor
+	Provisioner ports.Provisioner
+	WorkerSSHFactory func() ports.SSHExecutor
 }
 
 func NewProvisionWorkerUseCase(ssh ports.SSHExecutor) ports.ProvisionWorkerUseCase {
@@ -34,9 +36,14 @@ func (uc *ProvisionWorkerUseCase) Execute(config domain.ServerConfig, nodeName s
 	managerIP := config.Host
 
 	fmt.Printf("🏗️  [2/6] Provisionando VM '%s' vía Terraform (Idempotente)...\n", nodeName)
+	var provisioner ports.Provisioner
 	homeDir, _ := os.UserHomeDir()
-	workspace := filepath.Join(homeDir, ".config", "tarhiata", "terraform", "worker_"+nodeName)
-	provisioner := repositories.NewDigitalOceanProvisioner(workspace)
+	if uc.Provisioner != nil {
+		provisioner = uc.Provisioner
+	} else {
+		workspace := filepath.Join(homeDir, ".config", "tarhiata", "terraform", "worker_"+nodeName)
+		provisioner = repositories.NewDigitalOceanProvisioner(workspace)
+	}
 
 	newIP, privKeyContent, err := provisioner.ProvisionNode(config.DOAPIToken, nodeName, "nyc1")
 	if err != nil {
@@ -58,7 +65,12 @@ func (uc *ProvisionWorkerUseCase) Execute(config domain.ServerConfig, nodeName s
 	}
 
 	fmt.Println("⏳ [3/6] Conectando por SSH al Worker (Reintentos si está arrancando)...")
-	workerSSH := repositories.NewCryptoSSHExecutor()
+	var workerSSH ports.SSHExecutor
+	if uc.WorkerSSHFactory != nil {
+		workerSSH = uc.WorkerSSHFactory()
+	} else {
+		workerSSH = repositories.NewCryptoSSHExecutor()
+	}
 
 	var connected bool
 	for i := 0; i < 15; i++ {
