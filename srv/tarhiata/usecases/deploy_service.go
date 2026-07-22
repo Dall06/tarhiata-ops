@@ -81,7 +81,7 @@ func (uc *DeployServiceUseCase) provisionImage(config domain.DeployConfig) error
 	}
 
 	// Es una URL (wget -> unzip -> docker load) procesado directo en el server
-	cmd := fmt.Sprintf("wget -qO /tmp/img.zip %s && unzip -o /tmp/img.zip -d /tmp/img_ext && docker load -i /tmp/img_ext/*.tar", config.ImageSource)
+	cmd := fmt.Sprintf("wget -qO /tmp/img.zip %s && unzip -o /tmp/img.zip -d /tmp/img_ext && docker load -i /tmp/img_ext/*.tar && rm -rf /tmp/img.zip /tmp/img_ext", config.ImageSource)
 	res, err := uc.ssh.RunCommand(cmd)
 	if err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("falló descarga/carga desde URL: %s", res.Output)
@@ -163,10 +163,7 @@ func (uc *DeployServiceUseCase) generateCompose(service domain.CustomService, co
 		} else {
 			// Si no hay dominio, enrutamos por un Path Prefix como fallback
 			rule = fmt.Sprintf("PathPrefix(`/%s`)", service.Name)
-
-			// Magia pura: Agregar StripPrefix para que el contenedor reciba '/' en vez de '/nombre-servicio'
-			compose += fmt.Sprintf("        - \"traefik.http.middlewares.%s-strip.stripprefix.prefixes=/%s\"\n", service.Name, service.Name)
-			compose += fmt.Sprintf("        - \"traefik.http.routers.%s.middlewares=%s-strip\"\n", service.Name, service.Name)
+			// (Se removió StripPrefix intencionalmente para forzar consistencia de rutas en el navegador)
 		}
 
 		compose += fmt.Sprintf("        - \"traefik.http.routers.%s.rule=%s\"\n", service.Name, rule)

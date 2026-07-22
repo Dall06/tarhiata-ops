@@ -336,7 +336,7 @@ func (h *serviceHandler) runAddServiceWizard() {
 	}
 
 	if isPublic {
-		if err := huh.NewForm(huh.NewGroup(huh.NewInput().Title("Dominio (Opcional, deja vacío para usar IP)").Value(&domainName))).Run(); err != nil {
+		if err := huh.NewForm(huh.NewGroup(huh.NewInput().Title("Dominio (Opcional)\n⚠️ Recomendado si tu app usa rutas absolutas y no soporta base-paths.").Value(&domainName))).Run(); err != nil {
 			return
 		}
 
@@ -477,7 +477,7 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 		}
 
 		if isPublic {
-			if err := huh.NewForm(huh.NewGroup(huh.NewInput().Title("Dominio (Opcional, deja vacío para usar IP)").Value(&domainName))).Run(); err != nil {
+			if err := huh.NewForm(huh.NewGroup(huh.NewInput().Title("Dominio (Opcional)\n⚠️ Recomendado si tu app usa rutas absolutas y no soporta base-paths.").Value(&domainName))).Run(); err != nil {
 				return
 			}
 		}
@@ -560,24 +560,53 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 				h.repo.SaveService(*svc)
 			}
 
-			f, err := os.OpenFile(svc.EnvFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-			if err != nil {
-				fmt.Printf("❌ Error abriendo archivo .env: %v\n", err)
-				return
-			}
-			defer f.Close()
-
 			// Si el targetHost ya contiene un protocolo (ej. BDs postgres://), no agregamos el seleccionado
 			finalURL := fmt.Sprintf("%s%s", protocol, targetHost)
 			if strings.Contains(targetHost, "://") {
 				finalURL = targetHost
 			}
 
-			lineToAdd := fmt.Sprintf("\n%s=%s\n", envVarName, finalURL)
-			if _, err := f.WriteString(lineToAdd); err != nil {
-				fmt.Printf("❌ Error escribiendo archivo .env: %v\n", err)
+			content, _ := os.ReadFile(svc.EnvFilePath)
+			lines := strings.Split(string(content), "\n")
+			var newLines []string
+			found := false
+			prefix := envVarName + "="
+			for _, line := range lines {
+				if strings.HasPrefix(line, prefix) {
+					newLines = append(newLines, prefix+finalURL) // Replace
+					found = true
+				} else if strings.TrimSpace(line) != "" {
+					newLines = append(newLines, line)
+				}
+			}
+			if !found {
+				newLines = append(newLines, prefix+finalURL) // Append
+			}
+
+			if err := os.WriteFile(svc.EnvFilePath, []byte(strings.Join(newLines, "\n")+"\n"), 0644); err != nil {
+				fmt.Printf("❌ Error guardando archivo .env: %v\n", err)
 			} else {
-				fmt.Printf("✅ Variable '%s' autogenerada exitosamente. Recuerda 'Desplegar / Actualizar'.\n", envVarName)
+				fmt.Printf("✅ Variable '%s' vinculada exitosamente.\n", envVarName)
+				var redeploy bool
+				huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("🔄 ¿Deseas redesplegar el servicio ahora para aplicar los cambios?").Value(&redeploy))).Run()
+				if redeploy {
+					fmt.Printf("\n🚀 Redesplegando %s en el clúster...\n", svc.Name)
+					deployConfig := domain.DeployConfig{ImageSource: svc.ImageSource, IsURL: svc.IsURL, Port: svc.Port, Domain: svc.Domain, Expose: svc.Expose, EnableSSL: svc.EnableSSL, HealthcheckCmd: svc.HealthcheckCmd}
+					customService := domain.CustomService{Name: svc.Name, EnvVars: make(map[string]string)}
+					if svc.EnvFilePath != "" {
+						customService.Files = append(customService.Files, domain.ServiceFile{FileName: ".env", LocalPath: svc.EnvFilePath})
+					}
+					if svc.MountsJSON != "" && svc.MountsJSON != "[]" {
+						var mounts []domain.ServiceMount
+						json.Unmarshal([]byte(svc.MountsJSON), &mounts)
+						customService.Mounts = mounts
+					}
+					if err := usecases.NewDeployServiceUseCase(sshExec).Execute(customService, deployConfig); err != nil {
+						fmt.Printf("❌ Falló el despliegue: %v\n", err)
+					} else {
+						fmt.Printf("✅ ¡%s redesplegado exitosamente!\n", svc.Name)
+					}
+				}
 			}
 		}
 
@@ -611,7 +640,11 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 		if mountAction == "clear" {
 			svc.MountsJSON = "[]"
 			h.repo.SaveService(*svc)
-			fmt.Println("✅ Todos los archivos inyectados fueron eliminados. Recuerda Desplegar para aplicar.")
+
+			// Limpiar en el servidor físico también si está desplegado
+			sshExec.RunCommand(fmt.Sprintf("rm -rf /opt/tarhiata/services/%s/configs", svc.Name))
+
+			fmt.Println("✅ Todos los archivos inyectados fueron eliminados física y lógicamente.")
 			return
 		}
 
@@ -682,8 +715,9 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 		}
 
 	case "delete":
-		// Apagamos primero por si acaso
+		// Apagamos y limpiamos toda la basura del host
 		sshExec.RunCommand(fmt.Sprintf("docker stack rm %s", svc.Name))
+		sshExec.RunCommand(fmt.Sprintf("rm -rf /opt/tarhiata/services/%s", svc.Name))
 		if err := h.repo.DeleteService(svc.Name); err != nil {
 			fmt.Printf("❌ Error eliminando del catálogo: %v\n", err)
 		} else {
