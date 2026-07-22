@@ -2,7 +2,10 @@ package usecases
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/ports"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type DeployObservabilityUseCase struct {
@@ -89,6 +92,12 @@ func (uc *DeployObservabilityUseCase) ExecutePersistent(exposePublic bool, deplo
 		constraint = `"node.labels.type == obs"`
 	}
 
+	hash, err := bcrypt.GenerateFromPassword([]byte(grafanaPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("falló al encriptar contraseña para portainer: %w", err)
+	}
+	portainerPasswordHash := strings.ReplaceAll(string(hash), "$", "$$")
+
 	// 1. Crear directorios y permisos usando un servicio efímero (para que corra en el nodo correcto)
 	initCmd := fmt.Sprintf(`docker service create --name init-perms-obs --restart-condition none --constraint %s --mount type=bind,source=/,destination=/host alpine sh -c "mkdir -p /host/opt/tarhiata/obs/config /host/opt/tarhiata/obs/data/loki /host/opt/tarhiata/obs/data/grafana /host/opt/tarhiata/obs/data/portainer && chown -R 472:472 /host/opt/tarhiata/obs/data/grafana && chown -R 10001:10001 /host/opt/tarhiata/obs/data/loki"`, constraint)
 	uc.ssh.RunCommand(initCmd)
@@ -172,13 +181,24 @@ scrape_configs:
   - output:
       source: output`
 
+	grafanaDatasource := `apiVersion: 1
+datasources:
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: true`
+
 	writeConfigCmd := fmt.Sprintf(`docker service create --name write-configs-obs --restart-condition none --constraint %s --mount type=bind,source=/,destination=/host alpine sh -c "cat << 'EOF' > /host/opt/tarhiata/obs/config/loki.yaml
 %s
 EOF
 cat << 'EOF' > /host/opt/tarhiata/obs/config/promtail.yaml
 %s
 EOF
-"`, constraint, lokiConfig, promtailConfig)
+cat << 'EOF' > /host/opt/tarhiata/obs/config/grafana-datasources.yaml
+%s
+EOF
+"`, constraint, lokiConfig, promtailConfig, grafanaDatasource)
 
 	uc.ssh.RunCommand(writeConfigCmd)
 	uc.ssh.RunCommand("docker service rm write-configs-obs")
@@ -195,6 +215,7 @@ EOF
 services:
   portainer:
     image: portainer/portainer-ce:latest
+    command: ["--admin-password", "%s"]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /opt/tarhiata/obs/data/portainer:/data
@@ -242,6 +263,7 @@ services:
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - /opt/tarhiata/obs/data/grafana:/var/lib/grafana
+      - /opt/tarhiata/obs/config/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
     networks:
       - tarhiata_internal
     deploy:
@@ -259,7 +281,7 @@ networks:
     external: true
 `
 
-	writeCmd := fmt.Sprintf("cat << 'EOF' > /tmp/obs-persist-stack.yml\n%s\nEOF", fmt.Sprintf(compose, middlewaresDef, portainerMiddleware, constraint, grafanaPassword, grafanaMiddleware, constraint))
+	writeCmd := fmt.Sprintf("cat << 'EOF' > /tmp/obs-persist-stack.yml\n%s\nEOF", fmt.Sprintf(compose, portainerPasswordHash, middlewaresDef, portainerMiddleware, constraint, grafanaPassword, grafanaMiddleware, constraint))
 	if _, err := uc.ssh.RunCommand(writeCmd); err != nil {
 		return fmt.Errorf("falló al escribir observability compose: %w", err)
 	}
