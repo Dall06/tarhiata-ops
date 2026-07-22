@@ -4,6 +4,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/domain"
@@ -11,8 +14,6 @@ import (
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/repositories"
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/usecases"
 	"github.com/charmbracelet/huh"
-	"os"
-	"path/filepath"
 )
 
 type databaseHandler struct {
@@ -84,7 +85,12 @@ func (h *databaseHandler) runAddDatabaseWizard() {
 		),
 	).Run()
 
-	if err != nil {
+	if err != nil || dbName == "" {
+		return
+	}
+
+	if matched, _ := regexp.MatchString(`^[A-Za-z0-9_-]+$`, dbName); !matched {
+		fmt.Println("❌ Nombre de base de datos inválido. Solo se permiten letras, números y guiones.")
 		return
 	}
 
@@ -211,7 +217,7 @@ func (h *databaseHandler) runManageDatabaseMenu(dbName string, config domain.Ser
 			huh.NewForm(
 				huh.NewGroup(
 					huh.NewInput().
-						Title("⚠️ PELIGRO: Esto DESTRUIRÁ el servidor dedicado de forma irreversible.\nEscribe el nombre de la BD para confirmar:").
+						Title("⚠️ PELIGRO: Esto DESTRUIRÁ el servidor dedicado y borrará TODOS los datos irreversiblemente. Si necesitas un respaldo (dump), cancélalo ahora.\nEscribe el nombre de la BD para confirmar:").
 						Value(&typedName),
 				),
 			).Run()
@@ -238,6 +244,11 @@ func (h *databaseHandler) runManageDatabaseMenu(dbName string, config domain.Ser
 					sshExec.RunCommand(fmt.Sprintf("docker service rm %s", serviceName))
 
 					if db.DeployType == "single-node" && deleteVolume {
+						// SECURITY CHECK: Solo permitir borrar dentro de un path seguro para evitar Inyección de Rutas (rm -rf /)
+						if !strings.HasPrefix(db.VolumeHostPath, "/opt/") && !strings.HasPrefix(db.VolumeHostPath, "/var/lib/docker/") {
+							fmt.Println("❌ Operación abortada: Ruta de volumen inválida o insegura para borrado automático.")
+							return
+						}
 						fmt.Println("🧹 Limpiando volumen de datos huérfano...")
 						sshExec.RunCommand(fmt.Sprintf("rm -rf %s", db.VolumeHostPath))
 					}

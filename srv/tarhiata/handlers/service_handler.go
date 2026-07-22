@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -162,8 +163,12 @@ func (h *serviceHandler) runGlobalLinkWizard() {
 	).Run()
 
 	if err == nil && envVarName != "" {
+		if matched, _ := regexp.MatchString(`^[A-Za-z0-9_]+$`, envVarName); !matched {
+			fmt.Println("❌ Nombre de variable inválido. Solo se permiten letras, números y guiones bajos.")
+			return
+		}
 		if svc.EnvFilePath == "" {
-			svc.EnvFilePath = filepath.Join(os.TempDir(), "tarhiata_"+svc.Name+".env")
+			svc.EnvFilePath = getEnvPath(svc.Name)
 			h.repo.SaveService(*svc)
 		}
 
@@ -363,12 +368,14 @@ func (h *serviceHandler) runAddServiceWizard() {
 		}
 
 		if createEnv {
-			tempFile := filepath.Join(os.TempDir(), "tarhiata_"+serviceName+".env")
+			tempFile := getEnvPath(serviceName)
 			editor := os.Getenv("EDITOR")
 			if editor == "" {
 				editor = "nano"
 			}
-			cmd := exec.Command(editor, tempFile)
+			editorParts := strings.Fields(editor)
+			editorParts = append(editorParts, tempFile)
+			cmd := exec.Command(editorParts[0], editorParts[1:]...)
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
@@ -399,6 +406,13 @@ func (h *serviceHandler) runAddServiceWizard() {
 	}
 
 	fmt.Printf("✅ ¡Servicio %s guardado en tu catálogo local! Ahora puedes seleccionarlo para desplegarlo.\n", serviceName)
+}
+
+func getEnvPath(serviceName string) string {
+	home, _ := os.UserHomeDir()
+	envDir := filepath.Join(home, ".config", "tarhiata", "envs")
+	os.MkdirAll(envDir, 0700)
+	return filepath.Join(envDir, serviceName+".env")
 }
 
 func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.SSHExecutor) {
@@ -462,7 +476,12 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 		portStr := fmt.Sprintf("%d", svc.Port)
 		err := huh.NewForm(
 			huh.NewGroup(
-				huh.NewInput().Title("Puerto interno de tu app (ej. 3000)").Value(&portStr),
+				huh.NewInput().Title("Puerto interno de tu app (ej. 3000)").Value(&portStr).Validate(func(s string) error {
+					if p, err := strconv.Atoi(s); err != nil || p <= 0 {
+						return fmt.Errorf("Puerto inválido. Debe ser un número mayor a 0")
+					}
+					return nil
+				}),
 			),
 		).Run()
 		if err != nil {
@@ -491,15 +510,16 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 	case "edit_env":
 		fmt.Printf("\n📝 Abriendo editor para variables de %s...\n", svc.Name)
 		if svc.EnvFilePath == "" {
-			svc.EnvFilePath = filepath.Join(os.TempDir(), "tarhiata_"+svc.Name+".env")
+			svc.EnvFilePath = getEnvPath(svc.Name)
 		}
 
 		editor := os.Getenv("EDITOR")
 		if editor == "" {
 			editor = "nano"
 		}
-
-		cmd := exec.Command(editor, svc.EnvFilePath)
+		editorParts := strings.Fields(editor)
+		editorParts = append(editorParts, svc.EnvFilePath)
+		cmd := exec.Command(editorParts[0], editorParts[1:]...)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -555,8 +575,12 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 		).Run()
 
 		if err == nil && envVarName != "" {
+			if matched, _ := regexp.MatchString(`^[A-Za-z0-9_]+$`, envVarName); !matched {
+				fmt.Println("❌ Nombre de variable inválido. Solo se permiten letras, números y guiones bajos.")
+				return
+			}
 			if svc.EnvFilePath == "" {
-				svc.EnvFilePath = filepath.Join(os.TempDir(), "tarhiata_"+svc.Name+".env")
+				svc.EnvFilePath = getEnvPath(svc.Name)
 				h.repo.SaveService(*svc)
 			}
 
