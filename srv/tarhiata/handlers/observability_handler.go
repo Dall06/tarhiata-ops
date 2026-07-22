@@ -164,11 +164,19 @@ func (h *observabilityHandler) runManageMenu(obs *domain.SavedObservability, con
 			fmt.Println("❌ Error en despliegue:", err)
 		} else {
 			fmt.Println("✅ ¡Stack de Observabilidad desplegado exitosamente!")
+			fmt.Println("\n========================================================")
+			fmt.Println("📌 PARA ACCEDER A TUS PANELES (Vía VPN o Local):")
+			fmt.Println("   1. Abre tu archivo local (en tu PC): /etc/hosts")
+			fmt.Println("   2. Agrega la siguiente línea al final:")
+			fmt.Printf("      %s grafana.tarhiata.local portainer.tarhiata.local dozzle.tarhiata.local\n", config.Host)
+			fmt.Println("   3. Abre en tu navegador:")
+			fmt.Println("      - Grafana: http://grafana.tarhiata.local")
+			fmt.Println("      - Portainer: http://portainer.tarhiata.local")
+			fmt.Println("      - Dozzle (logs): http://dozzle.tarhiata.local")
+			fmt.Println("========================================================")
 			if obs.DeployType == "multi-node" {
 				fmt.Printf("✅ Logs anclados al nodo Worker: %s\n", obs.NodeIP)
 			}
-			fmt.Printf("👉 Grafana: http://%s:3001 (User: admin / Pass: admin)\n", config.Host)
-			fmt.Printf("👉 Portainer: http://%s:9000\n", config.Host)
 		}
 	} else if action == "delete" {
 		var confirm bool
