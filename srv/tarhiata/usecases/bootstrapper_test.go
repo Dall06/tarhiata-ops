@@ -19,7 +19,8 @@ func TestInitServer_Execute(t *testing.T) {
 			name:  "Bootstrap successful with traefik and letsencrypt",
 			email: "admin@test.com",
 			expectedCmdContains: []string{
-				"ufw allow ssh",
+				"PermitRootLogin prohibit-password", // ssh hardening
+				"fail2ban",
 				"ufw allow 80/tcp",
 				"ufw allow 443/tcp",
 				"docker swarm init",

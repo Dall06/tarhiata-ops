@@ -63,9 +63,9 @@ func (uc *InitServerUseCase) Execute(acmeEmail string) error {
 }
 
 func (uc *InitServerUseCase) hardenSSH() error {
-	fmt.Println("🔒 [Bootstrapper] Asegurando servicio SSH (Deshabilitando contraseñas)...")
-	// Bloquear autenticación por contraseña y permitir solo llaves
-	cmd := `sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config && sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config && systemctl restart ssh || systemctl restart sshd`
+	fmt.Println("🔒 [Bootstrapper] Asegurando servicio SSH...")
+	// Deshabilitar root login con contraseña, pero dejar PasswordAuthentication intacto por si es un servidor BYO
+	cmd := `sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config && systemctl restart ssh || systemctl restart sshd`
 	_, err := uc.ssh.RunCommand(cmd)
 	return err
 }
@@ -165,14 +165,11 @@ func (uc *InitServerUseCase) configureFirewall() error {
 		}
 	}
 
-	// 2. Reglas de Seguridad Base (VLANs/VPC awareness se agregará después dinámicamente)
+	// 2. Reglas de Seguridad Base (Respetando servicios existentes)
 	commands := []string{
-		"ufw --force reset",          // Limpiar configuraciones basura
-		"ufw default deny incoming",  // Bloquear absolutamente todo desde el exterior
-		"ufw default allow outgoing", // Permitir que el servidor baje paquetes
-		"ufw allow ssh",              // Dejar la puerta abierta para nuestro CLI
 		"ufw allow 80/tcp",           // HTTP para Traefik
 		"ufw allow 443/tcp",          // HTTPS para Traefik y SSL
+		"CURRENT_SSH_PORT=$(echo $SSH_CLIENT | awk '{print $3}'); if [ -n \"$CURRENT_SSH_PORT\" ]; then ufw allow $CURRENT_SSH_PORT/tcp; else ufw allow ssh; fi", // Puerto SSH dinámico
 		"ufw --force enable",         // Encender el escudo
 	}
 
