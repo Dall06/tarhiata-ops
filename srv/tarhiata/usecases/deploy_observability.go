@@ -15,45 +15,59 @@ func NewDeployObservabilityUseCase(ssh ports.SSHExecutor) ports.DeployObservabil
 
 // Execute despliega Portainer (Dashboard) y Dozzle (Logs web ultra-ligeros)
 func (uc *DeployObservabilityUseCase) Execute(exposePublic bool) error {
-	if exposePublic {
-		// El usuario decidió exponerlo públicamente bajo su propio riesgo
-		uc.ssh.RunCommand("ufw allow 9000/tcp && ufw allow 8888/tcp")
-	} else {
-		// Bloqueamos explícitamente el acceso público a estos puertos usando la cadena DOCKER-USER
-		// ya que Docker bypassea UFW. Solo se podrá acceder por Tailscale (tailscale0) o localhost (lo).
-		blockCmd := `EXT_IF=$(ip route get 8.8.8.8 | awk '{print $5; exit}') && iptables -I DOCKER-USER -i $EXT_IF -m multiport --dports 9000,8888 -j DROP && DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent && iptables-save > /etc/iptables/rules.v4 || true`
-		uc.ssh.RunCommand(blockCmd)
+	var middlewaresDef, portainerMiddleware, dozzleMiddleware string
+	if !exposePublic {
+		middlewaresDef = "- \"traefik.http.middlewares.vpn-allowlist.ipallowlist.sourcerange=100.64.0.0/10,127.0.0.1/32\""
+		portainerMiddleware = "- \"traefik.http.routers.portainer.middlewares=vpn-allowlist\""
+		dozzleMiddleware = "- \"traefik.http.routers.dozzle.middlewares=vpn-allowlist\""
 	}
 
-	compose := `version: '3.8'
+	compose := fmt.Sprintf(`version: '3.8'
 services:
   portainer:
     image: portainer/portainer-ce:latest
-    ports:
-      - "9000:9000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer_data:/data
+    networks:
+      - tarhiata_internal
     deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.portainer.rule=Host(`+"`"+`portainer.tarhiata.local`+"`"+`)"
+        - "traefik.http.routers.portainer.entrypoints=web"
+        - "traefik.http.services.portainer.loadbalancer.server.port=9000"
+        %s
+        %s
       placement:
         constraints: [node.role == manager]
 
   dozzle:
     image: amir20/dozzle:latest
-    ports:
-      - "8888:8080"
     environment:
       - DOZZLE_LEVEL=info
       - DOZZLE_TAIL_SIZE=300
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - tarhiata_internal
     deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.dozzle.rule=Host(`+"`"+`dozzle.tarhiata.local`+"`"+`)"
+        - "traefik.http.routers.dozzle.entrypoints=web"
+        - "traefik.http.services.dozzle.loadbalancer.server.port=8080"
+        %s
       placement:
         constraints: [node.role == manager]
 
+networks:
+  tarhiata_internal:
+    external: true
+
 volumes:
   portainer_data:
-`
+`, middlewaresDef, portainerMiddleware, dozzleMiddleware)
 
 	writeCmd := fmt.Sprintf("cat << 'EOF' > /tmp/observability-stack.yml\n%s\nEOF", compose)
 	if _, err := uc.ssh.RunCommand(writeCmd); err != nil {
@@ -69,12 +83,6 @@ volumes:
 }
 
 func (uc *DeployObservabilityUseCase) ExecutePersistent(exposePublic bool, deployType string, grafanaPassword string) error {
-	if exposePublic {
-		uc.ssh.RunCommand("ufw allow 9000/tcp && ufw allow 3001/tcp")
-	} else {
-		blockCmd := `EXT_IF=$(ip route get 8.8.8.8 | awk '{print $5; exit}') && iptables -I DOCKER-USER -i $EXT_IF -m multiport --dports 9000,3100,3001 -j DROP && DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent && iptables-save > /etc/iptables/rules.v4 || true`
-		uc.ssh.RunCommand(blockCmd)
-	}
 
 	constraint := `"node.role == manager"`
 	if deployType == "multi-node" {
@@ -176,27 +184,41 @@ EOF
 	uc.ssh.RunCommand("docker service rm write-configs-obs")
 
 	// 4. Stack Compose
+	var middlewaresDef, portainerMiddleware, grafanaMiddleware string
+	if !exposePublic {
+		middlewaresDef = "- \"traefik.http.middlewares.vpn-allowlist.ipallowlist.sourcerange=100.64.0.0/10,127.0.0.1/32\""
+		portainerMiddleware = "- \"traefik.http.routers.portainer.middlewares=vpn-allowlist\""
+		grafanaMiddleware = "- \"traefik.http.routers.grafana.middlewares=vpn-allowlist\""
+	}
+
 	compose := `version: '3.8'
 services:
   portainer:
     image: portainer/portainer-ce:latest
-    ports:
-      - "9000:9000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /opt/tarhiata/obs/data/portainer:/data
+    networks:
+      - tarhiata_internal
     deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.portainer.rule=Host(` + "`" + `portainer.tarhiata.local` + "`" + `)"
+        - "traefik.http.routers.portainer.entrypoints=web"
+        - "traefik.http.services.portainer.loadbalancer.server.port=9000"
+        %s
+        %s
       placement:
         constraints: [node.role == manager]
 
   loki:
     image: grafana/loki:2.9.2
-    ports:
-      - "3100:3100"
     command: -config.file=/etc/loki/local-config.yaml
     volumes:
       - /opt/tarhiata/obs/config/loki.yaml:/etc/loki/local-config.yaml
       - /opt/tarhiata/obs/data/loki:/loki
+    networks:
+      - tarhiata_internal
     deploy:
       placement:
         constraints: [%s]
@@ -207,25 +229,37 @@ services:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /opt/tarhiata/obs/config/promtail.yaml:/etc/promtail/config.yml
     command: -config.file=/etc/promtail/config.yml
+    networks:
+      - tarhiata_internal
     deploy:
       mode: global
 
   grafana:
     image: grafana/grafana:10.2.2
-    ports:
-      - "3001:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=%s
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - /opt/tarhiata/obs/data/grafana:/var/lib/grafana
+    networks:
+      - tarhiata_internal
     deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.grafana.rule=Host(` + "`" + `grafana.tarhiata.local` + "`" + `)"
+        - "traefik.http.routers.grafana.entrypoints=web"
+        - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+        %s
       placement:
         constraints: [%s]
+
+networks:
+  tarhiata_internal:
+    external: true
 `
 
-	writeCmd := fmt.Sprintf("cat << 'EOF' > /tmp/obs-persist-stack.yml\n%s\nEOF", fmt.Sprintf(compose, constraint, grafanaPassword, constraint))
+	writeCmd := fmt.Sprintf("cat << 'EOF' > /tmp/obs-persist-stack.yml\n%s\nEOF", fmt.Sprintf(compose, middlewaresDef, portainerMiddleware, constraint, grafanaPassword, grafanaMiddleware, constraint))
 	if _, err := uc.ssh.RunCommand(writeCmd); err != nil {
 		return fmt.Errorf("falló al escribir observability compose: %w", err)
 	}

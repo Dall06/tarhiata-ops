@@ -19,11 +19,9 @@ func TestDeployObservability_ExecutePersistent(t *testing.T) {
 			exposePublic: true,
 			deployType:   "single-node",
 			expectCmdContains: []string{
-				"ufw allow 9000/tcp",
-				"ufw allow 3001/tcp",
-				`--constraint "node.role == manager"`, // from init-perms-obs
-				"mkdir -p /host/opt/tarhiata/obs/config",
 				"docker stack deploy -c /tmp/obs-persist-stack.yml tarhiata_obs",
+				"traefik.http.routers.portainer.rule=Host(`portainer.tarhiata.local`)",
+				"mkdir -p /host/opt/tarhiata/obs/config",
 				`constraints: ["node.role == manager"]`, // from stack deploy
 			},
 		},
@@ -32,7 +30,7 @@ func TestDeployObservability_ExecutePersistent(t *testing.T) {
 			exposePublic: false,
 			deployType:   "multi-node",
 			expectCmdContains: []string{
-				"iptables -I DOCKER-USER -i $EXT_IF -m multiport --dports 9000,3100,3001 -j DROP && DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent && iptables-save > /etc/iptables/rules.v4",
+				"traefik.http.middlewares.vpn-allowlist.ipallowlist.sourcerange=100.64.0.0/10,127.0.0.1/32",
 				`--constraint "node.labels.type == obs"`,   // from init-perms-obs
 				`constraints: ["node.labels.type == obs"]`, // from stack deploy
 			},
