@@ -11,6 +11,8 @@ import (
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/repositories"
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/usecases"
 	"github.com/charmbracelet/huh"
+	"os"
+	"path/filepath"
 )
 
 type databaseHandler struct {
@@ -203,13 +205,37 @@ func (h *databaseHandler) runManageDatabaseMenu(dbName string, config domain.Ser
 		}
 	} else if action == "delete" {
 		var confirm bool
-		huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("⚠️ ¿Seguro que quieres apagar y eliminar la BD? (Los datos persistirán en el volumen físico)").Value(&confirm))).Run()
+
+		msg := "⚠️ ¿Seguro que quieres apagar y eliminar la BD? (Los datos en el servidor principal persistirán)"
+		if db.DeployType == "multi-node" {
+			msg = "⚠️ PELIGRO: Esto DESTRUIRÁ el servidor dedicado y borrará TODOS los datos de la base de datos de forma irreversible. ¿Continuar?"
+		}
+
+		huh.NewForm(huh.NewGroup(huh.NewConfirm().Title(msg).Value(&confirm))).Run()
 		if confirm {
 			if db.DeployType != "external" {
 				sshExec := repositories.NewCryptoSSHExecutor()
 				if err := sshExec.Connect(config); err == nil {
 					sshExec.RunCommand(fmt.Sprintf("docker service rm %s", db.Name))
+					if db.DeployType == "multi-node" {
+						nodeName := fmt.Sprintf("tarhiata-db-%s", db.Name)
+						sshExec.RunCommand(fmt.Sprintf("docker node rm -f %s", nodeName))
+					}
 					sshExec.Close()
+				}
+
+				if db.DeployType == "multi-node" {
+					fmt.Println("⏳ Destruyendo servidor dedicado en la nube (DigitalOcean)...")
+					homeDir, _ := os.UserHomeDir()
+					nodeName := fmt.Sprintf("tarhiata-db-%s", db.Name)
+					workspace := filepath.Join(homeDir, ".config", "tarhiata", "terraform", "worker_"+nodeName)
+					prov := repositories.NewDigitalOceanProvisioner(workspace)
+
+					if err := prov.DestroyNode(config.DOAPIToken, nodeName); err != nil {
+						fmt.Printf("⚠️ Hubo un problema al intentar destruir el Droplet: %v (Por favor verifique en su panel de DigitalOcean)\n", err)
+					} else {
+						fmt.Println("🔥 Servidor dedicado destruido y eliminado de la facturación.")
+					}
 				}
 			}
 			h.repo.DeleteDatabase(db.Name)

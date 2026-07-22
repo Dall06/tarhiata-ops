@@ -1,9 +1,9 @@
 package mocks
 
 type MockProvisioner struct {
-	MockIP      string
-	MockPrivKey string
-	MockError   error
+	MockIP       string
+	MockPrivKey  string
+	MockError    error
 	NodesCreated []string
 }
 

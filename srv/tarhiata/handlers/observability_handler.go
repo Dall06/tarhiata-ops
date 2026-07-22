@@ -7,6 +7,8 @@ import (
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/repositories"
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/usecases"
 	"github.com/charmbracelet/huh"
+	"os"
+	"path/filepath"
 )
 
 type observabilityHandler struct {
@@ -159,13 +161,37 @@ func (h *observabilityHandler) runManageMenu(obs *domain.SavedObservability, con
 		}
 	} else if action == "delete" {
 		var confirm bool
-		huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("⚠️ ¿Seguro que quieres apagar y eliminar el Stack? (Los datos persistirán en el volumen físico)").Value(&confirm))).Run()
+
+		msg := "⚠️ ¿Seguro que quieres apagar y eliminar el Stack? (Los datos en el servidor principal persistirán)"
+		if obs.DeployType == "multi-node" {
+			msg = "⚠️ PELIGRO: Esto DESTRUIRÁ el servidor dedicado y borrará TODOS los logs guardados de forma irreversible. ¿Continuar?"
+		}
+
+		huh.NewForm(huh.NewGroup(huh.NewConfirm().Title(msg).Value(&confirm))).Run()
 		if confirm {
 			if obs.DeployType != "external" {
 				sshExec := repositories.NewCryptoSSHExecutor()
 				if err := sshExec.Connect(config); err == nil {
 					sshExec.RunCommand("docker stack rm tarhiata_obs")
+					if obs.DeployType == "multi-node" {
+						nodeName := "tarhiata-obs-worker"
+						sshExec.RunCommand(fmt.Sprintf("docker node rm -f %s", nodeName))
+					}
 					sshExec.Close()
+				}
+
+				if obs.DeployType == "multi-node" {
+					fmt.Println("⏳ Destruyendo servidor dedicado de logs en la nube (DigitalOcean)...")
+					homeDir, _ := os.UserHomeDir()
+					nodeName := "tarhiata-obs-worker"
+					workspace := filepath.Join(homeDir, ".config", "tarhiata", "terraform", "worker_"+nodeName)
+					prov := repositories.NewDigitalOceanProvisioner(workspace)
+
+					if err := prov.DestroyNode(config.DOAPIToken, nodeName); err != nil {
+						fmt.Printf("⚠️ Hubo un problema al intentar destruir el Droplet: %v (Por favor verifique en su panel de DigitalOcean)\n", err)
+					} else {
+						fmt.Println("🔥 Servidor dedicado destruido y eliminado de la facturación.")
+					}
 				}
 			}
 			h.repo.DeleteObservability()

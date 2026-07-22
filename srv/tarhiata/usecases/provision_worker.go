@@ -13,8 +13,8 @@ import (
 )
 
 type ProvisionWorkerUseCase struct {
-	managerSSH ports.SSHExecutor
-	Provisioner ports.Provisioner
+	managerSSH       ports.SSHExecutor
+	Provisioner      ports.Provisioner
 	WorkerSSHFactory func() ports.SSHExecutor
 }
 

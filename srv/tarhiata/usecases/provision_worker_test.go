@@ -11,14 +11,14 @@ import (
 
 func TestProvisionWorker_Execute(t *testing.T) {
 	tests := []struct {
-		name                string
-		config              domain.ServerConfig
-		nodeName            string
-		labelType           string
-		expectError         bool
-		expectWorkerCmds    []string
-		expectManagerCmds   []string
-		expectedIP          string
+		name              string
+		config            domain.ServerConfig
+		nodeName          string
+		labelType         string
+		expectError       bool
+		expectWorkerCmds  []string
+		expectManagerCmds []string
+		expectedIP        string
 	}{
 		{
 			name: "Provision worker success",
@@ -26,8 +26,8 @@ func TestProvisionWorker_Execute(t *testing.T) {
 				DOAPIToken: "mock-token",
 				Host:       "1.1.1.1",
 			},
-			nodeName:  "worker-1",
-			labelType: "db",
+			nodeName:    "worker-1",
+			labelType:   "db",
 			expectError: false,
 			expectedIP:  "2.2.2.2",
 			expectWorkerCmds: []string{
@@ -61,7 +61,7 @@ func TestProvisionWorker_Execute(t *testing.T) {
 			mockWorkerSSH := mocks.NewMockSSHExecutor()
 
 			uc := &ProvisionWorkerUseCase{
-				managerSSH: mockManagerSSH,
+				managerSSH:  mockManagerSSH,
 				Provisioner: mockProvisioner,
 				WorkerSSHFactory: func() ports.SSHExecutor {
 					return mockWorkerSSH

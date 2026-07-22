@@ -33,7 +33,7 @@ func TestDeployObservability_ExecutePersistent(t *testing.T) {
 			deployType:   "multi-node",
 			expectCmdContains: []string{
 				"iptables -I DOCKER-USER -i $EXT_IF -p tcp -m multiport --dports 9000,3001 -j DROP",
-				`--constraint "node.labels.type == obs"`, // from init-perms-obs
+				`--constraint "node.labels.type == obs"`,   // from init-perms-obs
 				`constraints: ["node.labels.type == obs"]`, // from stack deploy
 			},
 		},

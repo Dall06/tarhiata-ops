@@ -9,11 +9,11 @@ import (
 type MockSSHExecutor struct {
 	// Historial de comandos ejecutados
 	CommandsExecuted []string
-	
+
 	// Configurar respuestas simuladas para comandos específicos
 	// Key: subcadena del comando, Value: resultado simulado
 	MockResponses map[string]*domain.CommandResult
-	
+
 	// Error global simulado si falla la conexión
 	ConnectError error
 }
@@ -31,13 +31,13 @@ func (m *MockSSHExecutor) Connect(config domain.ServerConfig) error {
 
 func (m *MockSSHExecutor) RunCommand(cmd string) (*domain.CommandResult, error) {
 	m.CommandsExecuted = append(m.CommandsExecuted, cmd)
-	
+
 	for key, res := range m.MockResponses {
 		if strings.Contains(cmd, key) {
 			return res, nil
 		}
 	}
-	
+
 	// Respuesta exitosa por defecto
 	return &domain.CommandResult{Output: "success", ExitCode: 0}, nil
 }

@@ -16,8 +16,8 @@ func TestInitServer_Execute(t *testing.T) {
 		expectedCmdContains []string
 	}{
 		{
-			name:   "Bootstrap successful with traefik and letsencrypt",
-			email:  "admin@test.com",
+			name:  "Bootstrap successful with traefik and letsencrypt",
+			email: "admin@test.com",
 			expectedCmdContains: []string{
 				"ufw allow ssh",
 				"ufw allow 80/tcp",
