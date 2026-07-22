@@ -100,7 +100,7 @@ func (uc *ProvisionWorkerUseCase) Execute(config domain.ServerConfig, nodeName s
 
 	fmt.Println("🔗 [5/6] Asegurando red y clúster Swarm...")
 	// Firewall: Bloquear exposición pública del Routing Mesh de Docker Swarm (GAP 1)
-	blockMeshCmd := `EXT_IF=$(ip route get 8.8.8.8 | awk '{print $5; exit}') && iptables -I DOCKER-USER -i $EXT_IF -p tcp -j DROP || true`
+	blockMeshCmd := `EXT_IF=$(ip route get 8.8.8.8 | awk '{print $5; exit}') && iptables -I DOCKER-USER -i $EXT_IF -j DROP && DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent && iptables-save > /etc/iptables/rules.v4 || true`
 	workerSSH.RunCommand(blockMeshCmd)
 
 	// Join Swarm (Falla silenciosamente si ya es parte del swarm, lo cual es correcto)

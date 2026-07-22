@@ -128,6 +128,11 @@ func (r *SQLiteRepository) migrate() error {
 		return err
 	}
 
+	_, errAlterObs := r.db.Exec("ALTER TABLE observability_config ADD COLUMN grafana_password TEXT DEFAULT ''")
+	if errAlterObs != nil && !strings.Contains(errAlterObs.Error(), "duplicate column name") {
+		return errAlterObs
+	}
+
 	return nil
 }
 
@@ -288,30 +293,29 @@ func (r *SQLiteRepository) DeleteDatabase(name string) error {
 
 func (r *SQLiteRepository) SaveObservability(obs domain.SavedObservability) error {
 	query := `
-	INSERT INTO observability_config (id, deploy_type, external_url, node_ip) 
-	VALUES (1, ?, ?, ?)
+	INSERT INTO observability_config (id, deploy_type, external_url, node_ip, grafana_password)
+	VALUES (1, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET 
 		deploy_type=excluded.deploy_type, 
 		external_url=excluded.external_url, 
-		node_ip=excluded.node_ip;`
+		node_ip=excluded.node_ip,
+		grafana_password=excluded.grafana_password;`
 
-	_, err := r.db.Exec(query, obs.DeployType, obs.ExternalURL, obs.NodeIP)
+	_, err := r.db.Exec(query, obs.DeployType, obs.ExternalURL, obs.NodeIP, obs.GrafanaPassword)
 	return err
 }
 
 func (r *SQLiteRepository) GetObservability() (*domain.SavedObservability, error) {
-	query := `SELECT id, deploy_type, external_url, node_ip FROM observability_config WHERE id = 1;`
-	row := r.db.QueryRow(query)
-
-	var obs domain.SavedObservability
-	err := row.Scan(&obs.ID, &obs.DeployType, &obs.ExternalURL, &obs.NodeIP)
+	query := `SELECT id, deploy_type, external_url, node_ip, grafana_password FROM observability_config WHERE id = 1`
+	var config domain.SavedObservability
+	err := r.db.QueryRow(query).Scan(&config.ID, &config.DeployType, &config.ExternalURL, &config.NodeIP, &config.GrafanaPassword)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil // No hay error, no hay configuración aún
 		}
 		return nil, err
 	}
-	return &obs, nil
+	return &config, nil
 }
 
 func (r *SQLiteRepository) DeleteObservability() error {

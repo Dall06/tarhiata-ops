@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/domain"
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/ports"
@@ -83,10 +85,15 @@ func (h *observabilityHandler) runConfigureWizard() {
 		}
 	}
 
+	bytes := make([]byte, 8)
+	rand.Read(bytes)
+	grafanaPassword := hex.EncodeToString(bytes)
+
 	newObs := domain.SavedObservability{
-		ID:          1,
-		DeployType:  deployType,
-		ExternalURL: externalURL,
+		ID:              1,
+		DeployType:      deployType,
+		ExternalURL:     externalURL,
+		GrafanaPassword: grafanaPassword,
 	}
 
 	if err := h.repo.SaveObservability(newObs); err != nil {
@@ -148,8 +155,12 @@ func (h *observabilityHandler) runManageMenu(obs *domain.SavedObservability, con
 			}
 		}
 
+		fmt.Println("🚀 Desplegando Stack de Logs y Métricas...")
+		fmt.Printf("🔒 Credenciales de Grafana generadas automáticamente: admin / %s\n", obs.GrafanaPassword)
+
+		// Llamar al UseCase
 		obsUC := usecases.NewDeployObservabilityUseCase(sshExec)
-		if err := obsUC.ExecutePersistent(exposePublic, obs.DeployType); err != nil {
+		if err := obsUC.ExecutePersistent(exposePublic, obs.DeployType, obs.GrafanaPassword); err != nil {
 			fmt.Println("❌ Error en despliegue:", err)
 		} else {
 			fmt.Println("✅ ¡Stack de Observabilidad desplegado exitosamente!")
@@ -189,8 +200,11 @@ func (h *observabilityHandler) runManageMenu(obs *domain.SavedObservability, con
 
 					if err := prov.DestroyNode(config.DOAPIToken, nodeName); err != nil {
 						fmt.Printf("⚠️ Hubo un problema al intentar destruir el Droplet: %v (Por favor verifique en su panel de DigitalOcean)\n", err)
+						fmt.Println("❌ Operación abortada para evitar pérdida de estado. Repare el nodo manualmente o reintente.")
+						return
 					} else {
 						fmt.Println("🔥 Servidor dedicado destruido y eliminado de la facturación.")
+						os.RemoveAll(workspace)
 					}
 				}
 			}

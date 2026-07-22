@@ -32,7 +32,7 @@ func TestDeployObservability_ExecutePersistent(t *testing.T) {
 			exposePublic: false,
 			deployType:   "multi-node",
 			expectCmdContains: []string{
-				"iptables -I DOCKER-USER -i $EXT_IF -p tcp -m multiport --dports 9000,3001 -j DROP",
+				"iptables -I DOCKER-USER -i $EXT_IF -m multiport --dports 9000,3100,3001 -j DROP && DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent && iptables-save > /etc/iptables/rules.v4",
 				`--constraint "node.labels.type == obs"`,   // from init-perms-obs
 				`constraints: ["node.labels.type == obs"]`, // from stack deploy
 			},
@@ -44,7 +44,7 @@ func TestDeployObservability_ExecutePersistent(t *testing.T) {
 			mockSSH := mocks.NewMockSSHExecutor()
 			uc := NewDeployObservabilityUseCase(mockSSH)
 
-			err := uc.ExecutePersistent(tt.exposePublic, tt.deployType)
+			err := uc.ExecutePersistent(tt.exposePublic, tt.deployType, "admin123")
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

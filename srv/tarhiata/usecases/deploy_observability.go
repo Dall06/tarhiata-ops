@@ -21,7 +21,7 @@ func (uc *DeployObservabilityUseCase) Execute(exposePublic bool) error {
 	} else {
 		// Bloqueamos explícitamente el acceso público a estos puertos usando la cadena DOCKER-USER
 		// ya que Docker bypassea UFW. Solo se podrá acceder por Tailscale (tailscale0) o localhost (lo).
-		blockCmd := `EXT_IF=$(ip route get 8.8.8.8 | awk '{print $5; exit}') && iptables -I DOCKER-USER -i $EXT_IF -p tcp -m multiport --dports 9000,8888 -j DROP`
+		blockCmd := `EXT_IF=$(ip route get 8.8.8.8 | awk '{print $5; exit}') && iptables -I DOCKER-USER -i $EXT_IF -m multiport --dports 9000,8888 -j DROP && DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent && iptables-save > /etc/iptables/rules.v4 || true`
 		uc.ssh.RunCommand(blockCmd)
 	}
 
@@ -68,11 +68,11 @@ volumes:
 	return nil
 }
 
-func (uc *DeployObservabilityUseCase) ExecutePersistent(exposePublic bool, deployType string) error {
+func (uc *DeployObservabilityUseCase) ExecutePersistent(exposePublic bool, deployType string, grafanaPassword string) error {
 	if exposePublic {
 		uc.ssh.RunCommand("ufw allow 9000/tcp && ufw allow 3001/tcp")
 	} else {
-		blockCmd := `EXT_IF=$(ip route get 8.8.8.8 | awk '{print $5; exit}') && iptables -I DOCKER-USER -i $EXT_IF -p tcp -m multiport --dports 9000,3001 -j DROP`
+		blockCmd := `EXT_IF=$(ip route get 8.8.8.8 | awk '{print $5; exit}') && iptables -I DOCKER-USER -i $EXT_IF -m multiport --dports 9000,3100,3001 -j DROP && DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent && iptables-save > /etc/iptables/rules.v4 || true`
 		uc.ssh.RunCommand(blockCmd)
 	}
 
@@ -216,7 +216,7 @@ services:
       - "3001:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=%s
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - /opt/tarhiata/obs/data/grafana:/var/lib/grafana
@@ -225,7 +225,7 @@ services:
         constraints: [%s]
 `
 
-	writeCmd := fmt.Sprintf("cat << 'EOF' > /tmp/obs-persist-stack.yml\n%s\nEOF", fmt.Sprintf(compose, constraint, constraint))
+	writeCmd := fmt.Sprintf("cat << 'EOF' > /tmp/obs-persist-stack.yml\n%s\nEOF", fmt.Sprintf(compose, constraint, grafanaPassword, constraint))
 	if _, err := uc.ssh.RunCommand(writeCmd); err != nil {
 		return fmt.Errorf("falló al escribir observability compose: %w", err)
 	}

@@ -12,7 +12,7 @@ type InstallTailscaleUseCase interface {
 
 type DeployObservabilityUseCase interface {
 	Execute(exposePublic bool) error
-	ExecutePersistent(exposePublic bool, deployType string) error
+	ExecutePersistent(exposePublic bool, deployType string, grafanaPassword string) error
 }
 
 type DeployDatabaseUseCase interface {

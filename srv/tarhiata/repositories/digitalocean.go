@@ -1,10 +1,12 @@
 package repositories
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/Dall06/tarhiata-ops/pkg/terraform"
+	"github.com/hashicorp/terraform-exec/tfexec"
 )
 
 // DigitalOceanProvisioner implementa ports.Provisioner usando Terraform
@@ -99,5 +101,24 @@ output "private_key" {
 }
 
 func (p *DigitalOceanProvisioner) DestroyNode(token string, nodeName string) error {
+	tf, err := tfexec.NewTerraform(p.workspace, "terraform")
+	if err != nil {
+		return fmt.Errorf("error inicializando terraform: %w", err)
+	}
+
+	err = tf.Init(context.Background(), tfexec.Upgrade(true))
+	if err != nil {
+		return fmt.Errorf("error en terraform init: %w", err)
+	}
+
+	err = tf.Destroy(context.Background(),
+		tfexec.Var(fmt.Sprintf("do_token=%s", token)),
+		tfexec.Var(fmt.Sprintf("node_name=%s", nodeName)),
+		tfexec.Var("region=nyc1"), // Asumimos default
+	)
+	if err != nil {
+		return fmt.Errorf("error en terraform destroy: %w", err)
+	}
+
 	return nil
 }

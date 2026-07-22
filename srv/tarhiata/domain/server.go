@@ -78,8 +78,9 @@ type DeployConfig struct {
 
 // SavedObservability representa la configuración del stack de logs y métricas
 type SavedObservability struct {
-	ID          int
-	DeployType  string // "external", "single-node", "multi-node"
-	ExternalURL string // ej: URL de Datadog o Grafana Cloud
-	NodeIP      string // Si es multi-node
+	ID              int
+	DeployType      string // "external", "single-node", "multi-node"
+	ExternalURL     string // ej: URL de Datadog o Grafana Cloud
+	NodeIP          string // Si es multi-node
+	GrafanaPassword string
 }

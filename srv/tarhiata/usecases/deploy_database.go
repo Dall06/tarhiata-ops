@@ -2,6 +2,7 @@ package usecases
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/domain"
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/ports"
@@ -47,6 +48,9 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 
 	// 3. Construir el comando de docker service create
 
+	// Escapar comillas simples para evitar inyección de bash
+	safePassword := strings.ReplaceAll(db.Password, "'", `'"'"'`)
+
 	var createCmd string
 	if db.Engine == "postgres" {
 		createCmd = fmt.Sprintf(
@@ -55,11 +59,11 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 			--network tarhiata_internal \
 			--mount type=bind,source=%s,destination=/var/lib/postgresql/data \
 			-e POSTGRES_USER=admin \
-			-e POSTGRES_PASSWORD=%s \
+			-e POSTGRES_PASSWORD='%s' \
 			-e POSTGRES_DB=db \
 			--constraint %s \
 			postgres:15-alpine`,
-			db.Name, db.VolumeHostPath, db.Password, constraint,
+			db.Name, db.VolumeHostPath, safePassword, constraint,
 		)
 	} else if db.Engine == "mongo" {
 		createCmd = fmt.Sprintf(
@@ -68,10 +72,10 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 			--network tarhiata_internal \
 			--mount type=bind,source=%s,destination=/data/db \
 			-e MONGO_INITDB_ROOT_USERNAME=admin \
-			-e MONGO_INITDB_ROOT_PASSWORD=%s \
+			-e MONGO_INITDB_ROOT_PASSWORD='%s' \
 			--constraint %s \
 			mongo:6`,
-			db.Name, db.VolumeHostPath, db.Password, constraint,
+			db.Name, db.VolumeHostPath, safePassword, constraint,
 		)
 	} else {
 		return fmt.Errorf("motor de base de datos no soportado: %s", db.Engine)

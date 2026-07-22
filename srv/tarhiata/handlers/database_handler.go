@@ -233,8 +233,11 @@ func (h *databaseHandler) runManageDatabaseMenu(dbName string, config domain.Ser
 
 					if err := prov.DestroyNode(config.DOAPIToken, nodeName); err != nil {
 						fmt.Printf("⚠️ Hubo un problema al intentar destruir el Droplet: %v (Por favor verifique en su panel de DigitalOcean)\n", err)
+						fmt.Println("❌ Operación abortada para evitar pérdida de estado. Repare el nodo manualmente o reintente.")
+						return
 					} else {
 						fmt.Println("🔥 Servidor dedicado destruido y eliminado de la facturación.")
+						os.RemoveAll(workspace) // Limpiar basura de Terraform (GAP 3)
 					}
 				}
 			}
