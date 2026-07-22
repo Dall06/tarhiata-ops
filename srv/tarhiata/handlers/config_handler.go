@@ -99,7 +99,8 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 		}
 
 		fmt.Printf("\n⏳ [Terraform] Construyendo el servidor maestro en %s. Esto tardará un poco...\n", providerName)
-		workspace := filepath.Join(os.TempDir(), "tarhiata_tf_master")
+		homeDir, _ := os.UserHomeDir()
+		workspace := filepath.Join(homeDir, ".config", "tarhiata", "terraform", "tarhiata_master")
 
 		var provisioner ports.Provisioner
 		var region string
@@ -122,7 +123,7 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 		portStr = "22"
 
 		// Guardar llave privada localmente
-		homeDir, _ := os.UserHomeDir()
+
 		keyDir := filepath.Join(homeDir, ".ssh")
 		os.MkdirAll(keyDir, 0700)
 		key = filepath.Join(keyDir, "tarhiata_master_rsa")

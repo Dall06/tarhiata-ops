@@ -182,12 +182,14 @@ func (h *databaseHandler) runManageDatabaseMenu(dbName string, config domain.Ser
 				workerUC := usecases.NewProvisionWorkerUseCase(sshExec)
 				nodeName := fmt.Sprintf("tarhiata-db-%s", db.Name)
 				newIP, err := workerUC.Execute(config, nodeName, "db_"+db.Name)
+				if newIP != "" {
+					db.NodeIP = newIP
+					h.repo.SaveDatabase(*db) // Actualizamos la BD con la nueva IP (Evita Nodos Zombie)
+				}
 				if err != nil {
 					fmt.Println("❌ Error provisionando nodo:", err)
 					return
 				}
-				db.NodeIP = newIP
-				h.repo.SaveDatabase(*db) // Actualizamos la BD con la nueva IP
 			}
 		}
 

@@ -135,12 +135,14 @@ func (h *observabilityHandler) runManageMenu(obs *domain.SavedObservability, con
 				workerUC := usecases.NewProvisionWorkerUseCase(sshExec)
 				nodeName := "tarhiata-obs-worker"
 				newIP, err := workerUC.Execute(config, nodeName, "obs")
+				if newIP != "" {
+					obs.NodeIP = newIP
+					h.repo.SaveObservability(*obs) // (Evita Nodos Zombie)
+				}
 				if err != nil {
 					fmt.Println("❌ Error provisionando nodo de logs:", err)
 					return
 				}
-				obs.NodeIP = newIP
-				h.repo.SaveObservability(*obs)
 			}
 		}
 
