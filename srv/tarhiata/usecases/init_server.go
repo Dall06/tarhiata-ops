@@ -167,10 +167,10 @@ func (uc *InitServerUseCase) configureFirewall() error {
 
 	// 2. Reglas de Seguridad Base (Respetando servicios existentes)
 	commands := []string{
-		"ufw allow 80/tcp",           // HTTP para Traefik
-		"ufw allow 443/tcp",          // HTTPS para Traefik y SSL
+		"ufw allow 80/tcp",  // HTTP para Traefik
+		"ufw allow 443/tcp", // HTTPS para Traefik y SSL
 		"CURRENT_SSH_PORT=$(echo $SSH_CLIENT | awk '{print $3}'); if [ -n \"$CURRENT_SSH_PORT\" ]; then ufw allow $CURRENT_SSH_PORT/tcp; else ufw allow ssh; fi", // Puerto SSH dinámico
-		"ufw --force enable",         // Encender el escudo
+		"ufw --force enable", // Encender el escudo
 	}
 
 	for _, cmd := range commands {

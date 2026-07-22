@@ -43,8 +43,10 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 	// Esperamos a que termine y limpiamos
 	uc.ssh.RunCommand(fmt.Sprintf("docker service rm init-perms-%s", db.Name))
 
+	serviceName := fmt.Sprintf("tarhiata-db-%s", db.Name)
+
 	// 2. Apagar la BD si ya existía para actualizarla
-	uc.ssh.RunCommand(fmt.Sprintf("docker service rm %s", db.Name))
+	uc.ssh.RunCommand(fmt.Sprintf("docker service rm %s", serviceName))
 
 	// 3. Construir el comando de docker service create
 
@@ -63,7 +65,7 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 			-e POSTGRES_DB=db \
 			--constraint %s \
 			postgres:15-alpine`,
-			db.Name, db.VolumeHostPath, safePassword, constraint,
+			serviceName, db.VolumeHostPath, safePassword, constraint,
 		)
 	} else if db.Engine == "mongo" {
 		createCmd = fmt.Sprintf(
@@ -75,7 +77,7 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 			-e MONGO_INITDB_ROOT_PASSWORD='%s' \
 			--constraint %s \
 			mongo:6`,
-			db.Name, db.VolumeHostPath, safePassword, constraint,
+			serviceName, db.VolumeHostPath, safePassword, constraint,
 		)
 	} else {
 		return fmt.Errorf("motor de base de datos no soportado: %s", db.Engine)
@@ -92,9 +94,9 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 
 	// Preparamos la URI segura local (ej postgres://admin:pass@service:5432)
 	// Esto solo se imprime de forma local, no viaja por la red
-	safeUri := fmt.Sprintf("%s://admin:********@%s:%d/db", db.Engine, db.Name, db.InternalPort)
+	safeUri := fmt.Sprintf("%s://admin:********@%s:%d/db", db.Engine, serviceName, db.InternalPort)
 	if db.Engine == "mongo" {
-		safeUri = fmt.Sprintf("mongodb://admin:********@%s:27017/?authSource=admin", db.Name)
+		safeUri = fmt.Sprintf("mongodb://admin:********@%s:27017/?authSource=admin", serviceName)
 	}
 
 	fmt.Printf("🔌 URI Interna (Oculta): %s\n", safeUri)

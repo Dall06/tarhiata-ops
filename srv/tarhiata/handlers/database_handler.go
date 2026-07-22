@@ -206,17 +206,41 @@ func (h *databaseHandler) runManageDatabaseMenu(dbName string, config domain.Ser
 	} else if action == "delete" {
 		var confirm bool
 
-		msg := "⚠️ ¿Seguro que quieres apagar y eliminar la BD? (Los datos en el servidor principal persistirán)"
 		if db.DeployType == "multi-node" {
-			msg = "⚠️ PELIGRO: Esto DESTRUIRÁ el servidor dedicado y borrará TODOS los datos de la base de datos de forma irreversible. ¿Continuar?"
+			var typedName string
+			huh.NewForm(
+				huh.NewGroup(
+					huh.NewInput().
+						Title("⚠️ PELIGRO: Esto DESTRUIRÁ el servidor dedicado de forma irreversible.\nEscribe el nombre de la BD para confirmar:").
+						Value(&typedName),
+				),
+			).Run()
+			if typedName != db.Name {
+				fmt.Println("❌ Nombre incorrecto. Operación abortada.")
+				return
+			}
+			confirm = true
+		} else {
+			msg := "⚠️ ¿Seguro que quieres apagar y eliminar la BD? (Los datos en el servidor principal persistirán temporalmente)"
+			huh.NewForm(huh.NewGroup(huh.NewConfirm().Title(msg).Value(&confirm))).Run()
 		}
 
-		huh.NewForm(huh.NewGroup(huh.NewConfirm().Title(msg).Value(&confirm))).Run()
 		if confirm {
+			var deleteVolume bool
+			if db.DeployType == "single-node" {
+				huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("🗑️ ¿Deseas eliminar permanentemente la carpeta de datos físicos (volumen)?").Value(&deleteVolume))).Run()
+			}
+
 			if db.DeployType != "external" {
 				sshExec := repositories.NewCryptoSSHExecutor()
 				if err := sshExec.Connect(config); err == nil {
-					sshExec.RunCommand(fmt.Sprintf("docker service rm %s", db.Name))
+					serviceName := fmt.Sprintf("tarhiata-db-%s", db.Name)
+					sshExec.RunCommand(fmt.Sprintf("docker service rm %s", serviceName))
+
+					if db.DeployType == "single-node" && deleteVolume {
+						fmt.Println("🧹 Limpiando volumen de datos huérfano...")
+						sshExec.RunCommand(fmt.Sprintf("rm -rf %s", db.VolumeHostPath))
+					}
 					if db.DeployType == "multi-node" {
 						nodeName := fmt.Sprintf("tarhiata-db-%s", db.Name)
 						sshExec.RunCommand(fmt.Sprintf("docker node rm -f %s", nodeName))

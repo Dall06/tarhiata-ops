@@ -27,8 +27,9 @@ func TestDeployDatabase_Execute(t *testing.T) {
 			expectCmdContains: []string{
 				"mkdir -p /host/opt/data/pg",
 				"chown -R 70:70",
+				"docker service rm tarhiata-db-mi-postgres",
 				"docker service create",
-				"--name mi-postgres",
+				"--name tarhiata-db-mi-postgres",
 				"POSTGRES_PASSWORD='secure-pass'",
 				`--constraint "node.role == manager"`,
 			},
@@ -43,9 +44,11 @@ func TestDeployDatabase_Execute(t *testing.T) {
 				VolumeHostPath: "/opt/data/mongo",
 			},
 			expectCmdContains: []string{
+				"mkdir -p /host/opt/data/mongo",
 				"chown -R 999:999",
+				"docker service rm tarhiata-db-mi-mongo",
 				"docker service create",
-				"--name mi-mongo",
+				"--name tarhiata-db-mi-mongo",
 				"MONGO_INITDB_ROOT_PASSWORD='secure-pass-mongo'",
 				`--constraint "node.labels.type == db_mi-mongo"`,
 			},
