@@ -23,8 +23,8 @@ func NewProvisionWorkerUseCase(ssh ports.SSHExecutor) ports.ProvisionWorkerUseCa
 }
 
 func (uc *ProvisionWorkerUseCase) Execute(config domain.ServerConfig, nodeName string, labelType string) (string, error) {
-	if config.DOAPIToken == "" {
-		return "", fmt.Errorf("se requiere un Token de API de DigitalOcean configurado en el servidor para crear nodos automáticos")
+	if config.VultrAPIToken == "" {
+		return "", fmt.Errorf("se requiere un Token de API de Vultr configurado en el servidor para crear nodos automáticos")
 	}
 
 	fmt.Println("⏳ [1/6] Obteniendo Token de Swarm del Manager...")
@@ -42,10 +42,10 @@ func (uc *ProvisionWorkerUseCase) Execute(config domain.ServerConfig, nodeName s
 		provisioner = uc.Provisioner
 	} else {
 		workspace := filepath.Join(homeDir, ".config", "tarhiata", "terraform", "worker_"+nodeName)
-		provisioner = repositories.NewDigitalOceanProvisioner(workspace)
+		provisioner = repositories.NewVultrProvisioner(workspace)
 	}
 
-	newIP, privKeyContent, err := provisioner.ProvisionNode(config.DOAPIToken, nodeName, "nyc1")
+	newIP, privKeyContent, err := provisioner.ProvisionNode(config.VultrAPIToken, nodeName, "ewr")
 	if err != nil {
 		return newIP, fmt.Errorf("falló provisionamiento terraform: %w", err)
 	}
@@ -57,7 +57,7 @@ func (uc *ProvisionWorkerUseCase) Execute(config domain.ServerConfig, nodeName s
 	defer func() {
 		if !setupSuccess {
 			fmt.Println("⚠️ Ocurrió un error en la configuración. Ejecutando ROLLBACK (terraform destroy) para evitar costos fantasma...")
-			provisioner.DestroyNode(config.DOAPIToken, nodeName)
+			provisioner.DestroyNode(config.VultrAPIToken, nodeName)
 		}
 	}()
 

@@ -6,7 +6,7 @@ type ServerConfig struct {
 	Port       int
 	User       string
 	PrivateKey string // Ruta a la llave SSH (ej: ~/.ssh/id_rsa)
-	DOAPIToken string // DigitalOcean API Token (Para Terraform)
+	VultrAPIToken string // Vultr API Token (Para Terraform)
 }
 
 // CommandResult encapsula la respuesta del servidor tras ejecutar un comando.

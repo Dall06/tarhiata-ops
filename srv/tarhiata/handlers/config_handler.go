@@ -30,7 +30,7 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 				Title("¿Dónde alojaremos el motor de Tarhiata-ops?").
 				Options(
 					huh.NewOption("🔌 Tengo un servidor existente (Requiere IP y SSH)", "existing"),
-					huh.NewOption("🐳 Crear un servidor desde cero (DigitalOcean / Vultr)", "new"),
+					huh.NewOption("🐳 Crear un servidor desde cero (Vultr)", "new"),
 				).Value(&configType),
 		),
 	).Run()
@@ -40,7 +40,7 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 		return current
 	}
 
-	var host, user, key, doToken string
+	var host, user, key, vultrToken string
 	var portStr string = "22"
 
 	if current != nil {
@@ -48,7 +48,7 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 		portStr = fmt.Sprintf("%d", current.Port)
 		user = current.User
 		key = current.PrivateKey
-		doToken = current.DOAPIToken
+		vultrToken = current.VultrAPIToken
 	}
 
 	if configType == "existing" {
@@ -58,7 +58,7 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 				huh.NewInput().Title("Puerto SSH").Value(&portStr),
 				huh.NewInput().Title("Usuario").Value(&user),
 				huh.NewInput().Title("Ruta de la Llave Privada (ej. ~/.ssh/id_rsa)").Value(&key),
-				huh.NewInput().Title("DigitalOcean API Token (Opcional, para BDs)").Value(&doToken),
+				huh.NewInput().Title("Vultr API Token (Opcional, para BDs)").Value(&vultrToken),
 			),
 		)
 
@@ -74,7 +74,6 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 				huh.NewSelect[string]().
 					Title("Proveedor Cloud").
 					Options(
-						huh.NewOption("DigitalOcean", "digitalocean"),
 						huh.NewOption("Vultr", "vultr"),
 					).Value(&providerName),
 			),
@@ -85,7 +84,7 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 
 		form := huh.NewForm(
 			huh.NewGroup(
-				huh.NewInput().Title(fmt.Sprintf("%s API Token (Obligatorio)", strings.Title(providerName))).Value(&doToken).Validate(func(s string) error {
+				huh.NewInput().Title("Vultr API Token (Obligatorio)").Value(&vultrToken).Validate(func(s string) error {
 					if strings.TrimSpace(s) == "" {
 						return fmt.Errorf("El Token es obligatorio")
 					}
@@ -102,17 +101,10 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 		homeDir, _ := os.UserHomeDir()
 		workspace := filepath.Join(homeDir, ".config", "tarhiata", "terraform", "tarhiata_master")
 
-		var provisioner ports.Provisioner
-		var region string
-		if providerName == "digitalocean" {
-			provisioner = repositories.NewDigitalOceanProvisioner(workspace)
-			region = "nyc1" // DigitalOcean Region
-		} else {
-			provisioner = repositories.NewVultrProvisioner(workspace)
-			region = "ewr" // Vultr Region (New Jersey)
-		}
+		provisioner := repositories.NewVultrProvisioner(workspace)
+		region := "ewr" // Vultr Default Region (New Jersey)
 
-		newIP, privKey, err := provisioner.ProvisionNode(doToken, "tarhiata-master", region)
+		newIP, privKeyContent, err := provisioner.ProvisionNode(vultrToken, "tarhiata-manager", region)
 		if err != nil {
 			fmt.Printf("❌ Error provisionando el servidor: %v\n", err)
 			return current
@@ -128,7 +120,7 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 		os.MkdirAll(keyDir, 0700)
 		key = filepath.Join(keyDir, "tarhiata_master_rsa")
 
-		if err := os.WriteFile(key, []byte(privKey), 0600); err != nil {
+		if err := os.WriteFile(key, []byte(privKeyContent), 0600); err != nil {
 			fmt.Printf("❌ Error guardando la llave privada: %v\n", err)
 			return current
 		}
@@ -142,7 +134,7 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 		Port:       port,
 		User:       user,
 		PrivateKey: key,
-		DOAPIToken: doToken,
+		VultrAPIToken: vultrToken,
 	}
 
 	if err := h.repo.SaveServerConfig(newConfig); err != nil {

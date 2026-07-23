@@ -50,13 +50,13 @@ func (r *SQLiteRepository) migrate() error {
 		port INTEGER NOT NULL,
 		user TEXT NOT NULL,
 		private_key TEXT NOT NULL,
-		do_api_token TEXT NOT NULL DEFAULT ''
+		vultr_api_token TEXT NOT NULL DEFAULT ''
 	);`
 	if _, err := r.db.Exec(query); err != nil {
 		return err
 	}
 
-	_, errAlter0 := r.db.Exec("ALTER TABLE server_config ADD COLUMN do_api_token TEXT NOT NULL DEFAULT '';")
+	_, errAlter0 := r.db.Exec("ALTER TABLE server_config ADD COLUMN vultr_api_token TEXT NOT NULL DEFAULT '';")
 	if errAlter0 != nil && !strings.Contains(errAlter0.Error(), "duplicate column name") {
 		return errAlter0
 	}
@@ -139,25 +139,25 @@ func (r *SQLiteRepository) migrate() error {
 func (r *SQLiteRepository) SaveServerConfig(config domain.ServerConfig) error {
 	// Usamos UPSERT: Inserta si no existe, si existe lo actualiza.
 	query := `
-	INSERT INTO server_config (id, host, port, user, private_key, do_api_token) 
+	INSERT INTO server_config (id, host, port, user, private_key, vultr_api_token) 
 	VALUES (1, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET 
 		host=excluded.host, 
 		port=excluded.port, 
 		user=excluded.user, 
 		private_key=excluded.private_key,
-		do_api_token=excluded.do_api_token;`
+		vultr_api_token=excluded.vultr_api_token;`
 
-	_, err := r.db.Exec(query, config.Host, config.Port, config.User, config.PrivateKey, config.DOAPIToken)
+	_, err := r.db.Exec(query, config.Host, config.Port, config.User, config.PrivateKey, config.VultrAPIToken)
 	return err
 }
 
 func (r *SQLiteRepository) GetServerConfig() (*domain.ServerConfig, error) {
-	query := `SELECT host, port, user, private_key, do_api_token FROM server_config WHERE id = 1;`
+	query := `SELECT host, port, user, private_key, vultr_api_token FROM server_config WHERE id = 1;`
 	row := r.db.QueryRow(query)
 
 	var config domain.ServerConfig
-	err := row.Scan(&config.Host, &config.Port, &config.User, &config.PrivateKey, &config.DOAPIToken)
+	err := row.Scan(&config.Host, &config.Port, &config.User, &config.PrivateKey, &config.VultrAPIToken)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil // No hay error, simplemente no hay configuración guardada aún

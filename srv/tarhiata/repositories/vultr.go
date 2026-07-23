@@ -1,10 +1,12 @@
 package repositories
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/Dall06/tarhiata-ops/pkg/terraform"
+	"github.com/hashicorp/terraform-exec/tfexec"
 )
 
 // VultrProvisioner implementa ports.Provisioner usando Terraform para Vultr
@@ -18,14 +20,14 @@ func NewVultrProvisioner(workspace string) *VultrProvisioner {
 	}
 }
 
-// ProvisionNode genera la plantilla HCL y delega la ejecución al Runner genérico de Terraform
+// ProvisionNode delega la ejecución al Runner genérico de Terraform
 func (p *VultrProvisioner) ProvisionNode(token string, nodeName string, region string) (string, string, error) {
 	tfTemplate := `
 terraform {
   required_providers {
     vultr = {
       source  = "vultr/vultr"
-      version = "~> 2.15"
+      version = "~> 2.19"
     }
     tls = {
       source  = "hashicorp/tls"
@@ -38,7 +40,7 @@ variable "vultr_api_key" {}
 
 provider "vultr" {
   api_key     = var.vultr_api_key
-  rate_limit  = 700
+  rate_limit  = 100
   retry_limit = 3
 }
 
@@ -52,13 +54,63 @@ resource "vultr_ssh_key" "node_key" {
   ssh_key  = tls_private_key.node_key.public_key_openssh
 }
 
+resource "vultr_firewall_group" "swarm_internal" {
+  description = "tarhiata-swarm-%s"
+}
+
+resource "vultr_firewall_rule" "ssh" {
+  firewall_group_id = vultr_firewall_group.swarm_internal.id
+  protocol          = "tcp"
+  ip_type           = "v4"
+  subnet            = "0.0.0.0"
+  subnet_size       = 0
+  port              = "22"
+}
+
+resource "vultr_firewall_rule" "swarm_2377" {
+  firewall_group_id = vultr_firewall_group.swarm_internal.id
+  protocol          = "tcp"
+  ip_type           = "v4"
+  subnet            = "0.0.0.0"
+  subnet_size       = 0
+  port              = "2377"
+}
+
+resource "vultr_firewall_rule" "swarm_7946_tcp" {
+  firewall_group_id = vultr_firewall_group.swarm_internal.id
+  protocol          = "tcp"
+  ip_type           = "v4"
+  subnet            = "0.0.0.0"
+  subnet_size       = 0
+  port              = "7946"
+}
+
+resource "vultr_firewall_rule" "swarm_7946_udp" {
+  firewall_group_id = vultr_firewall_group.swarm_internal.id
+  protocol          = "udp"
+  ip_type           = "v4"
+  subnet            = "0.0.0.0"
+  subnet_size       = 0
+  port              = "7946"
+}
+
+resource "vultr_firewall_rule" "swarm_4789_udp" {
+  firewall_group_id = vultr_firewall_group.swarm_internal.id
+  protocol          = "udp"
+  ip_type           = "v4"
+  subnet            = "0.0.0.0"
+  subnet_size       = 0
+  port              = "4789"
+}
+
 resource "vultr_instance" "node" {
-  plan        = "vc2-1c-1gb"
-  region      = "%s"
-  os_id       = 1743 # Ubuntu 22.04 LTS x64
-  label       = "%s"
-  hostname    = "%s"
-  ssh_key_ids = [vultr_ssh_key.node_key.id]
+  plan              = "vc2-1c-1gb"
+  region            = "%s"
+  os_id             = 1743
+  label             = "%s"
+  hostname          = "%s"
+  ssh_key_ids       = [vultr_ssh_key.node_key.id]
+  firewall_group_id = vultr_firewall_group.swarm_internal.id
   
   user_data = <<-EOF
               #!/bin/bash
@@ -77,7 +129,7 @@ output "private_key" {
   sensitive = true
 }
 `
-	tfContent := fmt.Sprintf(tfTemplate, nodeName, region, nodeName, nodeName)
+	tfContent := fmt.Sprintf(tfTemplate, nodeName, nodeName, region, nodeName, nodeName)
 
 	runner, err := terraform.NewRunner(p.workspace)
 	if err != nil {
@@ -96,12 +148,28 @@ output "private_key" {
 	ipStr := outputs["public_ip"]
 	pkStr := outputs["private_key"]
 
-	// Limpiar un poco más por seguridad, aunque el Runner ya lo hace
 	pkStr = strings.TrimSpace(pkStr)
 
 	return ipStr, pkStr, nil
 }
 
 func (p *VultrProvisioner) DestroyNode(token string, nodeName string) error {
+	tf, err := tfexec.NewTerraform(p.workspace, "terraform")
+	if err != nil {
+		return fmt.Errorf("error inicializando terraform: %w", err)
+	}
+
+	err = tf.Init(context.Background(), tfexec.Upgrade(true))
+	if err != nil {
+		return fmt.Errorf("error en terraform init: %w", err)
+	}
+
+	err = tf.Destroy(context.Background(),
+		tfexec.Var(fmt.Sprintf("vultr_api_key=%s", token)),
+	)
+	if err != nil {
+		return fmt.Errorf("error en terraform destroy: %w", err)
+	}
+
 	return nil
 }

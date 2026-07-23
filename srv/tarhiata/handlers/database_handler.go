@@ -260,14 +260,14 @@ func (h *databaseHandler) runManageDatabaseMenu(dbName string, config domain.Ser
 				}
 
 				if db.DeployType == "multi-node" {
-					fmt.Println("⏳ Destruyendo servidor dedicado en la nube (DigitalOcean)...")
+					fmt.Println("⏳ Destruyendo servidor dedicado en la nube (Vultr)...")
 					homeDir, _ := os.UserHomeDir()
 					nodeName := fmt.Sprintf("tarhiata-db-%s", db.Name)
 					workspace := filepath.Join(homeDir, ".config", "tarhiata", "terraform", "worker_"+nodeName)
-					prov := repositories.NewDigitalOceanProvisioner(workspace)
+					prov := repositories.NewVultrProvisioner(workspace)
 
-					if err := prov.DestroyNode(config.DOAPIToken, nodeName); err != nil {
-						fmt.Printf("⚠️ Hubo un problema al intentar destruir el Droplet: %v (Por favor verifique en su panel de DigitalOcean)\n", err)
+					if err := prov.DestroyNode(config.VultrAPIToken, nodeName); err != nil {
+						fmt.Printf("⚠️ Hubo un problema al intentar destruir la instancia: %v (Por favor verifique en su panel de Vultr)\n", err)
 						fmt.Println("❌ Operación abortada para evitar pérdida de estado. Repare el nodo manualmente o reintente.")
 						return
 					} else {
