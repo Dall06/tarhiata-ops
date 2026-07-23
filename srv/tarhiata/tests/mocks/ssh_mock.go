@@ -57,3 +57,8 @@ func (m *MockSSHExecutor) InteractiveShell() error {
 func (m *MockSSHExecutor) InteractiveCommand(cmd string) error {
 	return nil
 }
+
+func (m *MockSSHExecutor) WriteRemoteFile(remotePath, content string) error {
+	m.CommandsExecuted = append(m.CommandsExecuted, "WRITE "+remotePath)
+	return nil
+}

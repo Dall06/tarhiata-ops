@@ -45,6 +45,9 @@ type SSHExecutor interface {
 	// InteractiveCommand ejecuta un comando específico con PTY interactivo (ej. para seguir logs)
 	InteractiveCommand(cmd string) error
 
+	// WriteRemoteFile escribe un archivo en el servidor remoto de forma segura usando Base64.
+	WriteRemoteFile(remotePath, content string) error
+
 	// CheckConnection verifica si la conexión sigue viva. Útil para monitoreo asíncrono.
 	CheckConnection() bool
 

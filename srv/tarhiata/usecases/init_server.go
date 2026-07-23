@@ -92,8 +92,10 @@ maxretry = 3
 bantime = 900
 findtime = 600
 `
-	writeCmd := fmt.Sprintf("cat << 'EOF' > /etc/fail2ban/jail.local\n%s\nEOF\nsystemctl restart fail2ban", jailConfig)
-	_, err := uc.ssh.RunCommand(writeCmd)
+	if err := uc.ssh.WriteRemoteFile("/etc/fail2ban/jail.local", jailConfig); err != nil {
+		return err
+	}
+	_, err := uc.ssh.RunCommand("systemctl restart fail2ban")
 	return err
 }
 
@@ -171,6 +173,14 @@ func (uc *InitServerUseCase) configureFirewall() error {
 		"ufw allow 443/tcp", // HTTPS para Traefik y SSL
 		"CURRENT_SSH_PORT=$(echo $SSH_CLIENT | awk '{print $3}'); if [ -n \"$CURRENT_SSH_PORT\" ]; then ufw allow $CURRENT_SSH_PORT/tcp; else ufw allow ssh; fi", // Puerto SSH dinámico
 		"ufw --force enable", // Encender el escudo
+		// 3. FIX: Evitar que Docker bypassee UFW al publicar puertos
+		"iptables -N DOCKER-USER 2>/dev/null || true",
+		"iptables -F DOCKER-USER",
+		"iptables -A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN",
+		"iptables -A DOCKER-USER -i docker0 -j RETURN",
+		"iptables -A DOCKER-USER -i docker_gwbridge -j RETURN",
+		"iptables -A DOCKER-USER -p tcp -m multiport --dports 80,443 -j RETURN", // Solo permitimos tráfico web a los contenedores
+		"iptables -A DOCKER-USER -j DROP", // Bloqueamos exposición de BDs u otros puertos internos al exterior
 	}
 
 	for _, cmd := range commands {
@@ -240,15 +250,12 @@ volumes:
   traefik_certs:
 `, acmeConfig, acmeVolume)
 
-	// 3. Escribir el archivo en el servidor y desplegar
-	// Usamos un 'cat' seguro vía heredoc a través del SSH
-	writeCmd := fmt.Sprintf("cat << 'EOF' > /tmp/traefik-stack.yml\n%s\nEOF", traefikCompose)
-	_, err := uc.ssh.RunCommand(writeCmd)
-	if err != nil {
+	// 3. Escribir el archivo en el servidor y desplegar de forma segura (sin heredoc)
+	if err := uc.ssh.WriteRemoteFile("/tmp/traefik-stack.yml", traefikCompose); err != nil {
 		return fmt.Errorf("falló al escribir traefik compose: %w", err)
 	}
 
-	res, err = uc.ssh.RunCommand("docker stack deploy -c /tmp/traefik-stack.yml tarhiata_proxy")
+	res, err := uc.ssh.RunCommand("docker stack deploy -c /tmp/traefik-stack.yml tarhiata_proxy")
 	if err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("falló al desplegar traefik: %s", res.Output)
 	}

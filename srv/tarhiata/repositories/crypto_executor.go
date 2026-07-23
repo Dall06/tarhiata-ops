@@ -1,6 +1,9 @@
 package repositories
 
 import (
+	"encoding/base64"
+	"fmt"
+
 	"github.com/Dall06/tarhiata-ops/pkg/sshclient"
 	"github.com/Dall06/tarhiata-ops/srv/tarhiata/domain"
 )
@@ -53,4 +56,15 @@ func (e *CryptoSSHExecutor) CheckConnection() bool {
 // Close finaliza la conexión.
 func (e *CryptoSSHExecutor) Close() error {
 	return e.client.Close()
+}
+
+// WriteRemoteFile escribe un archivo en el servidor remoto de forma segura usando Base64.
+func (e *CryptoSSHExecutor) WriteRemoteFile(remotePath, content string) error {
+	encoded := base64.StdEncoding.EncodeToString([]byte(content))
+	cmd := fmt.Sprintf("echo '%s' | base64 -d > %s", encoded, remotePath)
+	res, err := e.RunCommand(cmd)
+	if err != nil || res.ExitCode != 0 {
+		return fmt.Errorf("falló al escribir archivo %s: %s", remotePath, res.Output)
+	}
+	return nil
 }

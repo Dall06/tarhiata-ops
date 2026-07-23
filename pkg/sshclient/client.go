@@ -1,8 +1,10 @@
 package sshclient
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -47,8 +49,14 @@ func (c *Client) Connect(host, user, privateKeyPath string, port int) error {
 	return nil
 }
 
-// RunCommand ejecuta un comando de forma síncrona y devuelve la salida y el código de salida.
 func (c *Client) RunCommand(cmd string) (string, int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	return c.RunCommandWithContext(ctx, cmd)
+}
+
+// RunCommandWithContext ejecuta un comando con soporte para cancelación vía Context
+func (c *Client) RunCommandWithContext(ctx context.Context, cmd string) (string, int, error) {
 	if c.conn == nil {
 		return "", -1, fmt.Errorf("no hay una conexión SSH activa")
 	}
@@ -57,19 +65,35 @@ func (c *Client) RunCommand(cmd string) (string, int, error) {
 	if err != nil {
 		return "", -1, fmt.Errorf("no se pudo crear la sesión ssh: %w", err)
 	}
-	defer session.Close()
 
-	out, err := session.CombinedOutput(cmd)
-	exitCode := 0
-	if err != nil {
-		if exitError, ok := err.(*ssh.ExitError); ok {
-			exitCode = exitError.ExitStatus()
-		} else {
-			exitCode = -1
-		}
+	type result struct {
+		out  string
+		code int
+		err  error
 	}
+	done := make(chan result, 1)
 
-	return string(out), exitCode, err
+	go func() {
+		out, err := session.CombinedOutput(cmd)
+		exitCode := 0
+		if err != nil {
+			if exitError, ok := err.(*ssh.ExitError); ok {
+				exitCode = exitError.ExitStatus()
+			} else {
+				exitCode = -1
+			}
+		}
+		done <- result{string(out), exitCode, err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		session.Close() // Fuerza a CombinedOutput a retornar un error y desbloquear la goroutine
+		return "", -1, ctx.Err()
+	case res := <-done:
+		session.Close()
+		return res.out, res.code, res.err
+	}
 }
 
 // InteractiveShell abre una consola PTY interactiva conectada a la terminal local del usuario.
