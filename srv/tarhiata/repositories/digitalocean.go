@@ -67,6 +67,55 @@ resource "digitalocean_droplet" "node" {
               EOF
 }
 
+resource "digitalocean_firewall" "swarm_internal" {
+  name = "tarhiata-swarm-%s"
+
+  droplet_ids = [digitalocean_droplet.node.id]
+
+  inbound_rule {
+    protocol         = "tcp"
+    port_range       = "22"
+    source_addresses = ["0.0.0.0/0", "::/0"]
+  }
+
+  inbound_rule {
+    protocol         = "tcp"
+    port_range       = "2377"
+    source_addresses = ["0.0.0.0/0"]
+  }
+
+  inbound_rule {
+    protocol         = "tcp"
+    port_range       = "7946"
+    source_addresses = ["0.0.0.0/0"]
+  }
+
+  inbound_rule {
+    protocol         = "udp"
+    port_range       = "7946"
+    source_addresses = ["0.0.0.0/0"]
+  }
+
+  inbound_rule {
+    protocol         = "udp"
+    port_range       = "4789"
+    source_addresses = ["0.0.0.0/0"]
+  }
+
+  outbound_rule {
+    protocol              = "tcp"
+    port_range            = "1-65535"
+    destination_addresses = ["0.0.0.0/0", "::/0"]
+  }
+
+  outbound_rule {
+    protocol              = "udp"
+    port_range            = "1-65535"
+    destination_addresses = ["0.0.0.0/0", "::/0"]
+  }
+}
+
+
 output "public_ip" {
   value = digitalocean_droplet.node.ipv4_address
 }
@@ -76,7 +125,7 @@ output "private_key" {
   sensitive = true
 }
 `
-	tfContent := fmt.Sprintf(tfTemplate, nodeName, nodeName, region)
+	tfContent := fmt.Sprintf(tfTemplate, nodeName, nodeName, region, nodeName)
 
 	runner, err := terraform.NewRunner(p.workspace)
 	if err != nil {

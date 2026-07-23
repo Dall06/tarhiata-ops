@@ -52,6 +52,15 @@ func (uc *ProvisionWorkerUseCase) Execute(config domain.ServerConfig, nodeName s
 
 	fmt.Printf("✅ VM Confirmada en IP: %s\n", newIP)
 
+	// Implementar Rollback (GAP 2: Gestión de Orfandad)
+	setupSuccess := false
+	defer func() {
+		if !setupSuccess {
+			fmt.Println("⚠️ Ocurrió un error en la configuración. Ejecutando ROLLBACK (terraform destroy) para evitar costos fantasma...")
+			provisioner.DestroyNode(config.DOAPIToken, nodeName)
+		}
+	}()
+
 	// Guardar la llave privada de forma persistente (GAP 2)
 	keyDir := filepath.Join(homeDir, ".ssh")
 	os.MkdirAll(keyDir, 0700)
@@ -115,5 +124,6 @@ func (uc *ProvisionWorkerUseCase) Execute(config domain.ServerConfig, nodeName s
 	}
 
 	fmt.Println("🎉 ¡Nodo provisionado y asegurado exitosamente!")
+	setupSuccess = true
 	return newIP, nil
 }
