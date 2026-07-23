@@ -23,7 +23,10 @@ func NewProvisionWorkerUseCase(ssh ports.SSHExecutor) ports.ProvisionWorkerUseCa
 }
 
 func (uc *ProvisionWorkerUseCase) Execute(config domain.ServerConfig, nodeName string, labelType string) (string, error) {
-	if config.VultrAPIToken == "" {
+	if config.CloudProvider == "digitalocean" && config.DOAPIToken == "" {
+		return "", fmt.Errorf("se requiere un Token de API de DigitalOcean configurado en el servidor para crear nodos automáticos")
+	}
+	if config.CloudProvider == "vultr" && config.VultrAPIToken == "" {
 		return "", fmt.Errorf("se requiere un Token de API de Vultr configurado en el servidor para crear nodos automáticos")
 	}
 
@@ -38,14 +41,25 @@ func (uc *ProvisionWorkerUseCase) Execute(config domain.ServerConfig, nodeName s
 	fmt.Printf("🏗️  [2/6] Provisionando VM '%s' vía Terraform (Idempotente)...\n", nodeName)
 	var provisioner ports.Provisioner
 	homeDir, _ := os.UserHomeDir()
+	var activeToken string
+	var region string
 	if uc.Provisioner != nil {
 		provisioner = uc.Provisioner
+		activeToken = "mock"
 	} else {
 		workspace := filepath.Join(homeDir, ".config", "tarhiata", "terraform", "worker_"+nodeName)
-		provisioner = repositories.NewVultrProvisioner(workspace)
+		if config.CloudProvider == "digitalocean" {
+			provisioner = repositories.NewDigitalOceanProvisioner(workspace)
+			activeToken = config.DOAPIToken
+			region = "nyc1"
+		} else {
+			provisioner = repositories.NewVultrProvisioner(workspace)
+			activeToken = config.VultrAPIToken
+			region = "ewr"
+		}
 	}
 
-	newIP, privKeyContent, err := provisioner.ProvisionNode(config.VultrAPIToken, nodeName, "ewr")
+	newIP, privKeyContent, err := provisioner.ProvisionNode(activeToken, nodeName, region)
 	if err != nil {
 		return newIP, fmt.Errorf("falló provisionamiento terraform: %w", err)
 	}
@@ -57,7 +71,7 @@ func (uc *ProvisionWorkerUseCase) Execute(config domain.ServerConfig, nodeName s
 	defer func() {
 		if !setupSuccess {
 			fmt.Println("⚠️ Ocurrió un error en la configuración. Ejecutando ROLLBACK (terraform destroy) para evitar costos fantasma...")
-			provisioner.DestroyNode(config.VultrAPIToken, nodeName)
+			provisioner.DestroyNode(activeToken, nodeName)
 		}
 	}()
 

@@ -24,6 +24,7 @@ func TestProvisionWorker_Execute(t *testing.T) {
 			name: "Provision worker success",
 			config: domain.ServerConfig{
 				VultrAPIToken: "mock-token",
+				CloudProvider: "vultr",
 				Host:       "1.1.1.1",
 			},
 			nodeName:    "worker-1",
@@ -43,6 +44,7 @@ func TestProvisionWorker_Execute(t *testing.T) {
 			name: "Fails without DO Token",
 			config: domain.ServerConfig{
 				VultrAPIToken: "",
+				CloudProvider: "vultr",
 			},
 			expectError: true,
 		},

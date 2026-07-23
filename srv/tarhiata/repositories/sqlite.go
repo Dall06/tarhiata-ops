@@ -61,6 +61,16 @@ func (r *SQLiteRepository) migrate() error {
 		return errAlter0
 	}
 
+	_, errAlterConfig1 := r.db.Exec("ALTER TABLE server_config ADD COLUMN do_api_token TEXT NOT NULL DEFAULT '';")
+	if errAlterConfig1 != nil && !strings.Contains(errAlterConfig1.Error(), "duplicate column name") {
+		return errAlterConfig1
+	}
+
+	_, errAlterConfig2 := r.db.Exec("ALTER TABLE server_config ADD COLUMN cloud_provider TEXT NOT NULL DEFAULT 'vultr';")
+	if errAlterConfig2 != nil && !strings.Contains(errAlterConfig2.Error(), "duplicate column name") {
+		return errAlterConfig2
+	}
+
 	// Tabla del catálogo de servicios
 	queryServices := `
 	CREATE TABLE IF NOT EXISTS services (
@@ -139,25 +149,27 @@ func (r *SQLiteRepository) migrate() error {
 func (r *SQLiteRepository) SaveServerConfig(config domain.ServerConfig) error {
 	// Usamos UPSERT: Inserta si no existe, si existe lo actualiza.
 	query := `
-	INSERT INTO server_config (id, host, port, user, private_key, vultr_api_token) 
-	VALUES (1, ?, ?, ?, ?, ?)
+	INSERT INTO server_config (id, host, port, user, private_key, vultr_api_token, do_api_token, cloud_provider) 
+	VALUES (1, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET 
 		host=excluded.host, 
 		port=excluded.port, 
 		user=excluded.user, 
 		private_key=excluded.private_key,
-		vultr_api_token=excluded.vultr_api_token;`
+		vultr_api_token=excluded.vultr_api_token,
+		do_api_token=excluded.do_api_token,
+		cloud_provider=excluded.cloud_provider;`
 
-	_, err := r.db.Exec(query, config.Host, config.Port, config.User, config.PrivateKey, config.VultrAPIToken)
+	_, err := r.db.Exec(query, config.Host, config.Port, config.User, config.PrivateKey, config.VultrAPIToken, config.DOAPIToken, config.CloudProvider)
 	return err
 }
 
 func (r *SQLiteRepository) GetServerConfig() (*domain.ServerConfig, error) {
-	query := `SELECT host, port, user, private_key, vultr_api_token FROM server_config WHERE id = 1;`
+	query := `SELECT host, port, user, private_key, vultr_api_token, do_api_token, cloud_provider FROM server_config WHERE id = 1;`
 	row := r.db.QueryRow(query)
 
 	var config domain.ServerConfig
-	err := row.Scan(&config.Host, &config.Port, &config.User, &config.PrivateKey, &config.VultrAPIToken)
+	err := row.Scan(&config.Host, &config.Port, &config.User, &config.PrivateKey, &config.VultrAPIToken, &config.DOAPIToken, &config.CloudProvider)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil // No hay error, simplemente no hay configuración guardada aún
