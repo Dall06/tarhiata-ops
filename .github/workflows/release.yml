@@ -1,0 +1,50 @@
+name: Build and Release Binaries
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build Multi-Platform Binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Build Cross-Platform Binaries & SHA256 Checksums
+        run: |
+          mkdir -p dist
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o dist/tarhiata-darwin-arm64 cmd/tarhiata/main.go
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o dist/tarhiata-darwin-amd64 cmd/tarhiata/main.go
+          GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dist/tarhiata-linux-amd64 cmd/tarhiata/main.go
+          GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dist/tarhiata-linux-arm64 cmd/tarhiata/main.go
+          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o dist/tarhiata-windows-amd64.exe cmd/tarhiata/main.go
+          cd dist && sha256sum * > SHA256SUMS.txt
+
+      - name: Create or Update Dynamic GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v1.0.0-beta' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && format('Tarhiata-Ops {0}', github.ref_name) || 'Tarhiata-Ops v1.0.0-beta (Beta Release)' }}
+          body: |
+            ## ⚡ Tarhiata-Ops Pre-compiled Release
+            Descargas directas pre-compiladas para macOS (Apple Silicon & Intel), Linux (x86_64 & ARM64) y Windows.
+            
+            ### 🔐 Verificación de Integridad
+            Consulta `SHA256SUMS.txt` para verificar los hashes checksums de cada binario.
+          draft: false
+          prerelease: true
+          make_latest: true

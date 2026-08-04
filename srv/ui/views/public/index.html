@@ -1,0 +1,1922 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>tarhiata-ops dashboard --live</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <!-- Alpine.js 3.x CDN for Lightweight Declarative Reactivity without Node/npm -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body>
+    <!-- Toast Notification Overlay Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Top Terminal Command Bar -->
+    <header class="top-bar">
+        <div class="terminal-cmd">
+            <span class="cmd-symbol">&gt;</span>
+            <span class="cmd-text">tarhiata-ops dashboard --live</span>
+            <span class="live-pulse"></span>
+        </div>
+        <div class="cmd-actions">
+            <button class="palette-trigger-btn" id="btnHeaderRefresh" onclick="loadDashboardData(true)" style="border-color: rgba(59,130,246,0.6); color: #60a5fa;" title="Validar estado de red y refrescar dashboard (Auto-validación 15s)">
+                <span class="cmd-k-badge" style="background: rgba(59,130,246,0.2); color: #60a5fa;">🔄</span> Refrescar
+            </button>
+            <button class="palette-trigger-btn" id="btnOpenTerminal" onclick="openTerminalModal()">
+                <span class="cmd-k-badge">&gt;_ CLI</span> Node Terminal
+            </button>
+            <button class="palette-trigger-btn" id="btnNotifications" onclick="openModal('notificationsModal')" title="Centro de Notificaciones e Historial">
+                🔔 <span id="notificationBadgeCount" class="cmd-k-badge" style="background:rgba(52,211,153,0.2); color:#34d399;">0</span>
+            </button>
+            <button class="palette-trigger-btn" id="btnLangToggle" onclick="toggleLanguage()" title="Cambiar Idioma / Switch Language" style="border-color: rgba(168,85,247,0.6); color: #c084fc;">
+                <span class="cmd-k-badge" id="langBadge" style="background: rgba(168,85,247,0.2); color: #c084fc;">🌐 ES</span> <span id="langText">ES</span>
+            </button>
+            <button class="palette-trigger-btn" id="btnOpenPalette">
+                <span class="cmd-k-badge">⌘K</span> Command Palette
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Grid Dashboard (Vercel Terminal Aesthetic - Prioritized Single-Screen System) -->
+    <!-- Main Grid Dashboard (Railway / Vercel Aesthetic) -->
+    <main class="dashboard-grid">
+        <!-- LEFT MAIN OPERATIONAL SECTION: Services Table + Topology Map -->
+        <div class="main-left-col">
+            <!-- 1. Services & Databases Catalog -->
+            <div class="card card-services">
+                <div class="card-title-bar" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span class="card-title"><span class="card-icon">&gt;_</span> <span data-i18n="catalogTitle">Catálogo de Servicios &amp; Bases de Datos</span></span>
+                    <div style="display: flex; gap: 6px;">
+                        <button class="btn btn-primary" style="padding: 3px 10px; font-size: 0.75rem;" onclick="openModal('deployServiceModal')" data-i18n="deployServiceBtn">+ Desplegar Servicio</button>
+                        <button class="btn btn-outline" style="padding: 3px 10px; font-size: 0.75rem;" onclick="openModal('deployDBModal')" data-i18n="createDbBtn">+ Crear BD</button>
+                    </div>
+                </div>
+                <!-- Real-time Catalog Filter Search Bar -->
+                <div style="margin-bottom: 10px;">
+                    <input type="text" id="catalogSearchInput" class="term-input" placeholder="🔍 Filtrar servicios y BDs en vivo por nombre o motor... (ej. api, postgres, redis)" data-i18n-placeholder="searchPlaceholder" oninput="filterCatalogList()">
+                </div>
+                <div class="catalog-list" id="catalogList">
+                    <div class="text-muted p-2" data-i18n="loadingCatalog">Cargando catálogo desde SQLite...</div>
+                </div>
+            </div>
+
+            <!-- 2. Interconnection Diagram & Network Topology -->
+            <div class="card card-topology">
+                <div class="card-title-bar" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span class="card-title"><span class="card-icon">🗺️</span> <span data-i18n="topologyTitle">Diagrama de Flujo &amp; Red</span></span>
+                        <span class="badge badge-blue">tarhiata_internal</span>
+                    </div>
+                    <div style="display: flex; gap: 6px;">
+                        <button class="btn btn-outline" style="padding: 3px 8px; font-size: 0.75rem;" onclick="viewTopologyAction()" title="Ver topología de red escrita" data-i18n-title="viewTopologyTitle">❓</button>
+                        <button class="btn btn-primary" style="padding: 3px 10px; font-size: 0.75rem;" onclick="openLinkModal()" data-i18n="linkBtn">+ Enlazar A ➔ B</button>
+                        <button class="btn btn-outline" style="padding: 3px 8px; font-size: 0.75rem;" onclick="renderTopologyMap()">🔄</button>
+                    </div>
+                </div>
+
+                <!-- Interactive Visual Canvas Container (Flowchart Canvas) -->
+                <div id="topologyCanvas" style="padding: 14px; min-height: 280px; background: #09090b; border: 1px solid var(--card-border); border-radius: 6px; margin-top: 4px;">
+                    <div class="text-muted p-2" style="text-align: center;" data-i18n="loadingTopology">Cargando diagrama de flujo de red...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT SIDEBAR: Global Server Telemetry & System Status -->
+        <aside class="main-right-col" style="display: flex; flex-direction: column; gap: 16px;">
+            <!-- Global Telemetry & Server Status -->
+            <div class="card card-status">
+                <div class="card-title-bar" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span class="card-title"><span class="card-icon">⊟</span> <span data-i18n="vpsMetricsTitle">Métrica General del VPS</span></span>
+                    <div class="status-badge-green" id="vpsStatusBadge" style="font-size: 0.72rem; padding: 2px 8px;">
+                        <span class="dot-g"></span> <span data-i18n="vpsStatusConnected">CONNECTED</span>
+                    </div>
+                </div>
+                <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 8px;"><span data-i18n="vpsHostLabel">Host:</span> <strong id="vpsHostText" style="color: var(--text-primary);">157.230.12.8</strong></div>
+
+                <!-- SVG Real-Time CPU/RAM Line Chart -->
+                <div class="chart-container" style="margin-bottom: 10px;">
+                    <svg viewBox="0 0 400 120" class="live-chart">
+                        <defs>
+                            <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#34d399" stop-opacity="0.4"/>
+                                <stop offset="100%" stop-color="#34d399" stop-opacity="0.0"/>
+                            </linearGradient>
+                        </defs>
+                        <path d="M 0,80 Q 40,70 80,90 T 160,85 T 240,40 T 320,45 L 400,45 L 400,120 L 0,120 Z" fill="url(#chartGrad)"/>
+                        <path d="M 0,80 Q 40,70 80,90 T 160,85 T 240,40 T 320,45 L 400,45" fill="none" stroke="#34d399" stroke-width="2"/>
+                        <path d="M 0,95 Q 50,85 100,98 T 200,90 T 300,88 L 400,85" fill="none" stroke="#60a5fa" stroke-width="1.5" stroke-dasharray="4"/>
+                    </svg>
+                </div>
+
+                <div class="metric-footer-line" style="margin-bottom: 10px; font-size: 0.78rem; display: flex; justify-content: space-between;">
+                    <span>CPU: <strong id="cpuText">14%</strong></span>
+                    <span>RAM: <strong id="ramText">2.1GB / 8GB</strong></span>
+                    <span>Swarm: <strong data-i18n="swarmRoleMaster">Master</strong></span>
+                </div>
+
+                <!-- 4 Main Telemetry Stats -->
+                <div class="metrics-stats-grid" style="grid-template-columns: 1fr 1fr; gap: 8px;">
+                    <div class="m-stat" style="padding: 6px 8px;">
+                        <div class="m-label" data-i18n="statActiveApps">Active Apps</div>
+                        <div class="m-val val-green" style="font-size: 0.95rem;" id="totalAppsVal">0</div>
+                        <div class="m-sub" data-i18n="subSwarmContainers">Swarm Containers</div>
+                    </div>
+                    <div class="m-stat" style="padding: 6px 8px;">
+                        <div class="m-label" data-i18n="statActiveDbs">Active DBs</div>
+                        <div class="m-val val-green" style="font-size: 0.95rem;" id="totalDBsVal">0</div>
+                        <div class="m-sub" data-i18n="subOverlayIsolated">Overlay Isolated</div>
+                    </div>
+                    <div class="m-stat" style="padding: 6px 8px;">
+                        <div class="m-label" data-i18n="statSwarmNodes">Swarm Nodes</div>
+                        <div class="m-val val-green" style="font-size: 0.95rem;" id="nodesCountVal">1 Node Active</div>
+                        <div class="m-sub" data-i18n="subMasterVps">Master VPS</div>
+                    </div>
+                    <div class="m-stat" style="padding: 6px 8px;">
+                        <div class="m-label" data-i18n="statDiskStorage">Disk Storage</div>
+                        <div class="m-val" style="font-size: 0.82rem;" id="diskUsageVal">14.2 GB / 50 GB</div>
+                        <div class="m-sub">/opt/data</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cloud Billing & Plan -->
+            <div class="card card-vm-health">
+                <div class="card-title-bar">
+                    <span class="card-title"><span class="card-icon">💳</span> <span data-i18n="cloudBillingTitle">Cloud Billing &amp; Plan</span></span>
+                </div>
+                <div class="metrics-stats-grid" style="grid-template-columns: 1fr; gap: 8px; margin-top: 4px;">
+                    <div class="m-stat" style="background: rgba(0, 255, 136, 0.05); border: 1px solid rgba(0, 255, 136, 0.2); padding: 8px 10px;">
+                        <div class="m-label" style="display:flex; justify-content:space-between; align-items:center;">
+                            <span data-i18n="planName">Plan Pro VPS (Self-Hosted)</span>
+                            <span class="badge badge-green" style="font-size:0.65rem;">$0.008/hr</span>
+                        </div>
+                        <div class="m-val val-green" style="font-size: 1.05rem; margin: 2px 0;" id="billingVal">Plan Pro ($6.00/mo)</div>
+                        <div class="m-sub" style="color: var(--text-primary);" id="billingSubVal">Est. Cost: $6.00/mo • Consumo: $1.80</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Swarm Nodes & Workers -->
+            <div class="card card-nodes">
+                <div class="card-title-bar" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span class="card-title"><span class="card-icon">🌐</span> <span data-i18n="swarmNodesTitle">Swarm Nodes</span></span>
+                    <div style="display: flex; gap: 4px;">
+                        <button class="btn btn-outline" style="padding: 2px 6px; font-size: 0.7rem;" onclick="showJoinTokenModal()" data-i18n="tokenBtn">📋 Token</button>
+                        <button class="btn btn-primary" style="padding: 2px 6px; font-size: 0.7rem;" onclick="openModal('workerModal')" data-i18n="workerBtn">+ Worker</button>
+                    </div>
+                </div>
+                <div class="catalog-list" id="nodesList">
+                    <div class="text-muted p-2" data-i18n="loadingNodes">Cargando nodos del clúster Swarm...</div>
+                </div>
+            </div>
+
+            <!-- Backups & Snapshots -->
+            <div class="card card-links">
+                <div class="card-title-bar" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span class="card-title"><span class="card-icon">💾</span> <span data-i18n="backupsTitle">Backups &amp; Snapshots</span></span>
+                    <button class="btn btn-primary" style="padding: 2px 8px; font-size: 0.72rem;" onclick="openBackupModal()" data-i18n="snapshotBtn">+ Snapshot</button>
+                </div>
+                <div class="catalog-list" id="backupsList">
+                    <div class="text-muted p-2" data-i18n="loadingBackups">Cargando snapshots...</div>
+                </div>
+            </div>
+
+            <!-- Preview Envs -->
+            <div class="card card-previews">
+                <div class="card-title-bar" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span class="card-title"><span class="card-icon">🧪</span> <span data-i18n="previewTitle">Preview Envs</span></span>
+                    <button class="btn btn-outline" style="padding: 2px 8px; font-size: 0.72rem;" onclick="openModal('previewModal')" data-i18n="previewBtn">+ Preview</button>
+                </div>
+                <div class="catalog-list" id="previewsList">
+                    <div class="text-muted p-2" data-i18n="loadingPreviews">Cargando entornos de prueba...</div>
+                </div>
+            </div>
+        </aside>
+    </main>
+    <!-- UNIFIED RESOURCE INSPECTOR MODAL (Railway / Vercel Aesthetic) -->
+    <div class="modal-overlay" id="resourceInspectorModal">
+        <div class="modal-card inspector-modal-card" style="max-width: 920px; width: 95%;">
+            <!-- Header -->
+            <div class="modal-header inspector-header">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span id="inspectorIcon" style="font-size: 1.8rem;">🚀</span>
+                    <div>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <h2 id="inspectorTitle" style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary);">service-name</h2>
+                            <span id="inspectorTypeBadge" class="badge badge-blue">App Service</span>
+                            <span id="inspectorStatusBadge" class="badge badge-green">● Running</span>
+                        </div>
+                        <div id="inspectorSubtitle" style="font-size: 0.78rem; color: var(--text-muted); margin-top: 2px;">Image: node:18-alpine • Port: 3000</div>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 6px; align-items: center;">
+                    <a id="inspectorOpenUrlBtn" href="#" target="_blank" class="btn btn-outline" style="display: none; padding: 4px 10px; font-size: 0.75rem;" data-i18n="inspectorOpenUrl">🌐 Abrir URL</a>
+                    <button class="btn btn-danger" style="padding: 4px 10px; font-size: 0.75rem;" onclick="deleteCurrentInspectorResource()" data-i18n="inspectorDelete">🗑️ Eliminar</button>
+                    <button class="close-btn" onclick="closeModal('resourceInspectorModal')">×</button>
+                </div>
+            </div>
+
+            <!-- Tab Navigation Bar -->
+            <div class="inspector-tab-bar">
+                <button class="inspector-tab-btn active" id="tabBtnMetrics" onclick="switchInspectorTab('metrics')" data-i18n="tabMetrics">📊 Métricas</button>
+                <button class="inspector-tab-btn" id="tabBtnLogs" onclick="switchInspectorTab('logs')" data-i18n="tabLogs">📜 Logs</button>
+                <button class="inspector-tab-btn" id="tabBtnEnvs" onclick="switchInspectorTab('envs')" data-i18n="tabEnvs">🔑 Variables (.env)</button>
+                <button class="inspector-tab-btn" id="tabBtnRollback" onclick="switchInspectorTab('rollback')" data-i18n="tabRollback">⏪ Rollback</button>
+                <button class="inspector-tab-btn" id="tabBtnBackups" onclick="switchInspectorTab('backups')" data-i18n="tabBackups">💾 Snapshots / Respaldos</button>
+                <button class="inspector-tab-btn" id="tabBtnConfig" onclick="switchInspectorTab('config')" data-i18n="tabConfig">⚙️ Configuración</button>
+            </div>
+
+            <!-- Tab Content Panels -->
+            <div class="inspector-tab-body">
+                <!-- PANEL 1: Métricas -->
+                <div class="inspector-pane active" id="paneMetrics">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <span style="font-size: 0.75rem; color: var(--text-muted);" data-i18n="autoValidateText">⏱️ Auto-validación de estado de red cada 15 segundos</span>
+                        <button type="button" class="btn btn-outline" style="padding: 3px 8px; font-size: 0.72rem;" onclick="loadInspectorMetrics(true)" data-i18n="btnValidateNow">🔄 Validar Conexión Ahora</button>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px;">
+                        <div class="m-stat" style="padding: 10px;">
+                            <div class="m-label" data-i18n="statReplicasLabel">Estado de Réplicas</div>
+                            <div class="m-val val-green" style="font-size: 1.1rem;" id="inspMetricReplicas">1/1 Active</div>
+                            <div class="m-sub">Docker Swarm Mode</div>
+                        </div>
+                        <div class="m-stat" style="padding: 10px;">
+                            <div class="m-label" data-i18n="statRamLabel">Uso de Memoria (RAM)</div>
+                            <div class="m-val" style="font-size: 1.1rem; color: #60a5fa;" id="inspMetricRam">42.8 MB</div>
+                            <div class="m-sub">Límite: Sin Restricción</div>
+                        </div>
+                        <div class="m-stat" style="padding: 10px;">
+                            <div class="m-label" data-i18n="statPortLabel">Puerto Interno / Exposición</div>
+                            <div class="m-val" style="font-size: 1.1rem; color: #c084fc;" id="inspMetricPort">3000 / Traefik</div>
+                            <div class="m-sub" id="inspMetricExpose">Privado (Internal)</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 14px; background: #09090b; border: 1px solid var(--card-border); border-radius: 8px; padding: 12px;">
+                        <div style="font-size: 0.8rem; font-weight: 600; color: #cbd5e1; margin-bottom: 8px; display: flex; justify-content: space-between;">
+                            <span data-i18n="realtimeStatsTitle">⚡ Métricas en Tiempo Real (cgroups / Docker Stats)</span>
+                            <span id="inspStatsCpuBadge" class="badge badge-blue">CPU: --</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; font-family: var(--font-mono); font-size: 0.78rem;">
+                            <div style="background: #121215; padding: 8px; border-radius: 6px; border: 1px solid #27272a;">
+                                <div style="color: #94a3b8; font-size: 0.7rem;" data-i18n="cpuUsageLabel">CPU Usage</div>
+                                <div id="inspStatCpu" style="font-weight: 700; color: #34d399;">--</div>
+                            </div>
+                            <div style="background: #121215; padding: 8px; border-radius: 6px; border: 1px solid #27272a;">
+                                <div style="color: #94a3b8; font-size: 0.7rem;" data-i18n="ramUsageLabel">RAM Usage</div>
+                                <div id="inspStatMem" style="font-weight: 700; color: #60a5fa;">--</div>
+                            </div>
+                            <div style="background: #121215; padding: 8px; border-radius: 6px; border: 1px solid #27272a;">
+                                <div style="color: #94a3b8; font-size: 0.7rem;" data-i18n="netIoLabel">Network I/O</div>
+                                <div id="inspStatNet" style="font-weight: 700; color: #a78bfa;">--</div>
+                            </div>
+                            <div style="background: #121215; padding: 8px; border-radius: 6px; border: 1px solid #27272a;">
+                                <div style="color: #94a3b8; font-size: 0.7rem;" data-i18n="diskIoLabel">Disk Block I/O</div>
+                                <div id="inspStatBlock" style="font-weight: 700; color: #facc15;">--</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="chart-container" style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px;">
+                        <div style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;" data-i18n="telemetryChartTitle">Telemetría CPU &amp; RAM en Tiempo Real</div>
+                        <svg viewBox="0 0 400 120" class="live-chart">
+                            <path d="M 0,80 Q 40,70 80,90 T 160,85 T 240,40 T 320,45 L 400,45 L 400,120 L 0,120 Z" fill="url(#chartGrad)"/>
+                            <path d="M 0,80 Q 40,70 80,90 T 160,85 T 240,40 T 320,45 L 400,45" fill="none" stroke="#34d399" stroke-width="2"/>
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- PANEL 2: Logs -->
+                <div class="inspector-pane" id="paneLogs">
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px;">
+                        <input type="text" id="inspLogGrepInput" class="term-input" style="padding: 2px 8px; font-size: 0.75rem; flex: 1; min-width: 140px;" placeholder="🔍 Buscar en logs (grep)..." data-i18n-placeholder="logGrepPlaceholder" oninput="filterInspectorLogs()">
+                        <select id="inspLogLevelSelect" class="term-input" style="padding: 2px 6px; font-size: 0.75rem;" onchange="filterInspectorLogs()">
+                            <option value="all" data-i18n="logLevelAll">Todos los Niveles</option>
+                            <option value="error" data-i18n="logLevelError">Solo Error / Fatal</option>
+                            <option value="warn" data-i18n="logLevelWarn">Solo Warn / Warning</option>
+                            <option value="info" data-i18n="logLevelInfo">Solo Info</option>
+                        </select>
+                        <select id="inspLogLinesSelect" class="term-input" style="padding: 2px 6px; font-size: 0.75rem;" onchange="loadInspectorLogs()">
+                            <option value="50">50 líneas</option>
+                            <option value="100" selected>100 líneas</option>
+                            <option value="200">200 líneas</option>
+                            <option value="500">500 líneas</option>
+                        </select>
+                        <button class="btn btn-outline" style="padding: 3px 8px; font-size: 0.72rem;" onclick="downloadInspectorLogs()" data-i18n="btnDownloadLogs">📥 Descargar (.txt)</button>
+                        <button class="btn btn-outline" style="padding: 3px 8px; font-size: 0.72rem;" onclick="loadInspectorLogs()" data-i18n="refresh">🔄 Refrescar</button>
+                    </div>
+                    <div id="inspLogContent" style="background: #090d16; border: 1px solid var(--card-border); border-radius: 6px; padding: 12px; font-family: var(--font-mono); font-size: 0.78rem; color: #60a5fa; height: 280px; overflow-y: auto; white-space: pre-wrap;" data-i18n="loadingLogs">
+                        Cargando logs del servicio...
+                    </div>
+                </div>
+
+                <!-- PANEL 3: Variables de Entorno -->
+                <div class="inspector-pane" id="paneEnvs">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 6px;">
+                        <div style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);" data-i18n="envTitle">Variables de Ambiente (.env) Inyectadas</div>
+                        <div style="display: flex; gap: 6px;">
+                            <button class="btn btn-outline" style="padding: 3px 8px; font-size: 0.75rem;" onclick="toggleEnvSecretMasking()" id="btnToggleEnvMask" data-i18n="btnHideSecrets">👁️ Ocultar Secretos</button>
+                            <button class="btn btn-outline" style="padding: 3px 8px; font-size: 0.75rem;" onclick="toggleEnvEditorMode()" id="btnToggleEnvMode" data-i18n="btnTableMode">⇄ Modo Tabla</button>
+                            <label class="btn btn-outline" style="padding: 3px 10px; font-size: 0.75rem; cursor: pointer;">
+                                <span data-i18n="btnImportEnv">📤 Importar .env</span>
+                                <input type="file" accept=".env,text/plain" style="display:none;" onchange="importInspectorEnvFile(event)">
+                            </label>
+                        </div>
+                    </div>
+                    <div id="envRawEditorContainer">
+                        <textarea id="inspEnvTextarea" class="term-input" rows="10" style="width: 100%; font-family: var(--font-mono); font-size: 0.82rem;" placeholder="PORT=3000&#10;DATABASE_URL=postgres://..."></textarea>
+                    </div>
+                    <div id="envTableEditorContainer" style="display: none; max-height: 250px; overflow-y: auto; background: #090d16; border: 1px solid var(--card-border); border-radius: 6px; padding: 10px;">
+                        <table style="width: 100%; font-size: 0.8rem; border-collapse: collapse;">
+                            <thead>
+                                <tr style="border-bottom: 1px solid var(--card-border); color: var(--text-muted);">
+                                    <th style="text-align: left; padding: 6px;" data-i18n="envKeyHeader">Variable (Key)</th>
+                                    <th style="text-align: left; padding: 6px;" data-i18n="envValueHeader">Valor (Value)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="envTableBody"></tbody>
+                        </table>
+                    </div>
+                    <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+                        <button class="btn btn-primary" onclick="saveInspectorEnvs()" data-i18n="btnSaveEnvs">💾 Guardar &amp; Inyectar en Swarm</button>
+                    </div>
+                </div>
+
+                <!-- PANEL 4: Rollback -->
+                <div class="inspector-pane" id="paneRollback">
+                    <div style="background: rgba(251, 191, 36, 0.08); border: 1px solid rgba(251, 191, 36, 0.3); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+                        <h4 style="color: var(--accent-yellow); font-size: 0.95rem; margin-bottom: 6px;" data-i18n="rollbackWarningTitle">⚠️ Reversión de Versión en Docker Swarm</h4>
+                        <p style="font-size: 0.82rem; color: var(--text-secondary); line-height: 1.5;" data-i18n="rollbackWarningText">
+                            Esta operación ejecuta <code>docker service rollback</code> en el servidor remoto para este servicio. Se restaurará inmediatamente la imagen de contenedor y configuración previa registrada por Docker Swarm.
+                        </p>
+                    </div>
+                    <div style="display: flex; justify-content: center;">
+                        <button class="btn btn-danger" style="padding: 8px 20px; font-size: 0.88rem;" onclick="triggerInspectorRollback()" data-i18n="btnTriggerRollback">⚠️ Ejecutar Rollback a Revisión Previa</button>
+                    </div>
+                </div>
+
+                <!-- PANEL 5: Snapshots / Respaldos -->
+                <div class="inspector-pane" id="paneBackups">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <div style="font-size: 0.82rem; color: var(--text-secondary);" data-i18n="backupSectionTitle">Respaldos de Base de Datos y Snapshots</div>
+                        <button class="btn btn-primary" style="padding: 4px 12px; font-size: 0.75rem;" onclick="createInspectorSnapshot()" data-i18n="btnCreateSnapshot">+ Crear Snapshot 1-Click</button>
+                    </div>
+                    <div class="catalog-list" id="inspBackupsList">
+                        <div class="text-muted p-2" data-i18n="loadingBackupsList">Cargando lista de respaldos...</div>
+                    </div>
+                </div>
+
+                <!-- PANEL 6: Configuración -->
+                <div class="inspector-pane" id="paneConfig">
+                    <form id="inspConfigForm" onsubmit="saveInspectorConfig(event)">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                            <div class="form-group">
+                                <label class="form-label" data-i18n="cfgNameLabel">Nombre del Recurso</label>
+                                <input type="text" id="inspCfgName" class="term-input" readonly>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" data-i18n="cfgImageLabel">Imagen / Motor</label>
+                                <input type="text" id="inspCfgImage" class="term-input">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" data-i18n="cfgPortLabel">Puerto Interno</label>
+                                <input type="number" id="inspCfgPort" class="term-input">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" data-i18n="cfgDomainLabel">Dominio / Subdominio HTTPS</label>
+                                <input type="text" id="inspCfgDomain" class="term-input" placeholder="ej. api.midominio.com">
+                            </div>
+                            <div class="form-group" style="grid-column: span 2;">
+                                <label class="form-label" data-i18n="cfgHealthLabel">Comando de Healthcheck (Opcional)</label>
+                                <input type="text" id="inspCfgHealth" class="term-input" placeholder="curl -f http://localhost:3000/health || exit 1">
+                            </div>
+                            <div class="form-group checkbox-group" style="grid-column: span 2; margin-top: 6px; background: rgba(255,255,255,0.03); padding: 10px 12px; border-radius: 6px; border: 1px solid var(--card-border);">
+                                <label style="cursor: pointer; display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: 0.85rem;">
+                                    <input type="checkbox" id="inspCfgExpose" style="width: 16px; height: 16px; accent-color: var(--accent-blue);">
+                                    <span data-i18n="cfgExposeLabel">🌐 Exponer servicio públicamente a Internet (Vía Traefik Reverse Proxy)</span>
+                                </label>
+                                <label style="cursor: pointer; display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: 0.85rem; margin-top: 6px;">
+                                    <input type="checkbox" id="inspCfgSSL" style="width: 16px; height: 16px; accent-color: var(--accent-green);">
+                                    <span data-i18n="cfgSSLLabel">🔒 Habilitar HTTPS / SSL Automático (Certificado Let's Encrypt)</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: flex-end; margin-top: 14px;">
+                            <button type="submit" class="btn btn-primary" data-i18n="btnSaveConfig">💾 Guardar Cambios de Configuración</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- FLOATING SPOTLIGHT SYSTEM TOOLS (Ctrl+K / Cmd+K) -->
+    <div class="palette-overlay" id="paletteOverlay">
+        <div class="palette-modal">
+            <div class="palette-input-wrap">
+                <span class="p-prompt">&gt;</span>
+                <input type="text" id="paletteInput" placeholder="Filtrar herramientas del sistema... (ej. ssl, env, link, rollback, tailscale)" data-i18n-placeholder="paletteSearchPlaceholder" autocomplete="off">
+                <span class="esc-badge">ESC</span>
+            </div>
+            <div class="palette-actions-list">
+                <!-- 00a. Crear VM en la Nube -->
+                <div class="palette-item" data-action="create-vm" data-keywords="crear vm provisionar vultr digitalocean droplet servidor nueva maquina instlar framework bootstrap">
+                    <span class="p-icon">⚡</span>
+                    <div>
+                        <div class="p-label" style="font-weight: 600;" data-i18n="pItemCreateVmLabel">Crear VM en la Nube &amp; Instalar Framework</div>
+                        <div style="font-size: 0.73rem; color: var(--text-muted);" data-i18n="pItemCreateVmSub">Aprovisionar una nueva VM en DigitalOcean/Vultr e instalar Docker, Swarm, Traefik y Observabilidad.</div>
+                    </div>
+                </div>
+
+                <!-- 00b. Instalar Framework en VM Conectada (BYO) -->
+                <div class="palette-item" data-action="byo-bootstrap" data-keywords="byo conectar vps existente instalar framework bootstrap ssh ip root framework swarm">
+                    <span class="p-icon">🚀</span>
+                    <div>
+                        <div class="p-label" style="font-weight: 600;" data-i18n="pItemByoLabel">Instalar Framework en VM Conectada (BYO)</div>
+                        <div style="font-size: 0.73rem; color: var(--text-muted);" data-i18n="pItemByoSub">Conectar a un servidor existente vía SSH e inicializar Docker, Swarm, Traefik SSL y Observabilidad.</div>
+                    </div>
+                </div>
+
+                <!-- 0a. Master 1-Click Setup -->
+                <div class="palette-item" data-action="bootstrap-master" data-keywords="master 1-click setup bootstrap provisionar swarm traefik inicializar instalacion rapida vps servidor">
+                    <span class="p-icon">🪄</span>
+                    <div>
+                        <div class="p-label" style="font-weight: 600;" data-i18n="pItemMasterLabel">Master 1-Click Setup (Inicializar VPS &amp; Swarm Cluster)</div>
+                        <div style="font-size: 0.73rem; color: var(--text-muted);" data-i18n="pItemMasterSub">Configuración automatizada 1-Click de Docker Swarm, Traefik y subredes en el servidor.</div>
+                    </div>
+                </div>
+
+                <!-- 0b. Subir Ficheros & Gestor de Volúmenes -->
+                <div class="palette-item" data-action="browse-volumes" data-keywords="subir ficheros cargar archivos upload volumenes opt data archivos almacenamiento persitencia explorer explorador datos respaldos">
+                    <span class="p-icon">📤</span>
+                    <div>
+                        <div class="p-label" style="font-weight: 600;" data-i18n="pItemVolumesLabel">Subir Ficheros &amp; Explorador de Volúmenes (/opt/data)</div>
+                        <div style="font-size: 0.73rem; color: var(--text-muted);" data-i18n="pItemVolumesSub">Cargar archivos a los volúmenes en disco del VPS y gestionar la persistencia de datos.</div>
+                    </div>
+                </div>
+
+                <!-- 1. SSL, Dominios & HTTPS -->
+                <div class="palette-item" data-action="manage-domains" data-keywords="ssl https tls cert certificados traefik letsencrypt let's encrypt dominios personalizados cname 301 redireccion seguridad vps swarm">
+                    <span class="p-icon">🔒</span>
+                    <div>
+                        <div class="p-label" style="font-weight: 600;" data-i18n="pItemSslLabel">Configurar SSL, Certificados HTTPS &amp; Dominios Personalizados</div>
+                        <div style="font-size: 0.73rem; color: var(--text-muted);" data-i18n="pItemSslSub">Activar SSL 1-Click (Let's Encrypt o Certificados Privados) y mapear a servicios.</div>
+                    </div>
+                </div>
+
+                <!-- 1b. Reiniciar Traefik Proxy -->
+                <div class="palette-item" data-action="restart-traefik" data-keywords="traefik proxy reload restart reiniciar forzar trafico 503 gateway ruteo">
+                    <span class="p-icon">🔄</span>
+                    <div>
+                        <div class="p-label" style="font-weight: 600;" data-i18n="pItemTraefikLabel">Reiniciar Servicio Traefik Proxy en Swarm</div>
+                        <div style="font-size: 0.73rem; color: var(--text-muted);" data-i18n="pItemTraefikSub">Forzar actualización del servicio Traefik para re-sincronizar reglas y certificados.</div>
+                    </div>
+                </div>
+
+                <!-- 2. Variables de Entorno -->
+                <div class="palette-item" data-action="manage-env" data-keywords="env variables entorno ambiente llaves secrets contraseñas configuracion llaves clave valor">
+                    <span class="p-icon">🔑</span>
+                    <div>
+                        <div class="p-label" style="font-weight: 600;" data-i18n="pItemEnvSecretsLabel">Editar Variables de Entorno (.env) &amp; Secrets</div>
+                        <div style="font-size: 0.73rem; color: var(--text-muted);" data-i18n="pItemEnvSecretsSub">Administrar variables de ambiente (.env) y secretos inyectados a las apps del clúster.</div>
+                    </div>
+                </div>
+
+                <!-- 3. Migraciones de BD -->
+                <div class="palette-item" data-action="manage-migrations" data-keywords="migraciones migration schema tablas sql migrate actualizar esquema base datos">
+                    <span class="p-icon">🔄</span>
+                    <div>
+                        <div class="p-label" style="font-weight: 600;" data-i18n="pItemDeployDbLabel">Administrar y Ejecutar Migraciones de Base de Datos</div>
+                        <div style="font-size: 0.73rem; color: var(--text-muted);" data-i18n="pItemDeployDbSub">Correr scripts de migración de tablas e índices en las bases de datos.</div>
+                    </div>
+                </div>
+
+                <!-- 4. Registros Privados Docker -->
+                <div class="palette-item" data-action="manage-registry" data-keywords="registry registro privado autenticacion token dockerhub ghcr gitlab credenciales imagen">
+                    <span class="p-icon">📦</span>
+                    <div>
+                        <div class="p-label" style="font-weight: 600;" data-i18n="pItemMinioLabel">Registros Privados de Docker (Autenticación Hub/GHCR)</div>
+                        <div style="font-size: 0.73rem; color: var(--text-muted);" data-i18n="pItemMinioSub">Configurar credenciales y tokens para descargar imágenes de repositorios privados.</div>
+                    </div>
+                </div>
+
+                <!-- 5. Logs de Auditoría del Sistema -->
+                <div class="palette-item" data-action="view-audit-logs" data-keywords="auditoria audit logs historia eventos seguridad rastreo usuarios cambios acciones">
+                    <span class="p-icon">📜</span>
+                    <div>
+                        <div class="p-label" style="font-weight: 600;" data-i18n="pItemAuditLabel">Logs de Auditoría del Sistema (Historial NDJSON)</div>
+                        <div style="font-size: 0.73rem; color: var(--text-muted);" data-i18n="pItemAuditSub">Consultar el registro inmutable de eventos de seguridad, despliegues y cambios.</div>
+                    </div>
+                </div>
+
+                <!-- 5. Credenciales VPS Master -->
+                <div class="palette-item" data-action="config-vps" data-keywords="configurar vps ip master ssh clave privada conectar servidor cambiar host ip">
+                    <span class="p-icon">⚙️</span>
+                    <div>
+                        <div class="p-label" style="font-weight: 600;" data-i18n="pItemNodesLabel">Configurar Credenciales del VPS (IP Master &amp; Claves SSH)</div>
+                        <div style="font-size: 0.73rem; color: var(--text-muted);" data-i18n="pItemNodesSub">Actualizar dirección IP del Master y llaves SSH de acceso al servidor.</div>
+                    </div>
+                </div>
+
+                <!-- 6. Gestión de Llaves SSH Autorizadas -->
+                <div class="palette-item" data-action="manage-ssh-keys" data-keywords="ssh llaves keys accesos desarrolladores equipo autorizadas agregar borrar vultr">
+                    <span class="p-icon">🔑</span>
+                    <div>
+                        <div class="p-label" style="font-weight: 600;" data-i18n="pItemSshKeysLabel">Gestión de Llaves SSH Autorizadas (Acceso de Desarrolladores)</div>
+                        <div style="font-size: 0.73rem; color: var(--text-muted);" data-i18n="pItemSshKeysSub">Ver llaves activas, revocar accesos de compañeros o agregar nuevas llaves públicas.</div>
+                    </div>
+                </div>
+
+                <!-- 6. Limpieza Prune -->
+                <div class="palette-item" data-action="docker-prune" data-keywords="limpiar disco prune purgar cache imagenes no usadas liberar espacio borrar contenedores">
+                    <span class="p-icon">🧹</span>
+                    <div>
+                        <div class="p-label" style="font-weight: 600;" data-i18n="pItemPruneLabel">Limpieza de Disco: Docker System Prune</div>
+                        <div style="font-size: 0.73rem; color: var(--text-muted);" data-i18n="pItemPruneSub">Liberar gigabytes eliminando imágenes sin usar, contenedores muertos y caché.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Interactive Node Terminal CLI -->
+    <div class="modal-overlay" id="cliTerminalModal">
+        <div class="modal-card" style="max-width: 850px; width: 95%;">
+            <div class="modal-header">
+                <h3>🖥️ CLI Terminal Remota de Nodos</h3>
+                <button class="close-btn" onclick="closeModal('cliTerminalModal')">×</button>
+            </div>
+            
+            <!-- Node Selector Toolbar -->
+            <div style="display: flex; align-items: center; justify-content: space-between; background: var(--bg-tertiary); padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <label style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">Nodo Activo:</label>
+                    <select id="nodeSelectDropdown" class="term-input" style="padding: 4px 8px; font-size: 0.85rem; width: auto; background: var(--bg-primary);" onchange="switchNodeTerminal(this.value)">
+                        <option value="manager">Manager Node (Swarm Master Host)</option>
+                    </select>
+                </div>
+                <div id="nodeStatusBadge" class="badge badge-green">Connected (SSH Active)</div>
+            </div>
+
+            <!-- Dark Terminal Execution Screen -->
+            <div class="terminal-screen" style="background: #090d16; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; display: flex; flex-direction: column; height: 360px;">
+                <div class="terminal-screen-header" style="background: #141b2d; padding: 6px 12px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color);">
+                    <div style="display: flex; gap: 6px;">
+                        <span style="width: 10px; height: 10px; border-radius: 50%; background: #ef4444; display: inline-block;"></span>
+                        <span style="width: 10px; height: 10px; border-radius: 50%; background: #f59e0b; display: inline-block;"></span>
+                        <span style="width: 10px; height: 10px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
+                    </div>
+                    <span id="termHeaderTitle" style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">root@manager:~#</span>
+                </div>
+                <div id="cliTerminalOutput" style="flex: 1; padding: 12px; font-family: var(--font-mono); font-size: 0.82rem; color: #34d399; overflow-y: auto; white-space: pre-wrap; line-height: 1.4;">
+--- TARHIATA-OPS INTERACTIVE NODE TERMINAL ---
+Conectado al nodo de la infraestructura. Selecciona un comando rápido o escribe tu instrucción.
+                </div>
+                <form id="formCliTerminal" style="display: flex; border-top: 1px solid var(--border-color); background: #0d1322;">
+                    <span id="termPromptPrefix" style="padding: 10px 12px; font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent-green); white-space: nowrap;">root@manager:~#</span>
+                    <input type="text" id="cliTerminalInput" autocomplete="off" style="flex: 1; background: transparent; border: none; outline: none; color: #fff; font-family: var(--font-mono); font-size: 0.85rem;" placeholder="docker service ls / docker node ls / ufw status...">
+                    <button type="submit" class="btn btn-primary" style="border-radius: 0; padding: 0 16px;">Run</button>
+                </form>
+            </div>
+
+            <!-- Quick Command Chips -->
+            <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px;">
+                <span style="font-size: 0.75rem; color: var(--text-muted); align-self: center;">Comandos Rápidos:</span>
+                <button type="button" class="btn btn-outline" style="padding: 2px 8px; font-size: 0.75rem;" onclick="runQuickCmd('docker service ls')">docker service ls</button>
+                <button type="button" class="btn btn-outline" style="padding: 2px 8px; font-size: 0.75rem;" onclick="runQuickCmd('docker node ls')">docker node ls</button>
+                <button type="button" class="btn btn-outline" style="padding: 2px 8px; font-size: 0.75rem;" onclick="runQuickCmd('ufw status')">ufw status</button>
+                <button type="button" class="btn btn-outline" style="padding: 2px 8px; font-size: 0.75rem;" onclick="runQuickCmd('df -h')">df -h</button>
+                <button type="button" class="btn btn-outline" style="padding: 2px 8px; font-size: 0.75rem;" onclick="runQuickCmd('tailscale status')">tailscale status</button>
+            </div>
+
+            <div class="modal-footer" style="margin-top: 12px;">
+                <button type="button" class="btn btn-outline" onclick="closeModal('cliTerminalModal')">Cerrar Terminal</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Link Services (A ➔ B) -->
+    <div class="modal-overlay" id="linkModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 data-i18n="modalLinkTitle">🔗 Interconectar Servicios (Link A ➔ B)</h3>
+                <button class="close-btn" onclick="closeModal('linkModal')">×</button>
+            </div>
+            <form id="formLink">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Servicio Origen (App A)</label>
+                        <input type="text" id="linkSource" class="term-input" placeholder="ej. api-backend" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Servicio/BD Destino (Target B)</label>
+                        <input type="text" id="linkTarget" class="term-input" placeholder="ej. db-postgres" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Nombre de Variable de Entorno Inyectada</label>
+                    <input type="text" id="linkEnvVar" class="term-input" value="DATABASE_URL" placeholder="DATABASE_URL / REDIS_URL / API_URL" required>
+                </div>
+                <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 8px;">
+                    <button type="button" class="btn btn-outline" style="padding: 6px 12px; font-size: 0.8rem;" onclick="closeModal('linkModal')" data-i18n="btnCancel">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" style="padding: 6px 14px; font-size: 0.8rem;" data-i18n="btnCreateLink">🔗 Crear Enlace &amp; Inyectar ENV</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Edit Service (Inspector & Editor) -->
+    <div class="modal-overlay" id="editServiceModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>✏️ Editar Servicio: <span id="editSvcTitle">name</span></h3>
+                <button class="close-btn" onclick="closeModal('editServiceModal')">×</button>
+            </div>
+            <form id="formEditService">
+                <input type="hidden" id="editSvcOriginalName">
+                <div class="form-group">
+                    <label>Imagen Docker / Git Repo</label>
+                    <input type="text" id="editSvcImage" class="term-input" required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Puerto Interno</label>
+                        <input type="number" id="editSvcPort" class="term-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Dominio Público</label>
+                        <input type="text" id="editSvcDomain" class="term-input">
+                    </div>
+                </div>
+                <div class="form-row" style="margin-top: 10px;">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="editSvcExpose"> Exponer a Internet (Traefik)
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="editSvcSSL"> Habilitar SSL/TLS Let's Encrypt
+                    </label>
+                </div>
+                <div class="form-group" style="margin-top: 12px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <label style="margin-bottom:0;">🔑 Variables de Entorno (.env)</label>
+                        <span id="editSvcInjectedBadge" class="badge badge-blue" style="font-size:0.7rem; display:none;">Link Inyectado</span>
+                    </div>
+                    <textarea id="editSvcEnvVars" class="term-input" style="height: 85px; font-family: var(--font-mono); font-size: 0.78rem; resize: vertical;" placeholder="KEY=VALUE&#10;PORT=8080&#10;DATABASE_URL=postgres://..."></textarea>
+                    <div id="editSvcInjectedPreview" style="font-size: 0.75rem; color: var(--accent-green); margin-top: 5px; font-family: var(--font-mono); background: rgba(0,255,136,0.05); padding: 6px 8px; border-radius: 4px; border: 1px dashed rgba(0,255,136,0.2); display:none;"></div>
+                </div>
+                <div class="form-group" style="margin-top: 10px;">
+                    <label>Comando Healthcheck (Opcional)</label>
+                    <input type="text" id="editSvcHealthcheck" class="term-input" placeholder="curl -f http://localhost/ || exit 1">
+                </div>
+                <div class="form-group" style="margin-top: 10px;">
+                    <label>🔄 Pre-Deploy Migration Hook (Opcional)</label>
+                    <input type="text" id="editSvcPreDeployHook" class="term-input" placeholder="ej. npx prisma db push ó python manage.py migrate">
+                </div>
+                <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" class="btn btn-danger" style="padding: 6px 12px; font-size: 0.8rem;" onclick="deleteServiceFromModalAction()">🗑️ Eliminar</button>
+                        <button type="button" class="btn btn-outline" style="padding: 6px 12px; font-size: 0.8rem; border-color:var(--accent-yellow); color:var(--accent-yellow);" onclick="rollbackServiceFromModalAction()">⚠️ Rollback</button>
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" class="btn btn-outline" style="padding: 6px 12px; font-size: 0.8rem;" onclick="closeModal('editServiceModal')">Cancelar</button>
+                        <button type="submit" class="btn btn-primary" style="padding: 6px 14px; font-size: 0.8rem;">💾 Guardar Cambios</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Edit Database (Inspector & Editor) -->
+    <div class="modal-overlay" id="editDBModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>🗄️ Detalle / Editar Base de Datos: <span id="editDBTitle">name</span></h3>
+                <button class="close-btn" onclick="closeModal('editDBModal')">×</button>
+            </div>
+            <form id="formEditDB">
+                <input type="hidden" id="editDBOriginalName">
+                <div class="form-group">
+                    <label>Motor de Base de Datos</label>
+                    <input type="text" id="editDBEngine" class="term-input" readonly disabled>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Puerto Interno (Overlay)</label>
+                        <input type="number" id="editDBPort" class="term-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Tipo de Despliegue</label>
+                        <input type="text" id="editDBDeployType" class="term-input" readonly disabled>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>DNS / Connection String Interno (Oculto)</label>
+                    <input type="text" id="editDBInternalURI" class="term-input" readonly style="font-family: var(--font-mono); color: var(--accent-green);">
+                </div>
+                <div class="form-group" style="margin-top: 10px;">
+                    <label>📍 Afinidad / Target Swarm Node</label>
+                    <select id="editDBNode" class="term-input">
+                        <option value="manager">Manager Node (Predeterminado)</option>
+                    </select>
+                </div>
+                <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+                    <button type="button" class="btn btn-danger" style="padding: 6px 12px; font-size: 0.8rem;" onclick="deleteDatabaseFromModalAction()">🗑️ Eliminar BD</button>
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" class="btn btn-outline" style="padding: 6px 12px; font-size: 0.8rem;" onclick="closeModal('editDBModal')">Cerrar</button>
+                        <button type="submit" class="btn btn-primary" style="padding: 6px 14px; font-size: 0.8rem;">💾 Guardar Cambios</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Edit Interconnection Link (Inspector & Editor) -->
+    <div class="modal-overlay" id="editLinkModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>🔗 Editar Relación de Conexión</h3>
+                <button class="close-btn" onclick="closeModal('editLinkModal')">×</button>
+            </div>
+            <form id="formEditLink">
+                <input type="hidden" id="editLinkSource">
+                <input type="hidden" id="editLinkTarget">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Servicio Origen (App)</label>
+                        <input type="text" id="editLinkSourceDisplay" class="term-input" readonly disabled>
+                    </div>
+                    <div class="form-group">
+                        <label>Servicio/BD Destino</label>
+                        <input type="text" id="editLinkTargetDisplay" class="term-input" readonly disabled>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Nombre de la Variable de Entorno (.env)</label>
+                    <input type="text" id="editLinkEnvVar" class="term-input" required>
+                </div>
+                <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 14px;">
+                    <button type="button" class="btn btn-danger" style="padding: 6px 12px; font-size: 0.8rem;" onclick="deleteLinkFromModalAction()">🗑️ Unlink</button>
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" class="btn btn-outline" style="padding: 6px 12px; font-size: 0.8rem;" onclick="closeModal('editLinkModal')">Cancelar</button>
+                        <button type="submit" class="btn btn-primary" style="padding: 6px 14px; font-size: 0.8rem;">💾 Guardar Cambios</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Deploy Service -->
+    <div class="modal-overlay" id="deployServiceModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 data-i18n="modalDeployServiceTitle">🚀 Desplegar Nuevo Servicio</h3>
+                <button class="close-btn" onclick="closeModal('deployServiceModal')">×</button>
+            </div>
+            <form id="formDeployService">
+                <div class="form-group">
+                    <label>Nombre del Servicio</label>
+                    <input type="text" id="svcName" class="term-input" placeholder="ej. api-backend" pattern="[a-zA-Z0-9_-]+" title="Solo letras, números, guiones y guiones bajos" required>
+                </div>
+                <div class="form-group">
+                    <label>Imagen Docker (Hub/GHCR) o URL ZIP</label>
+                    <input type="text" id="svcImage" class="term-input" placeholder="ej. node:18-alpine" required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Puerto Interno App</label>
+                        <input type="number" id="svcPort" class="term-input" value="80" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Dominio Público (Opcional)</label>
+                        <input type="text" id="svcDomain" class="term-input" placeholder="api.midominio.com">
+                    </div>
+                </div>
+                <div class="form-group checkbox-group">
+                    <label><input type="checkbox" id="svcExpose" checked> Expuesto a Internet</label>
+                    <label><input type="checkbox" id="svcSSL" checked> Habilitar SSL Automático</label>
+                </div>
+                <div class="form-group">
+                    <label>🎯 Nodo de Despliegue (Node Affinity)</label>
+                    <select id="svcNode" class="term-input">
+                        <option value="manager">Nodo Máster (Manager)</option>
+                        <option value="worker">Nodo Worker (Vultr / Terraform)</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-top: 8px;">
+                    <label>🔄 Pre-Deploy Migration Hook (Opcional)</label>
+                    <input type="text" id="svcPreDeployHook" class="term-input" placeholder="ej. npx prisma db push ó python manage.py migrate">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('deployServiceModal')" data-i18n="btnCancel">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" data-i18n="btnDeployService">🚀 Desplegar Servicio</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Deploy Database -->
+    <div class="modal-overlay" id="deployDBModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 data-i18n="modalDeployDbTitle">🗄️ Desplegar Base de Datos</h3>
+                <button class="close-btn" onclick="closeModal('deployDBModal')">×</button>
+            </div>
+            <form id="formDeployDB">
+                <div class="form-group">
+                    <label>Nombre de la Base de Datos</label>
+                    <input type="text" id="dbName" class="term-input" placeholder="ej. db-prod" pattern="[a-zA-Z0-9_-]+" title="Solo letras, números, guiones y guiones bajos" required>
+                </div>
+                <div class="form-group">
+                    <label>Motor de Base de Datos</label>
+                    <select id="dbEngine" class="term-input">
+                        <option value="postgres">PostgreSQL</option>
+                        <option value="mongodb">MongoDB</option>
+                        <option value="mysql">MySQL</option>
+                        <option value="redis">Redis</option>
+                        <option value="minio">MinIO (Almacenamiento de Objetos S3)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Puerto Interno (Opcional - 0 para predeterminado)</label>
+                    <input type="number" id="dbPort" class="term-input" placeholder="ej. 5432, 27017, 3306, 6379" value="0">
+                </div>
+                <div class="form-group">
+                    <label>🎯 Nodo de Despliegue (Node Affinity)</label>
+                    <select id="dbNode" class="term-input">
+                        <option value="db" selected>🗄️ Worker DB Dedicado (node.labels.type == db)</option>
+                        <option value="manager">👑 Nodo Máster (Manager)</option>
+                        <option value="worker">🏗️ Nodo Worker General (node.role == worker)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>📦 Datos Previos / Recuperación (Recovery Mode)</label>
+                    <select id="dbRecoveryMode" class="term-input">
+                        <option value="reuse" selected>📦 Reutilizar datos existentes en /opt/data/ (Recovery)</option>
+                        <option value="clean">🧹 Limpiar y crear base de datos vacía (Wipe &amp; Fresh)</option>
+                    </select>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('deployDBModal')" data-i18n="btnCancel">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" data-i18n="btnDeployDb">🗄️ Desplegar BD</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Provision Worker (Terraform) -->
+    <div class="modal-overlay" id="workerModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 data-i18n="modalAddWorkerTitle">🏗️ Provisionar Nodo Worker / DB Node (Terraform)</h3>
+                <button class="close-btn" onclick="closeModal('workerModal')">×</button>
+            </div>
+            <form id="formWorker">
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:14px;">
+                    Crea y añade dinámicamente una nueva VM en la nube a tu cluster Swarm. Puedes asignarla como Worker general o Worker DB dedicado.
+                </p>
+                <div class="form-group">
+                    <label>Tipo de Nodo</label>
+                    <select id="workerType" class="term-input">
+                        <option value="worker" selected>Worker General (App Services)</option>
+                        <option value="db">Worker DB Dedicado (Bases de Datos)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Nombre del Nodo Worker</label>
+                    <input type="text" id="workerName" class="term-input" value="worker-1" placeholder="ej. worker-1 o worker-db-1" required>
+                </div>
+                <div class="form-group">
+                    <label>Tamaño / Plan de la VM (Vultr API)</label>
+                    <select id="workerPlan" class="term-input">
+                        <option value="vc2-1c-1gb">vc2-1c-1gb — 1 vCPU, 1 GB RAM, 25 GB SSD ($5.00/mes)</option>
+                        <option value="vc2-2c-4gb">vc2-2c-4gb — 2 vCPU, 4 GB RAM, 80 GB SSD ($20.00/mes)</option>
+                        <option value="vhc-1c-1gb">vhc-1c-1gb — High Performance 1 vCPU, 1 GB RAM ($6.00/mes)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Región Data Center (Vultr / DO)</label>
+                    <input type="text" id="workerRegion" class="term-input" value="mex" placeholder="ej. mex (Mexico City), ewr (NJ), nyc1 (DO)" required>
+                </div>
+                <div class="modal-footer" style="margin-top: 16px;">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('workerModal')" data-i18n="btnCancel">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" style="background: linear-gradient(135deg, #6366f1, #4f46e5); border-color: #6366f1;" data-i18n="btnAddWorker">🏗️ Provisionar &amp; Unir al Cluster</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+
+
+    <!-- MODAL FORM: Configure VPS -->
+    <div class="modal-overlay" id="configModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>⚙️ Configuración del Servidor VPS</h3>
+                <button class="close-btn" onclick="closeModal('configModal')">×</button>
+            </div>
+            <form id="formConfigVPS">
+                <div class="form-group">
+                    <label>Host / IP VPS</label>
+                    <input type="text" id="cfgHost" class="term-input" placeholder="157.230.12.8" required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Puerto SSH</label>
+                        <input type="number" id="cfgPort" class="term-input" value="22" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Usuario SSH</label>
+                        <input type="text" id="cfgUser" class="term-input" value="root" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Llave Privada SSH</label>
+                    <select id="cfgKey" class="term-input ssh-key-select" required>
+                        <option value="">Cargando llaves SSH...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Vultr API Key / Token (Opcional)</label>
+                    <input type="password" id="cfgDOToken" class="term-input" placeholder="vultr_api_key_...">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('configModal')">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">💾 Guardar Configuración</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Master Bootstrapper (All-in-One) -->
+    <div class="modal-overlay" id="bootstrapMasterModal">
+        <div class="modal-card" style="max-width: 580px;">
+            <div class="modal-header">
+                <h3>🪄 Master Bootstrapper (All-in-One 1-Click)</h3>
+                <button class="close-btn" onclick="closeModal('bootstrapMasterModal')">×</button>
+            </div>
+            <form id="formBootstrapMaster">
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">
+                    Inicializa un servicio completo (App + Base de Datos + Enlace `.env` + Dominio Traefik). Si la App ya estaba vinculada a otra BD/Servicio, se desvinculará automáticamente.
+                </p>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Nombre del Servicio (AppName)</label>
+                        <input type="text" id="bmAppName" class="term-input" placeholder="ej. api-shop" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Imagen Docker</label>
+                        <input type="text" id="bmImage" class="term-input" value="node:18-alpine" placeholder="ej. node:18-alpine / python:3.11" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Puerto Interno</label>
+                        <input type="number" id="bmPort" class="term-input" value="80" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Base de Datos Integrada</label>
+                        <select id="bmDBEngine" class="term-input">
+                            <option value="postgres" selected>PostgreSQL</option>
+                            <option value="mysql">MySQL</option>
+                            <option value="redis">Redis</option>
+                            <option value="mongodb">MongoDB</option>
+                            <option value="none">Ninguna (Solo App)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Nombre Variable de Entorno Inyectada</label>
+                        <input type="text" id="bmEnvVarName" class="term-input" value="DATABASE_URL" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Dominio Traefik (Opcional)</label>
+                        <input type="text" id="bmDomain" class="term-input" placeholder="ej. shop.midominio.com">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('bootstrapMasterModal')">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">🪄 Inicializar Todo en 1-Clic</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Crear VM en la Nube e Instalar Framework -->
+    <div class="modal-overlay" id="createVmModal">
+        <div class="modal-card" style="max-width: 540px;">
+            <div class="modal-header">
+                <h3>⚡ Crear VM en la Nube &amp; Instalar Framework</h3>
+                <button class="close-btn" onclick="closeModal('createVmModal')">×</button>
+            </div>
+            <form id="formCreateVM">
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:14px;">
+                    Aprovisiona una nueva instancia en la nube (DigitalOcean / Vultr) e instala automáticamente todo el framework de Tarhiata (Docker, Swarm, Traefik SSL, Firewall UFW y Observabilidad).
+                </p>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Proveedor de Nube</label>
+                        <select id="cvmProvider" class="term-input">
+                            <option value="digitalocean" selected>DigitalOcean</option>
+                            <option value="vultr">Vultr</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Nombre del Nodo / VM</label>
+                        <input type="text" id="cvmNodeName" class="term-input" value="master-1" placeholder="ej. master-1" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>API Token del Proveedor (DO / Vultr Token)</label>
+                    <input type="password" id="cvmApiToken" class="term-input" placeholder="dop_v1_... / vultr_api_..." required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Región / Data Center</label>
+                        <input type="text" id="cvmRegion" class="term-input" value="nyc1" placeholder="ej. nyc1, ewr, ams3" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Email SSL (Let's Encrypt - Opcional)</label>
+                        <input type="text" id="cvmAcmeEmail" class="term-input" placeholder="Opcional: Deja vacío si no tienes dominio/SSL">
+                    </div>
+                </div>
+                <div class="form-group" style="margin-top: 8px;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.82rem; color: var(--text-color);">
+                        <input type="checkbox" id="cvmInstallObs" checked style="width: auto;">
+                        <span>Desplegar Stack de Observabilidad (Portainer, Dozzle, Grafana)</span>
+                    </label>
+                </div>
+                <div class="modal-footer" style="margin-top: 16px;">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('createVmModal')">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" style="background: linear-gradient(135deg, #10b981, #059669); border-color: #10b981;">⚡ Crear VM &amp; Desplegar Framework</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Instalar Framework a VM Conectada (BYO) -->
+    <div class="modal-overlay" id="byoBootstrapModal">
+        <div class="modal-card" style="max-width: 540px;">
+            <div class="modal-header">
+                <h3>🚀 Instalar Framework en VM Conectada (BYO)</h3>
+                <button class="close-btn" onclick="closeModal('byoBootstrapModal')">×</button>
+            </div>
+            <form id="formBYOBootstrap">
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:14px;">
+                    Conecta a una VM o servidor existente (Bring Your Own VM) vía SSH e inicializa todo el framework de Tarhiata (Docker, Swarm, Traefik SSL, Firewall UFW y Observabilidad).
+                </p>
+                <div class="form-group">
+                    <label>Host / IP del Servidor</label>
+                    <input type="text" id="byoHost" class="term-input" placeholder="ej. 64.176.204.52" required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Puerto SSH</label>
+                        <input type="number" id="byoPort" class="term-input" value="22" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Usuario SSH</label>
+                        <input type="text" id="byoUser" class="term-input" value="root" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Llave Privada SSH</label>
+                    <select id="byoKeyPath" class="term-input ssh-key-select" required>
+                        <option value="">Cargando llaves SSH...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Email SSL (Let's Encrypt - Opcional)</label>
+                    <input type="text" id="byoAcmeEmail" class="term-input" placeholder="Opcional: Deja vacío si no tienes dominio/SSL">
+                </div>
+                <div class="form-group" style="margin-top: 8px;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.82rem; color: var(--text-color);">
+                        <input type="checkbox" id="byoInstallObs" checked style="width: auto;">
+                        <span>Desplegar Stack de Observabilidad (Portainer, Dozzle, Grafana)</span>
+                    </label>
+                </div>
+                <div class="modal-footer" style="margin-top: 16px;">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('byoBootstrapModal')">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" style="background: linear-gradient(135deg, #3b82f6, #2563eb); border-color: #3b82f6;">🚀 Inicializar Framework Completo</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Preview Environment (Ephemeral Testing) -->
+    <div class="modal-overlay" id="previewModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>🧪 Crear Entorno de Preview Temporal (Testing)</h3>
+                <button class="close-btn" onclick="closeModal('previewModal')">×</button>
+            </div>
+            <form id="formPreview">
+                <div class="form-group">
+                    <label>Nombre del Entorno (ej. feat-auth, pr-42)</label>
+                    <input type="text" id="prevName" class="term-input" placeholder="feat-checkout" required>
+                </div>
+                <div class="form-group">
+                    <label>Imagen Docker / Hash de Test</label>
+                    <input type="text" id="prevImage" class="term-input" placeholder="myrepo/app:pr-42" required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Puerto Interno</label>
+                        <input type="number" id="prevPort" class="term-input" value="80" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Dominio Temporal Traefik</label>
+                        <input type="text" id="prevDomain" class="term-input" placeholder="pr-42.tarhiata.local">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Vincular a Base de Datos (Opcional)</label>
+                    <input type="text" id="prevLinkDB" class="term-input" placeholder="ej. postgres-main">
+                </div>
+                <div class="form-group">
+                    <label>🎯 Nodo de Despliegue (Node Affinity)</label>
+                    <select id="prevNode" class="term-input">
+                        <option value="manager">Nodo Máster (Manager)</option>
+                        <option value="worker">Nodo Worker (Vultr / Terraform)</option>
+                    </select>
+                </div>
+                <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 8px;">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('previewModal')">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">🧪 Desplegar Entorno Efímero</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: Swarm Join Token -->
+    <div class="modal-overlay" id="joinTokenModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 class="modal-title">📋 Docker Swarm Join Tokens</h3>
+                <button class="close-btn" onclick="closeModal('joinTokenModal')">×</button>
+            </div>
+            <div class="form-group" style="margin-top:12px;">
+                <label class="form-label">Comando para Unir un Worker:</label>
+                <div style="display:flex; gap:6px;">
+                    <input type="text" id="workerJoinCmdInput" class="term-input" readonly style="font-family:monospace; font-size:0.8rem;">
+                    <button class="btn btn-outline" onclick="copyInputText('workerJoinCmdInput')">Copiar</button>
+                </div>
+            </div>
+            <div class="form-group" style="margin-top:12px;">
+                <label class="form-label">Comando para Unir otro Manager:</label>
+                <div style="display:flex; gap:6px;">
+                    <input type="text" id="managerJoinCmdInput" class="term-input" readonly style="font-family:monospace; font-size:0.8rem;">
+                    <button class="btn btn-outline" onclick="copyInputText('managerJoinCmdInput')">Copiar</button>
+                </div>
+            </div>
+            <div class="modal-footer" style="margin-top:16px; display:flex; justify-content:flex-end;">
+                <button type="button" class="btn btn-outline" onclick="closeModal('joinTokenModal')">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Observabilidad y Telemetría (Loki, Grafana, Portainer) -->
+    <div class="modal-overlay" id="observabilityModal">
+        <div class="modal-card" style="max-width: 540px;">
+            <div class="modal-header">
+                <h3 class="modal-title">📊 Stack de Observabilidad & Telemetría</h3>
+                <button class="close-btn" onclick="closeModal('observabilityModal')">×</button>
+            </div>
+            <form id="observabilityForm">
+                <div class="form-group" style="margin-top: 10px;">
+                    <label class="form-label">Ruta de Volumen Externo en la VM (Persistencia Host):</label>
+                    <input type="text" id="obsVolumePath" class="term-input" placeholder="/opt/data/obs" value="/opt/data/obs" required>
+                    <small class="text-muted">Directorio en el sistema de archivos de la VM fuera de Swarm para Loki, Grafana y Portainer.</small>
+                </div>
+                <div class="form-group" style="margin-top: 10px;">
+                    <label class="form-label">Contraseña de Administrador (Grafana / Portainer):</label>
+                    <input type="password" id="obsPassword" class="term-input" placeholder="Min. 8 caracteres" value="admin12345">
+                </div>
+                <div class="form-group" style="margin-top: 10px;">
+                    <label class="form-label">Arquitectura de Despliegue:</label>
+                    <select id="obsDeployType" class="term-input">
+                        <option value="single-node">Nodo Principal (Manager)</option>
+                        <option value="multi-node">Nodo Dedicado (node.labels.type == obs)</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-top: 10px; display: flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" id="obsExposePublic" style="accent-color: var(--accent-blue);">
+                    <label for="obsExposePublic" style="margin: 0; font-size: 0.85rem; cursor: pointer;">Exponer públicamente mediante Traefik (HTTPS local/dominio)</label>
+                </div>
+                <div class="modal-footer" style="margin-top: 16px; display: flex; justify-content: space-between; gap: 8px;">
+                    <button type="button" class="btn btn-outline" style="border-color:var(--accent-red); color:var(--accent-red);" onclick="disableObservabilityStack()">🔥 Destruir Stack</button>
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" class="btn btn-outline" onclick="closeModal('observabilityModal')">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">🚀 Desplegar Observabilidad</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Gestión de Registries Privados (Docker Hub / GHCR / ECR) -->
+    <div class="modal-overlay" id="registryModal">
+        <div class="modal-card" style="max-width: 520px;">
+            <div class="modal-header">
+                <h3>📦 Registries Privados (Docker Auth)</h3>
+                <button class="close-btn" onclick="closeModal('registryModal')">×</button>
+            </div>
+            <form id="formRegistry">
+                <div class="form-group">
+                    <label>Servidor / URL Registry</label>
+                    <input type="text" id="regServer" class="term-input" placeholder="docker.io, ghcr.io, ecr..." required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Usuario / Org</label>
+                        <input type="text" id="regUser" class="term-input" placeholder="ej. mycompany" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Password / Token Personal</label>
+                        <input type="password" id="regPass" class="term-input" placeholder="ghp_... o secreto" required>
+                    </div>
+                </div>
+                <div class="modal-footer" style="margin-top: 14px; display: flex; justify-content: space-between;">
+                    <button type="button" class="btn btn-outline" style="border-color:var(--accent-red); color:var(--accent-red);" onclick="deleteRegistryFromModal()">🗑️ Logout Registry</button>
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" class="btn btn-outline" onclick="closeModal('registryModal')">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">🔐 Autenticar Registry</button>
+                    </div>
+                </div>
+            </form>
+            <div style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 10px;">
+                <label style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 6px; display: block;">Registries Autenticados Guardados:</label>
+                <div id="registryListContainer" style="max-height: 120px; overflow-y: auto; font-size: 0.8rem; font-family: var(--font-mono);">
+                    <div class="text-muted p-1">Cargando credenciales de registries...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: DB Migrations Manager -->
+    <div class="modal-overlay" id="migrationModal">
+        <div class="modal-card" style="max-width: 720px; width: 95%;">
+            <div class="modal-header">
+                <h3>🔄 Gestor de Migraciones de Base de Datos</h3>
+                <button class="close-btn" onclick="closeModal('migrationModal')">×</button>
+            </div>
+            
+            <!-- Controls row: Target DB and Target Node -->
+            <div class="form-row" style="margin-bottom: 12px;">
+                <div class="form-group">
+                    <label>🗄️ Base de Datos Destino</label>
+                    <select id="migrTargetDB" class="term-input" onchange="loadMigrationFilesForDB(this.value)">
+                        <!-- Populated dynamically -->
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>🎯 Nodo Destino (Afinidad de Nodo)</label>
+                    <select id="migrTargetNode" class="term-input">
+                        <option value="manager">Nodo Máster (Manager)</option>
+                        <option value="worker">Nodo Worker (Vultr / Terraform)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Upload/Create New Migration SQL -->
+            <div style="background: var(--bg-tertiary); padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 12px;">
+                <label style="font-size: 0.8rem; font-weight: 600; margin-bottom: 4px; display: block;">➕ Subir / Crear Fichero de Migración (.sql)</label>
+                <div class="form-row" style="margin-bottom: 6px;">
+                    <input type="text" id="newMigrFilename" class="term-input" placeholder="ej. 20260726_01_create_users_table.sql" style="flex: 2;">
+                    <button type="button" class="btn btn-primary" style="padding: 4px 10px; font-size: 0.8rem;" onclick="saveNewMigrationFile()">💾 Guardar Fichero</button>
+                </div>
+                <div class="form-row" style="gap: 8px;">
+                    <div style="flex: 1;">
+                        <label style="font-size: 0.72rem; color: var(--accent-green); display: block; margin-bottom: 2px;">⚡ Sentencias Aplicación (UP SQL)</label>
+                        <textarea id="newMigrContent" class="term-input" rows="3" placeholder="CREATE TABLE users (id SERIAL PRIMARY KEY, email VARCHAR(255) NOT NULL);" style="font-family: var(--font-mono); font-size: 0.75rem;"></textarea>
+                    </div>
+                    <div style="flex: 1;">
+                        <label style="font-size: 0.72rem; color: var(--accent-red); display: block; margin-bottom: 2px;">🔻 Sentencias Regresión (DOWN / Rollback SQL)</label>
+                        <textarea id="newMigrDownContent" class="term-input" rows="3" placeholder="DROP TABLE users;" style="font-family: var(--font-mono); font-size: 0.75rem;"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Migration Files Selection List -->
+            <div style="margin-bottom: 14px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <label style="font-size: 0.85rem; font-weight: 600;">📋 Ficheros de Migración &amp; Regresiones Registradas</label>
+                    <span style="font-size: 0.75rem; color: var(--text-muted);">Selecciona los archivos y elige la acción</span>
+                </div>
+                <div id="migrationFilesContainer" style="max-height: 200px; overflow-y: auto; background: #090d16; border: 1px solid var(--border-color); border-radius: 6px; padding: 6px;">
+                    <div class="text-muted p-1">Selecciona una base de datos para ver sus migraciones...</div>
+                </div>
+            </div>
+
+            <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+                <button type="button" class="btn btn-outline" onclick="closeModal('migrationModal')">Cerrar</button>
+                <div style="display: flex; gap: 8px;">
+                    <button type="button" class="btn btn-outline" style="border-color: #ef4444; color: #ef4444;" onclick="runSelectedMigrations('down')">🔻 Ejecutar Regresión (DOWN)</button>
+                    <button type="button" class="btn btn-primary" onclick="runSelectedMigrations('up')">⚡ Aplicar Migración (UP)</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+
+    <!-- MODAL FORM: Crear Snapshot / Backup 1-Click & Descarga Directa a PC -->
+    <div class="modal-overlay" id="backupModal">
+        <div class="modal-card" style="max-width: 700px; width: 95%;">
+            <div class="modal-header">
+                <h3>💾 Gestor de Snapshots &amp; Descarga Directa a PC</h3>
+                <button class="close-btn" onclick="closeModal('backupModal')">×</button>
+            </div>
+            
+            <!-- Section A: Generar Nuevo Snapshot -->
+            <form id="backupForm" onsubmit="handleCreateBackupSubmit(event)" style="background: rgba(0,0,0,0.25); padding: 12px; border-radius: 6px; margin-bottom: 14px; border: 1px solid var(--border-color);">
+                <h4 style="margin-top: 0; margin-bottom: 8px; font-size: 0.85rem; color: var(--accent-blue);">⚡ Generar Nuevo Snapshot 1-Click</h4>
+                <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px; align-items: flex-end;">
+                    <div>
+                        <label style="font-size:0.75rem;">Tipo de Recurso</label>
+                        <select id="backupTargetType" class="term-input" onchange="toggleBackupTargetOptions()" style="width:100%;">
+                            <option value="database" selected>🗄️ Base de Datos</option>
+                            <option value="volume">📦 Volumen / Data</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size:0.75rem;">Recurso Target</label>
+                        <select id="backupTargetName" class="term-input" required style="width:100%;"></select>
+                    </div>
+                    <div>
+                        <label style="font-size:0.75rem;">Almacenamiento S3 Destino</label>
+                        <select id="backupS3Target" class="term-input" onchange="toggleCustomS3Fields()" style="width:100%;">
+                            <option value="" selected>💾 Solo Local VPS (/opt/tarhiata/backups)</option>
+                            <option value="custom">🌐 Servidor S3 Externo (Cloudflare R2 / AWS S3 / URL)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <button type="submit" class="btn btn-primary" style="padding: 6px 14px; font-size: 0.8rem;">⚡ Crear Backup</button>
+                    </div>
+                </div>
+
+                <!-- Campos dinámicos para S3 Externo / Personalizado -->
+                <div id="customS3Fields" style="display: none; margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 6px; border: 1px dashed var(--accent-blue);">
+                    <div style="font-size: 0.8rem; font-weight: 600; color: var(--accent-blue); margin-bottom: 8px;">🌐 Configuración de Servidor S3 Externo Personalizado:</div>
+                    <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+                        <div>
+                            <label style="font-size:0.7rem;">Endpoint URL S3</label>
+                            <input type="text" id="customS3Url" class="term-input" placeholder="ej. https://account.r2.cloudflarestorage.com" style="font-size:0.75rem;">
+                        </div>
+                        <div>
+                            <label style="font-size:0.7rem;">Nombre del Bucket</label>
+                            <input type="text" id="customS3Bucket" class="term-input" placeholder="ej. mis-backups-prod" style="font-size:0.75rem;">
+                        </div>
+                    </div>
+                    <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <div>
+                            <label style="font-size:0.7rem;">Access Key</label>
+                            <input type="text" id="customS3AccessKey" class="term-input" placeholder="ej. AKIAIOSFODNN7EXAMPLE" style="font-size:0.75rem;">
+                        </div>
+                        <div>
+                            <label style="font-size:0.7rem;">Secret Key</label>
+                            <input type="password" id="customS3SecretKey" class="term-input" placeholder="Clave secreta S3" style="font-size:0.75rem;">
+                        </div>
+                    </div>
+                </div>
+            </form>
+
+            <!-- Section B: Snapshots Disponibles con Botón Directo de Descarga a PC -->
+            <div style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+                <span>📋 Copias de Seguridad Guardadas &amp; Descargas</span>
+                <span class="badge badge-green" style="font-size: 0.7rem;">Guardadas en VPS (/opt/data/backups)</span>
+            </div>
+            <div style="max-height: 240px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px; background: rgba(0,0,0,0.2);">
+                <div class="catalog-list" id="modalBackupsList" style="padding: 6px;">
+                    <div class="text-muted p-2" style="text-align: center;">Cargando snapshots...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Bulk ENV Management (.env Import / Export / Live Swarm Update) -->
+    <div class="modal-overlay" id="envModal">
+        <div class="modal-card" style="max-width: 620px;">
+            <div class="modal-header">
+                <h3>🔑 Variables de Entorno (.env) &amp; Bulk Manager</h3>
+                <button class="close-btn" onclick="closeModal('envModal')">×</button>
+            </div>
+            <div class="form-row">
+                <label>Seleccionar Servicio Target</label>
+                <select id="envTargetService" class="term-input" onchange="loadServiceEnvVars()"></select>
+            </div>
+            <div class="form-row">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <label style="margin:0;">Contenido de Variables de Entorno (.env format)</label>
+                    <div style="display: flex; gap: 6px;">
+                        <input type="file" id="envFileInput" accept=".env,text/plain" style="display:none;" onchange="importEnvFileSelected(event)">
+                        <button type="button" class="btn btn-outline" style="padding: 2px 8px; font-size: 0.75rem;" onclick="document.getElementById('envFileInput').click()">📤 Importar .env</button>
+                        <button type="button" class="btn btn-outline" style="padding: 2px 8px; font-size: 0.75rem;" onclick="exportEnvFilePC()">📥 Exportar a PC</button>
+                    </div>
+                </div>
+                <textarea id="envRawContent" class="term-input" rows="12" style="font-family: monospace; font-size: 0.82rem; width:100%; resize: vertical;" placeholder="KEY1=VALUE1&#10;KEY2=VALUE2&#10;# Comentarios permitidos"></textarea>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
+                <button type="button" class="btn btn-outline" onclick="closeModal('envModal')">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="saveServiceEnvVars()">⚡ Guardar y Aplicar a Swarm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Explorador Gráfico de Volúmenes (/opt/data) -->
+    <div class="modal-overlay" id="volumeModal">
+        <div class="modal-card" style="max-width: 800px; width: 90%;">
+            <div class="modal-header">
+                <h3>📁 Explorador de Volúmenes Persistentes (/opt/data)</h3>
+                <button class="close-btn" onclick="closeModal('volumeModal')">×</button>
+            </div>
+            
+            <!-- Path Breadcrumbs & Top Actions -->
+            <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; font-family: monospace; font-size: 0.85rem;">
+                <div id="volumeBreadcrumbs" style="display: flex; gap: 4px; align-items: center; flex-wrap: wrap;">
+                    <span>/opt/data</span>
+                </div>
+                <div style="display: flex; gap: 6px;">
+                    <input type="file" id="volumeUploadInput" style="display:none;" onchange="uploadVolumeFileSelected(event)">
+                    <button class="btn btn-outline" style="padding: 2px 8px; font-size: 0.75rem;" onclick="document.getElementById('volumeUploadInput').click()">📤 Subir Archivo</button>
+                    <button class="btn btn-outline" style="padding: 2px 8px; font-size: 0.75rem;" onclick="refreshVolumeBrowser()">🔄 Refrescar</button>
+                </div>
+            </div>
+
+            <!-- File / Directory Table -->
+            <div style="max-height: 400px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+                    <thead>
+                        <tr style="background: rgba(255,255,255,0.03); text-align: left; border-bottom: 1px solid var(--border-color);">
+                            <th style="padding: 8px 12px;">Nombre</th>
+                            <th style="padding: 8px 12px; width: 90px;">Tamaño</th>
+                            <th style="padding: 8px 12px; width: 140px;">Modificado</th>
+                            <th style="padding: 8px 12px; text-align: right; width: 160px;">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="volumeFilesTableBody">
+                        <tr><td colspan="4" class="text-muted p-2" style="text-align: center;">Cargando sistema de archivos...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="modal-footer" style="display: flex; justify-content: flex-end; margin-top: 16px;">
+                <button type="button" class="btn btn-outline" onclick="closeModal('volumeModal')">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Visor / Editor de Archivos de Texto -->
+    <div class="modal-overlay" id="volumeFileModal">
+        <div class="modal-card" style="max-width: 750px; width: 90%;">
+            <div class="modal-header">
+                <h3 id="volumeFileModalTitle">📄 Visor de Archivo</h3>
+                <button class="close-btn" onclick="closeModal('volumeFileModal')">×</button>
+            </div>
+            <input type="hidden" id="editingFilePath">
+            <div class="form-row">
+                <textarea id="editingFileContent" class="term-input" rows="16" style="font-family: monospace; font-size: 0.82rem; width: 100%; resize: vertical;"></textarea>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
+                <button type="button" class="btn btn-outline" onclick="closeModal('volumeFileModal')">Cancelar</button>
+                <div style="display: flex; gap: 8px;">
+                    <button type="button" class="btn btn-outline" onclick="downloadCurrentEditingFilePC()">📥 Descargar a PC</button>
+                    <button type="button" class="btn btn-primary" onclick="saveCurrentEditingFile()">💾 Guardar Cambios</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Inspector de SSL & Modo Mantenimiento -->
+    <div class="modal-overlay" id="sslModal">
+        <div class="modal-card" style="max-width: 780px; width: 90%;">
+            <div class="modal-header">
+                <h3>🔒 Inspector de Certificados SSL &amp; Modo Mantenimiento (503 Drain)</h3>
+                <button class="close-btn" onclick="closeModal('sslModal')">×</button>
+            </div>
+            
+            <div style="max-height: 400px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px; margin-top: 8px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+                    <thead>
+                        <tr style="background: rgba(255,255,255,0.03); text-align: left; border-bottom: 1px solid var(--border-color);">
+                            <th style="padding: 8px 12px;">Dominio / Servicio</th>
+                            <th style="padding: 8px 12px;">Estado SSL</th>
+                            <th style="padding: 8px 12px;">Emisor</th>
+                            <th style="padding: 8px 12px;">Expiración</th>
+                            <th style="padding: 8px 12px; text-align: right;">Modo Mantenimiento</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sslTableBody">
+                        <tr><td colspan="5" class="text-muted p-2" style="text-align: center;">Inspeccionando certificados TLS...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
+                <button type="button" class="btn btn-outline" onclick="refreshSSLInspector()">🔄 Re-inspeccionar SSL</button>
+                <button type="button" class="btn btn-outline" onclick="closeModal('sslModal')">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Activador y Asignador de SSL / Certificados HTTPS -->
+    <div class="modal-overlay" id="domainModal">
+        <div class="modal-card" style="max-width: 760px; width: 92%;">
+            <div class="modal-header">
+                <h3>🔒 Activar SSL / Certificados HTTPS &amp; Asignación a Servicios</h3>
+                <button class="close-btn" onclick="closeModal('domainModal')">×</button>
+            </div>
+            
+            <!-- Step 1 Form: Configurar & Activar SSL -->
+            <form id="sslActivationForm" onsubmit="handleActivateSSLSubmit(event)" style="background: rgba(0,0,0,0.25); padding: 14px; border-radius: 6px; margin-bottom: 16px; border: 1px solid var(--border-color);">
+                <h4 style="margin-top: 0; margin-bottom: 10px; font-size: 0.9rem; color: var(--accent-blue);">⚡ 1-Click SSL Activation &amp; Service Mapping</h4>
+                
+                <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                    <div>
+                        <label>1. Nombre de Dominio / Subdominio FQDN</label>
+                        <input type="text" id="sslDomainName" class="term-input" required placeholder="ej. mi-app.midominio.com" style="width:100%;">
+                    </div>
+                    <div>
+                        <label>2. Asignar a Servicio o Base de Datos Target</label>
+                        <select id="domainTargetService" class="term-input" required style="width:100%;" onchange="loadServiceDomains()">
+                            <option value="">Cargando servicios...</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                    <div>
+                        <label>3. Tipo de Certificado SSL</label>
+                        <select id="sslCertType" class="term-input" style="width:100%;" onchange="toggleCustomSSLFields()">
+                            <option value="letsencrypt" selected>🟢 Automático (Let's Encrypt / Gratis 1-Click)</option>
+                            <option value="custom">🔵 Privado / Custom (Cargar cert.crt &amp; cert.key)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>4. Redirección 301 Opcional (o dejar vacío)</label>
+                        <input type="text" id="newRedirectTarget" class="term-input" placeholder="ej. www.midominio.com" style="width:100%;">
+                    </div>
+                </div>
+
+                <!-- Fields for Custom Certificate Files -->
+                <div id="customSSLFilesContainer" style="display: none; background: rgba(59,130,246,0.1); padding: 10px; border-radius: 4px; border: 1px solid rgba(59,130,246,0.3); margin-bottom: 10px;">
+                    <div style="font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; color: #60a5fa;">📁 Subir Archivos del Certificado Privado</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div>
+                            <label style="font-size:0.75rem;">Archivo Certificado (.crt / .pem)</label>
+                            <input type="file" id="sslCertFileInput" accept=".crt,.pem,.cer" class="term-input" style="font-size:0.75rem;">
+                        </div>
+                        <div>
+                            <label style="font-size:0.75rem;">Clave Privada (.key)</label>
+                            <input type="file" id="sslKeyFileInput" accept=".key,.pem" class="term-input" style="font-size:0.75rem;">
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
+                    <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; cursor:pointer;">
+                        <input type="checkbox" id="sslForceHTTPS" checked> Forzar siempre HTTPS (Redirección automática 80 → 443)
+                    </label>
+                    <button type="submit" class="btn btn-primary" style="padding: 6px 16px; font-weight:600;">🔒 Activar SSL &amp; Asignar al Servicio</button>
+                </div>
+            </form>
+
+            <!-- Form B: Reasignar Dominio SSL Existente a Otro Servicio (1-Click Switcher) -->
+            <form id="sslReassignForm" onsubmit="handleReassignSSLSubmit(event)" style="background: rgba(168,85,247,0.1); padding: 12px; border-radius: 6px; margin-bottom: 16px; border: 1px solid rgba(168,85,247,0.3);">
+                <h4 style="margin-top: 0; margin-bottom: 8px; font-size: 0.88rem; color: #c084fc;">🔄 Form B: Reasignación Rápida de Dominio SSL a Otro Servicio</h4>
+                <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: flex-end;">
+                    <div>
+                        <label style="font-size:0.75rem;">Dominio SSL Registrado</label>
+                        <select id="reassignSSLSelect" class="term-input" required style="width:100%;">
+                            <option value="">Selecciona un dominio SSL...</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size:0.75rem;">Nuevo Servicio Target</label>
+                        <select id="reassignTargetServiceSelect" class="term-input" required style="width:100%;">
+                            <option value="">Selecciona servicio target...</option>
+                        </select>
+                    </div>
+                    <div>
+                        <button type="submit" class="btn btn-primary" style="padding: 6px 14px; font-size: 0.8rem; background: #9333ea; border-color: #a855f7;">⚡ Reasignar SSL 1-Click</button>
+                    </div>
+                </div>
+            </form>
+
+            <!-- Table of Active SSL Certificates & Assigned Services -->
+            <div style="margin-bottom: 8px; font-size: 0.82rem; font-weight: 600; color: var(--text-secondary);">📋 Dominios SSL Activos &amp; Mapeo de Servicios</div>
+            <div style="max-height: 220px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+                    <thead>
+                        <tr style="background: rgba(255,255,255,0.03); text-align: left; border-bottom: 1px solid var(--border-color);">
+                            <th style="padding: 8px 12px;">Dominio HTTPS</th>
+                            <th style="padding: 8px 12px;">Servicio Asignado</th>
+                            <th style="padding: 8px 12px;">Tipo Certificado</th>
+                            <th style="padding: 8px 12px; text-align: right; width: 140px;">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="customDomainsTableBody">
+                        <tr><td colspan="4" class="text-muted p-2" style="text-align: center;">Cargando dominios SSL registrados...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="modal-footer" style="display: flex; justify-content: flex-end; margin-top: 16px;">
+                <button type="button" class="btn btn-outline" onclick="closeModal('domainModal')">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Administración Avanzada de Nodos Swarm -->
+    <div class="modal-overlay" id="nodeManagementModal">
+        <div class="modal-card" style="max-width: 820px; width: 90%;">
+            <div class="modal-header">
+                <h3>🖥️ Administración de Nodos Docker Swarm &amp; Workload Placement</h3>
+                <button class="close-btn" onclick="closeModal('nodeManagementModal')">×</button>
+            </div>
+            
+            <div style="max-height: 380px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px; margin-top: 8px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+                    <thead>
+                        <tr style="background: rgba(255,255,255,0.03); text-align: left; border-bottom: 1px solid var(--border-color);">
+                            <th style="padding: 8px 12px;">Nodo / Hostname</th>
+                            <th style="padding: 8px 12px;">Rol Swarm</th>
+                            <th style="padding: 8px 12px;">Estado</th>
+                            <th style="padding: 8px 12px;">Disponibilidad</th>
+                            <th style="padding: 8px 12px; text-align: right;">Acciones de Infraestructura</th>
+                        </tr>
+                    </thead>
+                    <tbody id="nodeManagementTableBody">
+                        <tr><td colspan="5" class="text-muted p-2" style="text-align: center;">Cargando nodos del clúster...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
+                <button type="button" class="btn btn-outline" onclick="openWorkerProvisionModal()">➕ Provisionar Nuevo Worker (Terraform)</button>
+                <button type="button" class="btn btn-outline" onclick="closeModal('nodeManagementModal')">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Mapa de Topología de Red y Servicios -->
+    <div class="modal-overlay" id="topologyModal">
+        <div class="modal-card" style="max-width: 750px; width: 90%;">
+            <div class="modal-header">
+                <h3>🗺️ Mapa de Topología de Red & Service Links</h3>
+                <button class="close-btn" onclick="closeModal('topologyModal')">×</button>
+            </div>
+            <div style="padding: 16px 0;">
+                <p class="text-muted" style="font-size: 0.82rem; margin-bottom: 12px;">
+                    Red overlay aislada <code>tarhiata_internal</code>. Resolución DNS interna automática por nombre de servicio.
+                </p>
+                <div id="topologyModalContent" style="background: var(--bg-tertiary); padding: 12px; border-radius: 6px; font-family: monospace; font-size: 0.8rem; max-height: 350px; overflow-y: auto; white-space: pre-wrap; border: 1px solid var(--border-color);">
+                    Cargando topología...
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="closeModal('topologyModal')">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Confirmación de Seguridad de Infraestructura -->
+    <div class="modal-overlay" id="confirmModal">
+        <div class="modal-card" style="max-width: 480px; border-color: rgba(239, 68, 68, 0.4);">
+            <div class="modal-header" style="border-bottom: 1px solid rgba(239, 68, 68, 0.2);">
+                <h3 style="color: #ef4444;" id="confirmModalTitle">⚠️ Confirmar Acción de Infraestructura</h3>
+                <button class="close-btn" onclick="closeModal('confirmModal')">×</button>
+            </div>
+            <div style="padding: 16px 0;">
+                <p id="confirmModalMessage" style="font-size: 0.88rem; color: var(--text-primary); line-height: 1.5;">
+                    ¿Estás seguro de ejecutar esta acción? Esta operación modificará contenedores o persistencia en el clúster Swarm.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" id="confirmModalCancelBtn" onclick="closeModal('confirmModal')">Cancelar</button>
+                <button type="button" class="btn btn-danger" id="confirmModalActionBtn" style="background: #ef4444; color: #fff; border: none; padding: 6px 16px; border-radius: 4px; font-weight: 600; cursor: pointer;">⚠️ Confirmar e Iniciar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Notification Center History -->
+    <div class="modal-overlay" id="notificationsModal">
+        <div class="modal-card" style="max-width: 600px;">
+            <div class="modal-header">
+                <h3>🔔 Centro de Notificaciones e Historial</h3>
+                <button class="close-btn" onclick="closeModal('notificationsModal')">×</button>
+            </div>
+            <div id="notificationsHistoryList" style="max-height: 350px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+                <div class="text-muted p-2">No hay notificaciones registradas en esta sesión.</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="clearNotificationHistory()">🧹 Limpiar Historial</button>
+                <button class="btn btn-primary" onclick="closeModal('notificationsModal')">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- FULLSCREEN PROGRESS OVERLAY — Pantalla de carga bloqueante con terminal de logs en tiempo real -->
+    <div id="progressOverlay" style="display:none;">
+        <style>
+            #progressOverlay {
+                position: fixed; inset: 0; z-index: 999999;
+                background: rgba(9, 9, 11, 0.95);
+                backdrop-filter: blur(16px);
+                display: flex; align-items: center; justify-content: center;
+                animation: progFadeIn 0.3s ease;
+            }
+            @keyframes progFadeIn { from { opacity: 0; } to { opacity: 1; } }
+            .prog-container {
+                width: 92%; max-width: 920px; max-height: 90vh;
+                display: flex; flex-direction: column; gap: 16px;
+                background: #121215; border: 1px solid #27272a;
+                border-radius: 12px; padding: 24px;
+                box-shadow: 0 24px 48px rgba(0, 0, 0, 0.9);
+            }
+            .prog-header { text-align: center; }
+            .prog-spinner-wrap { display: flex; justify-content: center; margin-bottom: 12px; }
+            .prog-spinner {
+                width: 48px; height: 48px;
+                border: 3px solid #27272a;
+                border-top-color: #22c55e; border-right-color: #16a34a;
+                border-radius: 50%;
+                animation: progSpin 0.7s linear infinite;
+                box-shadow: 0 0 16px rgba(34, 197, 94, 0.25);
+            }
+            .prog-spinner.done { animation: none; border-color: #22c55e; box-shadow: 0 0 20px rgba(34, 197, 94, 0.4); }
+            .prog-spinner.error { animation: none; border-color: #ef4444; box-shadow: 0 0 20px rgba(239, 68, 68, 0.4); }
+            @keyframes progSpin { to { transform: rotate(360deg); } }
+            .prog-title {
+                font-size: 1.35rem; font-weight: 700; color: #f4f4f5;
+                margin-bottom: 4px; font-family: var(--font-mono); letter-spacing: -0.02em;
+            }
+            .prog-step {
+                font-size: 0.85rem; color: #22c55e; font-weight: 500;
+                animation: progPulse 2s ease-in-out infinite;
+                font-family: var(--font-mono);
+                min-height: 1.4em;
+            }
+            @keyframes progPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+            .prog-terminal {
+                background: #09090b;
+                border: 1px solid #27272a;
+                border-radius: 8px; overflow: hidden;
+                flex: 1; min-height: 360px; max-height: 58vh;
+                display: flex; flex-direction: column;
+                box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+            }
+            .prog-term-bar {
+                display: flex; align-items: center; gap: 7px;
+                padding: 10px 14px; background: #121215;
+                border-bottom: 1px solid #27272a;
+            }
+            .prog-dot { width: 10px; height: 10px; border-radius: 50%; }
+            .prog-dot.r { background: #ef4444; } .prog-dot.y { background: #eab308; } .prog-dot.g { background: #22c55e; }
+            .prog-term-title {
+                margin-left: 8px; font-size: 0.75rem; color: #a1a1aa;
+                font-family: var(--font-mono); letter-spacing: 0.02em;
+            }
+            .prog-term-badge {
+                margin-left: auto; font-size: 0.65rem; padding: 2px 8px;
+                background: #18181b; color: #22c55e; border: 1px solid #27272a;
+                border-radius: 4px; font-family: var(--font-mono); font-weight: 600;
+            }
+            .prog-logs {
+                flex: 1; overflow-y: auto; padding: 14px 16px;
+                font-family: var(--font-mono);
+                font-size: 0.76rem; line-height: 1.65; color: #f4f4f5;
+                scroll-behavior: smooth;
+            }
+            .prog-logs::-webkit-scrollbar { width: 6px; }
+            .prog-logs::-webkit-scrollbar-track { background: transparent; }
+            .prog-logs::-webkit-scrollbar-thumb { background: #27272a; border-radius: 3px; }
+            .prog-line { padding: 1px 0; word-break: break-all; }
+            .prog-line .prog-ts { color: #71717a; margin-right: 8px; font-size: 0.68rem; }
+            .prog-line.step {
+                color: #3b82f6; font-weight: 600; margin-top: 10px; padding: 5px 0 3px;
+                border-top: 1px solid #27272a;
+            }
+            .prog-line.cmd { color: #22c55e; }
+            .prog-line.out { color: #a1a1aa; padding-left: 18px; }
+            .prog-line.error { color: #ef4444; font-weight: 600; }
+            .prog-line.done-line { color: #22c55e; font-weight: 700; font-size: 0.85rem; margin-top: 10px; }
+            .prog-line.log { color: #f4f4f5; }
+            .prog-footer {
+                text-align: center; animation: progFadeIn 0.4s ease;
+                padding-top: 4px;
+            }
+            .prog-footer .btn {
+                padding: 9px 28px; font-size: 0.85rem; font-weight: 600;
+                border-radius: 6px; cursor: pointer; border: 1px solid #22c55e; color: #fff;
+                background: #22c55e; font-family: var(--font-ui);
+                box-shadow: 0 4px 14px rgba(34, 197, 94, 0.3);
+                transition: background-color 0.15s ease, transform 0.15s ease;
+            }
+            .prog-footer .btn:hover { background: #16a34a; transform: translateY(-1px); }
+            .prog-counter {
+                font-size: 0.7rem; color: #71717a; font-family: var(--font-mono);
+                text-align: right; padding: 0 16px 6px;
+            }
+        </style>
+        <div class="prog-container">
+            <div class="prog-header">
+                <div class="prog-spinner-wrap"><div class="prog-spinner" id="progSpinner"></div></div>
+                <h2 class="prog-title" id="progTitle" data-i18n="progressTitleRunning">Ejecutando...</h2>
+                <p class="prog-step" id="progStep" data-i18n="progressStepStarting">Iniciando proceso...</p>
+            </div>
+            <div class="prog-terminal">
+                <div class="prog-term-bar">
+                    <span class="prog-dot r"></span><span class="prog-dot y"></span><span class="prog-dot g"></span>
+                    <span class="prog-term-title" data-i18n="progressTermTitle">tarhiata — logs en tiempo real</span>
+                    <span class="prog-term-badge" id="progBadge" data-i18n="progressBadgeLive">LIVE</span>
+                </div>
+                <div class="prog-logs" id="progLogs"></div>
+                <div class="prog-counter" id="progCounter">0 líneas</div>
+            </div>
+            <div class="prog-footer" id="progFooter" style="display:none;">
+                <button class="btn" id="progCloseBtn" onclick="closeProgressOverlay()" data-i18n="progressBtnClose">✅ Cerrar y Continuar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Audit Logs (Inmutable Log Tracking) -->
+    <div class="modal-overlay" id="auditLogsModal">
+        <div class="modal-card" style="max-width: 820px; width: 92%;">
+            <div class="modal-header">
+                <h3 data-i18n="modalAuditTitle">📋 Registro de Auditoría Inmutable</h3>
+                <button class="close-btn" onclick="closeModal('auditLogsModal')">×</button>
+            </div>
+            <div id="auditLogsContainer" style="max-height: 480px; overflow-y: auto;">
+                <div class="text-muted p-2">Cargando registros de auditoría...</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="closeModal('auditLogsModal')" data-i18n="btnClose">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: Private Docker Registries (Docker Hub, GHCR, AWS ECR) -->
+    <div class="modal-overlay" id="registriesModal">
+        <div class="modal-card" style="max-width: 650px; width: 90%;">
+            <div class="modal-header">
+                <h3>🔐 Registros de Docker Privados (GHCR / AWS ECR / Docker Hub)</h3>
+                <button class="close-btn" onclick="closeModal('registriesModal')">×</button>
+            </div>
+            <form id="formRegistry">
+                <div class="form-group">
+                    <label>Servidor de Registro</label>
+                    <input type="text" id="regServer" class="term-input" placeholder="ej. ghcr.io, docker.io, 123456789.dkr.ecr.us-east-1.amazonaws.com" required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Usuario</label>
+                        <input type="text" id="regUser" class="term-input" placeholder="ej. mi-usuario-github" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Contraseña / Personal Access Token</label>
+                        <input type="password" id="regPass" class="term-input" placeholder="ghp_... o PAT" required>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%; margin-bottom: 16px;">🔐 Guardar Credenciales y Autenticar por SSH</button>
+            </form>
+            <div id="registriesList" style="max-height: 240px; overflow-y: auto; border-top: 1px solid var(--card-border); padding-top: 12px;">
+                <div class="text-muted p-2">Cargando credenciales registradas...</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="closeModal('registriesModal')">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL FORM: SSH Keys Management (Team Access Control) -->
+    <div class="modal-overlay" id="sshKeysModal">
+        <div class="modal-card" style="max-width: 750px; width: 92%;">
+            <div class="modal-header">
+                <h3 data-i18n="modalSshKeysTitle">🔑 Gestión de Llaves SSH Autorizadas (Acceso de Desarrolladores)</h3>
+                <button class="close-btn" onclick="closeModal('sshKeysModal')">×</button>
+            </div>
+            <form id="formAddSSHKey" style="margin-bottom: 20px;">
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">
+                    Agrega la llave SSH pública de tu compañero para permitirle conectarse al clúster y desplegar desde su computadora. Las llaves maestras de Vultr están protegidas y no pueden eliminarse por seguridad.
+                </p>
+                <div class="form-group">
+                    <label>Agregar Nueva Llave SSH Pública</label>
+                    <textarea id="newSSHPublicKey" class="term-input" rows="3" placeholder="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... compa@laptop" style="font-family: monospace; font-size: 0.8rem;" required></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">➕ Autorizar Llave SSH</button>
+            </form>
+            <h4 style="font-size: 0.9rem; margin-bottom: 8px; color: #94a3b8;">🔑 Llaves SSH Actualmente Autorizadas en el VPS:</h4>
+            <div id="sshKeysList" style="max-height: 280px; overflow-y: auto; border: 1px solid var(--card-border); border-radius: 6px; padding: 8px; background: var(--bg-tertiary);">
+                <div class="text-muted p-2">Cargando llaves SSH...</div>
+            </div>
+            <div class="modal-footer" style="margin-top: 16px;">
+                <button type="button" class="btn btn-outline" onclick="closeModal('sshKeysModal')" data-i18n="btnClose">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

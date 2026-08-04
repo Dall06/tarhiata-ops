@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tarhiata-Ops — Private PaaS for Your Own VPS</title>
+    <meta name="description" content="Zero-overhead, local-first private PaaS. Deploy, orchestrate and observe containerized apps on your own VPS with the UX of Vercel — but 100% yours. Made in México 🇲🇽">
+    <meta property="og:title" content="Tarhiata-Ops — Private PaaS for Your Own VPS">
+    <meta property="og:description" content="Zero-overhead, local-first private PaaS. Deploy apps on your own VPS with the UX of Vercel — 100% free, 0 MB overhead, full data sovereignty.">
+    <meta property="og:type" content="website">
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Inter:ital,opsz,wght@0,14..32,300;0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;0,14..32,800;0,14..32,900;1,14..32,400&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #09090b;
+            --bg2: #0e0e11;
+            --bg3: #121215;
+            --border: #27272a;
+            --border2: #3f3f46;
+            --text: #f4f4f5;
+            --muted: #71717a;
+            --muted2: #a1a1aa;
+            --green: #22c55e;
+            --green2: #16a34a;
+            --blue: #3b82f6;
+            --purple: #a855f7;
+            --yellow: #eab308;
+            --font-ui: 'Inter', system-ui, sans-serif;
+            --font-mono: 'Fira Code', 'Cascadia Code', monospace;
+        }
+
+        html { scroll-behavior: smooth; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-ui);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            overflow-x: hidden;
+        }
+
+        /* NOISE TEXTURE */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0.4;
+        }
+
+        /* NAV */
+        nav {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 32px;
+            height: 60px;
+            background: rgba(9,9,11,0.85);
+            backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .nav-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-family: var(--font-mono);
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--text);
+            text-decoration: none;
+        }
+
+        .nav-logo .dot { color: var(--green); }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .nav-links a {
+            color: var(--muted2);
+            text-decoration: none;
+            font-size: 0.85rem;
+            padding: 6px 14px;
+            border-radius: 6px;
+            transition: color 0.15s, background 0.15s;
+        }
+        .nav-links a:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+
+        .btn-nav {
+            background: var(--green);
+            color: #000 !important;
+            font-weight: 600 !important;
+            padding: 7px 16px !important;
+            border-radius: 7px !important;
+            transition: background 0.15s, transform 0.1s !important;
+        }
+        .btn-nav:hover { background: var(--green2) !important; transform: translateY(-1px) !important; }
+
+        /* SECTIONS */
+        section { position: relative; z-index: 1; }
+
+        /* HERO */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 100px 24px 80px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero-glow {
+            position: absolute;
+            width: 800px; height: 800px;
+            background: radial-gradient(circle, rgba(34,197,94,0.08) 0%, transparent 70%);
+            top: 50%; left: 50%;
+            transform: translate(-50%, -55%);
+            pointer-events: none;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(34,197,94,0.08);
+            border: 1px solid rgba(34,197,94,0.25);
+            color: var(--green);
+            font-size: 0.78rem;
+            font-weight: 600;
+            padding: 5px 14px;
+            border-radius: 100px;
+            margin-bottom: 28px;
+            font-family: var(--font-mono);
+            letter-spacing: 0.05em;
+        }
+
+        .hero-badge .pulse {
+            width: 7px; height: 7px;
+            background: var(--green);
+            border-radius: 50%;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.8); }
+        }
+
+        h1 {
+            font-size: clamp(2.8rem, 6vw, 5.2rem);
+            font-weight: 900;
+            line-height: 1.05;
+            letter-spacing: -0.04em;
+            margin-bottom: 24px;
+            background: linear-gradient(135deg, #f4f4f5 0%, #a1a1aa 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        h1 span.accent {
+            background: linear-gradient(135deg, var(--green) 0%, #86efac 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-sub {
+            font-size: clamp(1rem, 2vw, 1.2rem);
+            color: var(--muted2);
+            max-width: 580px;
+            margin: 0 auto 40px;
+            line-height: 1.7;
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin-bottom: 64px;
+        }
+
+        .btn-primary {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--green);
+            color: #000;
+            font-weight: 700;
+            font-size: 0.95rem;
+            padding: 12px 28px;
+            border-radius: 8px;
+            text-decoration: none;
+            transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+            box-shadow: 0 0 24px rgba(34,197,94,0.3);
+        }
+        .btn-primary:hover {
+            background: var(--green2);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 32px rgba(34,197,94,0.4);
+        }
+
+        .btn-secondary {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: transparent;
+            color: var(--text);
+            font-weight: 600;
+            font-size: 0.95rem;
+            padding: 12px 28px;
+            border-radius: 8px;
+            border: 1px solid var(--border2);
+            text-decoration: none;
+            transition: border-color 0.15s, background 0.15s, transform 0.1s;
+        }
+        .btn-secondary:hover {
+            border-color: var(--muted2);
+            background: rgba(255,255,255,0.04);
+            transform: translateY(-2px);
+        }
+
+        /* TERMINAL PREVIEW */
+        .terminal-preview {
+            width: 100%;
+            max-width: 740px;
+            margin: 0 auto;
+            background: var(--bg3);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 0 80px rgba(0,0,0,0.6), 0 0 40px rgba(34,197,94,0.06);
+            text-align: left;
+        }
+
+        .term-bar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 16px;
+            background: #121215;
+            border-bottom: 1px solid var(--border);
+        }
+        .term-dot { width: 12px; height: 12px; border-radius: 50%; }
+        .term-dot.r { background: #ef4444; }
+        .term-dot.y { background: #eab308; }
+        .term-dot.g { background: #22c55e; }
+        .term-title { margin-left: 10px; font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); }
+
+        .term-body {
+            padding: 20px 24px;
+            font-family: var(--font-mono);
+            font-size: 0.82rem;
+            line-height: 1.8;
+        }
+
+        .term-line { display: flex; gap: 8px; }
+        .term-prompt { color: var(--green); user-select: none; }
+        .term-cmd { color: #f4f4f5; }
+        .term-out { color: var(--muted2); padding-left: 20px; }
+        .term-ok { color: var(--green); padding-left: 20px; }
+        .term-dim { color: var(--muted); padding-left: 20px; }
+        .term-blue { color: #60a5fa; }
+        .term-purple { color: #c084fc; }
+
+        /* STATS BAND */
+        .stats-band {
+            display: flex;
+            justify-content: center;
+            gap: 0;
+            flex-wrap: wrap;
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+            background: var(--bg2);
+        }
+        .stat-item {
+            flex: 1;
+            min-width: 160px;
+            padding: 32px 24px;
+            text-align: center;
+            border-right: 1px solid var(--border);
+        }
+        .stat-item:last-child { border-right: none; }
+        .stat-val {
+            font-size: 2.4rem;
+            font-weight: 900;
+            font-family: var(--font-mono);
+            color: var(--green);
+            line-height: 1;
+            margin-bottom: 6px;
+        }
+        .stat-label { font-size: 0.8rem; color: var(--muted2); font-weight: 500; }
+
+        /* FEATURES GRID */
+        .features {
+            padding: 100px 24px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .section-label {
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            font-weight: 600;
+            color: var(--green);
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+        }
+        .section-title {
+            font-size: clamp(1.8rem, 3vw, 2.8rem);
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            margin-bottom: 16px;
+        }
+        .section-sub {
+            color: var(--muted2);
+            font-size: 1rem;
+            max-width: 520px;
+            margin-bottom: 60px;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1px;
+            background: var(--border);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .feature-card {
+            background: var(--bg);
+            padding: 32px;
+            transition: background 0.2s;
+        }
+        .feature-card:hover { background: var(--bg3); }
+
+        .feature-icon {
+            font-size: 1.6rem;
+            margin-bottom: 16px;
+            display: block;
+        }
+
+        .feature-title {
+            font-size: 1rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: var(--text);
+        }
+
+        .feature-desc {
+            font-size: 0.85rem;
+            color: var(--muted2);
+            line-height: 1.65;
+        }
+
+        .feature-tag {
+            display: inline-block;
+            margin-top: 14px;
+            font-family: var(--font-mono);
+            font-size: 0.68rem;
+            background: rgba(34,197,94,0.1);
+            color: var(--green);
+            padding: 3px 10px;
+            border-radius: 100px;
+            border: 1px solid rgba(34,197,94,0.2);
+        }
+
+        /* COMPARISON */
+        .comparison {
+            padding: 100px 24px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--bg3);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .comparison-table th {
+            padding: 16px 20px;
+            text-align: center;
+            font-size: 0.85rem;
+            font-weight: 700;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg);
+        }
+        .comparison-table th:first-child { text-align: left; }
+        .comparison-table th.highlight {
+            background: rgba(34,197,94,0.08);
+            color: var(--green);
+        }
+
+        .comparison-table td {
+            padding: 14px 20px;
+            font-size: 0.83rem;
+            border-bottom: 1px solid var(--border);
+            text-align: center;
+            color: var(--muted2);
+        }
+        .comparison-table td:first-child { text-align: left; color: var(--text); font-weight: 500; }
+        .comparison-table tr:last-child td { border-bottom: none; }
+        .comparison-table td.highlight { background: rgba(34,197,94,0.04); }
+        .check { color: var(--green); font-size: 1rem; }
+        .cross { color: #ef4444; font-size: 1rem; }
+        .warn { color: var(--yellow); font-size: 0.8rem; }
+
+        /* SCREENSHOT GALLERY */
+        .gallery {
+            padding: 80px 24px;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+        .gallery-grid {
+            display: grid;
+            gap: 24px;
+        }
+        .gallery-item {
+            background: var(--bg3);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 16px 64px rgba(0,0,0,0.5);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .gallery-item:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 24px 80px rgba(0,0,0,0.6), 0 0 40px rgba(34,197,94,0.06);
+        }
+        .gallery-item img { width: 100%; display: block; }
+
+        /* DOWNLOAD */
+        .downloads {
+            padding: 100px 24px;
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        .dl-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+            margin-top: 40px;
+            text-align: left;
+        }
+
+        .dl-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--bg3);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 16px 18px;
+            text-decoration: none;
+            color: var(--text);
+            transition: border-color 0.15s, background 0.15s, transform 0.1s;
+        }
+        .dl-card:hover {
+            border-color: var(--green);
+            background: rgba(34,197,94,0.06);
+            transform: translateY(-2px);
+        }
+        .dl-card .dl-icon { font-size: 1.5rem; }
+        .dl-card .dl-info { flex: 1; }
+        .dl-card .dl-os { font-size: 0.85rem; font-weight: 600; }
+        .dl-card .dl-arch { font-size: 0.72rem; color: var(--muted2); font-family: var(--font-mono); }
+
+        /* CTA */
+        .cta {
+            padding: 120px 24px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .cta-glow {
+            position: absolute;
+            width: 600px; height: 400px;
+            background: radial-gradient(ellipse, rgba(34,197,94,0.1) 0%, transparent 70%);
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+        .cta h2 {
+            font-size: clamp(2rem, 4vw, 3.5rem);
+            font-weight: 900;
+            letter-spacing: -0.04em;
+            margin-bottom: 20px;
+        }
+        .cta p { color: var(--muted2); font-size: 1rem; max-width: 500px; margin: 0 auto 40px; }
+
+        /* FOOTER */
+        footer {
+            border-top: 1px solid var(--border);
+            padding: 40px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        footer .footer-logo {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--muted2);
+        }
+        footer .footer-logo span { color: var(--green); }
+        footer p {
+            font-size: 0.78rem;
+            color: var(--muted);
+        }
+        footer a { color: var(--muted2); text-decoration: none; }
+        footer a:hover { color: var(--text); }
+
+        /* ANIMATIONS */
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(24px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-up { animation: fadeUp 0.6s ease both; }
+        .delay-1 { animation-delay: 0.1s; }
+        .delay-2 { animation-delay: 0.2s; }
+        .delay-3 { animation-delay: 0.3s; }
+        .delay-4 { animation-delay: 0.4s; }
+
+        /* RESPONSIVE */
+        @media (max-width: 768px) {
+            nav { padding: 0 20px; }
+            .nav-links a:not(.btn-nav) { display: none; }
+            .stat-item { min-width: 120px; }
+            footer { flex-direction: column; text-align: center; }
+            .comparison-table { font-size: 0.75rem; }
+            .comparison-table td, .comparison-table th { padding: 10px 12px; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+    <a href="#" class="nav-logo">
+        <span class="dot">⚡</span> tarhiata-ops
+    </a>
+    <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#comparison">vs SaaS</a>
+        <a href="#downloads">Downloads</a>
+        <a href="https://github.com/Dall06/tarhiata-ops" target="_blank">GitHub</a>
+        <a href="https://github.com/Dall06/tarhiata-ops" target="_blank" class="btn-nav">Get Started →</a>
+    </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+    <div class="hero-glow"></div>
+
+    <div class="hero-badge fade-up">
+        <span class="pulse"></span>
+        v1.0.0-beta · Now Available · Made in México 🇲🇽
+    </div>
+
+    <h1 class="fade-up delay-1">
+        Your own <span class="accent">PaaS</span>.<br>
+        Zero overhead.<br>
+        Full sovereignty.
+    </h1>
+
+    <p class="hero-sub fade-up delay-2">
+        Deploy, orchestrate, and observe containerized apps on your own VPS — with the speed and aesthetics of Vercel and Railway, but running 100% on your infrastructure. 0 MB RAM overhead. No SaaS fees. Ever.
+    </p>
+
+    <div class="hero-actions fade-up delay-3">
+        <a href="https://github.com/Dall06/tarhiata-ops" target="_blank" class="btn-primary">
+            ⚡ View on GitHub
+        </a>
+        <a href="#downloads" class="btn-secondary">
+            📥 Download Binary
+        </a>
+    </div>
+
+    <div class="terminal-preview fade-up delay-4">
+        <div class="term-bar">
+            <span class="term-dot r"></span>
+            <span class="term-dot y"></span>
+            <span class="term-dot g"></span>
+            <span class="term-title">tarhiata-ops — control plane</span>
+        </div>
+        <div class="term-body">
+            <div class="term-line">
+                <span class="term-prompt">$</span>
+                <span class="term-cmd">tarhiata init --host 157.230.12.8 --user root</span>
+            </div>
+            <div class="term-ok">✔ SSH connection established</div>
+            <div class="term-ok">✔ Docker Engine installed &amp; hardened</div>
+            <div class="term-ok">✔ Docker Swarm initialized (manager node)</div>
+            <div class="term-ok">✔ Traefik v3 deployed with Let's Encrypt SSL</div>
+            <div class="term-ok">✔ Fail2Ban + UFW firewall configured</div>
+            <div class="term-dim">&nbsp;</div>
+            <div class="term-line">
+                <span class="term-prompt">$</span>
+                <span class="term-cmd">tarhiata deploy --name api-backend --image node:18-alpine --port 3000 --domain api.myapp.com</span>
+            </div>
+            <div class="term-ok">✔ Image pulled on cluster</div>
+            <div class="term-ok">✔ Service deployed (Swarm replicas: 1/1)</div>
+            <div class="term-ok">✔ SSL certificate issued for <span class="term-blue">api.myapp.com</span></div>
+            <div class="term-ok">✔ Traefik routing: <span class="term-purple">https://api.myapp.com</span> → <span class="term-blue">api-backend:3000</span></div>
+        </div>
+    </div>
+</section>
+
+<!-- STATS BAND -->
+<div class="stats-band">
+    <div class="stat-item">
+        <div class="stat-val">0 MB</div>
+        <div class="stat-label">RAM on your VPS</div>
+    </div>
+    <div class="stat-item">
+        <div class="stat-val">$0</div>
+        <div class="stat-label">SaaS Fees / Month</div>
+    </div>
+    <div class="stat-item">
+        <div class="stat-val">5</div>
+        <div class="stat-label">Database Engines</div>
+    </div>
+    <div class="stat-item">
+        <div class="stat-val">⌘K</div>
+        <div class="stat-label">Spotlight Command Palette</div>
+    </div>
+    <div class="stat-item">
+        <div class="stat-val">100%</div>
+        <div class="stat-label">Data Sovereignty</div>
+    </div>
+</div>
+
+<!-- FEATURES -->
+<section class="features" id="features">
+    <div class="section-label">// FEATURES</div>
+    <h2 class="section-title">Everything you need.<br>Nothing you don't.</h2>
+    <p class="section-sub">A complete private PaaS stack built for engineers who want Vercel-grade UX without the vendor lock-in.</p>
+
+    <div class="features-grid">
+        <div class="feature-card">
+            <span class="feature-icon">🌐</span>
+            <div class="feature-title">Web Control Plane</div>
+            <div class="feature-desc">
+                Vercel/Railway-aesthetic dashboard at <code>localhost:8080</code>. Real-time SVG topology graph, cgroups telemetry, live container logs, and interactive SSH terminal — all in one place.
+            </div>
+            <span class="feature-tag">⌘K Spotlight Palette</span>
+        </div>
+
+        <div class="feature-card">
+            <span class="feature-icon">🗄️</span>
+            <div class="feature-title">1-Click Databases</div>
+            <div class="feature-desc">
+                Instant provisioning for PostgreSQL, MongoDB, MySQL, Redis, and MinIO S3. Databases run strictly inside Swarm overlay networks — unreachable from the public internet.
+            </div>
+            <span class="feature-tag">Recovery Mode Included</span>
+        </div>
+
+        <div class="feature-card">
+            <span class="feature-icon">🚀</span>
+            <div class="feature-title">Zero-Downtime Deploys</div>
+            <div class="feature-desc">
+                Automated Traefik v3 HTTPS SSL via Let's Encrypt. Docker Swarm <code>start-first</code> rolling updates with automatic rollback on deployment failures.
+            </div>
+            <span class="feature-tag">Auto-rollback on failure</span>
+        </div>
+
+        <div class="feature-card">
+            <span class="feature-icon">🔑</span>
+            <div class="feature-title">SSH Key Access Control</div>
+            <div class="feature-desc">
+                Real-time team key management. Add and revoke developer SSH access instantly, with Vultr Master Account Protection to prevent accidental deletion of primary server credentials.
+            </div>
+            <span class="feature-tag">Master Key Protected</span>
+        </div>
+
+        <div class="feature-card">
+            <span class="feature-icon">🏗️</span>
+            <div class="feature-title">Multi-Node Cluster Scaling</div>
+            <div class="feature-desc">
+                Automated Terraform provisioning of dedicated worker nodes via Vultr API v2 across regions — defaulted to Mexico City (<code>mex</code>). Scale horizontally in minutes.
+            </div>
+            <span class="feature-tag">Vultr API v2 · Terraform</span>
+        </div>
+
+        <div class="feature-card">
+            <span class="feature-icon">📦</span>
+            <div class="feature-title">Custom S3 Backup Exporter</div>
+            <div class="feature-desc">
+                Stream backups directly to MinIO S3, Cloudflare R2, AWS S3, DigitalOcean Spaces, or Wasabi. Or keep them local at <code>/opt/tarhiata/backups</code>.
+            </div>
+            <span class="feature-tag">Multi-provider S3</span>
+        </div>
+
+        <div class="feature-card">
+            <span class="feature-icon">📜</span>
+            <div class="feature-title">Immutable Audit Logger</div>
+            <div class="feature-desc">
+                NDJSON audit trail tracking every deployment, link, node provisioning, and configuration event. Full security and compliance history on your own disk.
+            </div>
+            <span class="feature-tag">NDJSON · Immutable</span>
+        </div>
+
+        <div class="feature-card">
+            <span class="feature-icon">🔗</span>
+            <div class="feature-title">Service Linking Engine</div>
+            <div class="feature-desc">
+                Connect two services and auto-inject the target connection URI into environment variables. Link a Node.js API to PostgreSQL with a single command — no manual DNS config.
+            </div>
+            <span class="feature-tag">Auto ENV injection</span>
+        </div>
+
+        <div class="feature-card">
+            <span class="feature-icon">🌍</span>
+            <div class="feature-title">Multi-PC State Sync</div>
+            <div class="feature-desc">
+                Infrastructure topology is exported as non-sensitive state references at <code>/opt/tarhiata/state.json</code>. Connecting from a new PC automatically imports the entire cluster state instantly.
+            </div>
+            <span class="feature-tag">Local-First · Stateless</span>
+        </div>
+    </div>
+</section>
+
+<!-- SCREENSHOTS -->
+<section class="gallery">
+    <div style="text-align:center; margin-bottom:48px;">
+        <div class="section-label" style="margin-bottom:12px;">// DASHBOARD PREVIEW</div>
+        <h2 class="section-title">See it in action</h2>
+        <p style="color:var(--muted2); font-size:1rem; max-width:480px; margin:0 auto;">
+            The exact UX you love from Vercel and Railway — running 100% on your own VPS.
+        </p>
+    </div>
+    <div class="gallery-grid">
+        <div class="gallery-item">
+            <img
+                src="https://github.com/user-attachments/assets/fae05291-157c-4f12-adac-1d6921457b7a"
+                alt="Tarhiata-Ops Web Dashboard — Services catalog, topology, and VPS metrics"
+                loading="lazy"
+            >
+        </div>
+        <div class="gallery-item">
+            <img
+                src="https://github.com/user-attachments/assets/4ef5732d-b679-446a-9559-769e08de9d14"
+                alt="Tarhiata-Ops — Vultr bootstrap and real-time provisioning logs"
+                loading="lazy"
+            >
+        </div>
+    </div>
+</section>
+
+<!-- COMPARISON -->
+<section class="comparison" id="comparison">
+    <div style="text-align:center; margin-bottom:48px;">
+        <div class="section-label" style="margin-bottom:12px;">// WHY NOT SAAS</div>
+        <h2 class="section-title">Tarhiata-Ops vs the rest</h2>
+        <p style="color:var(--muted2); font-size:1rem; max-width:480px; margin:0 auto;">
+            The same DX. None of the lock-in, fees, or data exposure.
+        </p>
+    </div>
+
+    <table class="comparison-table">
+        <thead>
+            <tr>
+                <th></th>
+                <th>Vercel / Railway</th>
+                <th>Coolify / Caprover</th>
+                <th class="highlight">Tarhiata-Ops</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Self-hosted on your VPS</td>
+                <td><span class="cross">✕</span></td>
+                <td><span class="check">✓</span></td>
+                <td class="highlight"><span class="check">✓</span></td>
+            </tr>
+            <tr>
+                <td>RAM usage on VPS</td>
+                <td>N/A (cloud)</td>
+                <td><span class="warn">500 MB–2 GB agent</span></td>
+                <td class="highlight"><span class="check">0 MB</span></td>
+            </tr>
+            <tr>
+                <td>Monthly SaaS fee</td>
+                <td><span class="cross">$20–$500+</span></td>
+                <td><span class="check">$0</span></td>
+                <td class="highlight"><span class="check">$0</span></td>
+            </tr>
+            <tr>
+                <td>Data on your servers</td>
+                <td><span class="cross">✕</span></td>
+                <td><span class="check">✓</span></td>
+                <td class="highlight"><span class="check">✓</span></td>
+            </tr>
+            <tr>
+                <td>Spotlight Command Palette</td>
+                <td><span class="check">✓</span></td>
+                <td><span class="cross">✕</span></td>
+                <td class="highlight"><span class="check">✓ ⌘K</span></td>
+            </tr>
+            <tr>
+                <td>CLI + Web UI</td>
+                <td><span class="check">✓</span></td>
+                <td><span class="warn">Web only</span></td>
+                <td class="highlight"><span class="check">✓ Both</span></td>
+            </tr>
+            <tr>
+                <td>Multi-node cluster scaling</td>
+                <td><span class="check">✓</span></td>
+                <td><span class="warn">Manual</span></td>
+                <td class="highlight"><span class="check">✓ Terraform auto</span></td>
+            </tr>
+            <tr>
+                <td>Immutable audit log</td>
+                <td><span class="cross">✕</span></td>
+                <td><span class="cross">✕</span></td>
+                <td class="highlight"><span class="check">✓ NDJSON</span></td>
+            </tr>
+            <tr>
+                <td>Service link ENV injection</td>
+                <td><span class="check">✓</span></td>
+                <td><span class="cross">✕</span></td>
+                <td class="highlight"><span class="check">✓ Auto</span></td>
+            </tr>
+        </tbody>
+    </table>
+</section>
+
+<!-- DOWNLOADS -->
+<section class="downloads" id="downloads">
+    <div class="section-label" style="margin-bottom:12px;">// DOWNLOAD</div>
+    <h2 class="section-title">Pre-compiled binaries</h2>
+    <p style="color:var(--muted2); font-size:1rem; max-width:440px; margin:0 auto;">
+        No build step. Download and run directly.
+    </p>
+
+    <div class="dl-grid">
+        <a class="dl-card" href="https://github.com/Dall06/tarhiata-ops/releases/latest/download/tarhiata-darwin-arm64">
+            <span class="dl-icon">🍏</span>
+            <div class="dl-info">
+                <div class="dl-os">macOS (Apple Silicon)</div>
+                <div class="dl-arch">darwin-arm64 · M1/M2/M3/M4</div>
+            </div>
+        </a>
+        <a class="dl-card" href="https://github.com/Dall06/tarhiata-ops/releases/latest/download/tarhiata-darwin-amd64">
+            <span class="dl-icon">🍎</span>
+            <div class="dl-info">
+                <div class="dl-os">macOS (Intel)</div>
+                <div class="dl-arch">darwin-amd64</div>
+            </div>
+        </a>
+        <a class="dl-card" href="https://github.com/Dall06/tarhiata-ops/releases/latest/download/tarhiata-linux-amd64">
+            <span class="dl-icon">🐧</span>
+            <div class="dl-info">
+                <div class="dl-os">Linux (x86_64)</div>
+                <div class="dl-arch">linux-amd64</div>
+            </div>
+        </a>
+        <a class="dl-card" href="https://github.com/Dall06/tarhiata-ops/releases/latest/download/tarhiata-linux-arm64">
+            <span class="dl-icon">🐧</span>
+            <div class="dl-info">
+                <div class="dl-os">Linux (ARM64)</div>
+                <div class="dl-arch">linux-arm64 · Raspberry Pi</div>
+            </div>
+        </a>
+        <a class="dl-card" href="https://github.com/Dall06/tarhiata-ops/releases/latest/download/tarhiata-windows-amd64.exe">
+            <span class="dl-icon">🪟</span>
+            <div class="dl-info">
+                <div class="dl-os">Windows (x64)</div>
+                <div class="dl-arch">windows-amd64.exe</div>
+            </div>
+        </a>
+        <a class="dl-card" href="https://github.com/Dall06/tarhiata-ops" target="_blank">
+            <span class="dl-icon">📦</span>
+            <div class="dl-info">
+                <div class="dl-os">Build from Source</div>
+                <div class="dl-arch">go build · requires Go 1.25+</div>
+            </div>
+        </a>
+    </div>
+</section>
+
+<!-- CTA -->
+<section class="cta">
+    <div class="cta-glow"></div>
+    <h2>Your infra.<br>Your rules.</h2>
+    <p>Stop paying SaaS fees for infrastructure you could own. Deploy in minutes on any VPS with SSH.</p>
+    <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+        <a href="https://github.com/Dall06/tarhiata-ops" target="_blank" class="btn-primary">
+            ⚡ Get Started on GitHub
+        </a>
+        <a href="https://github.com/Dall06/tarhiata-ops/releases/latest" target="_blank" class="btn-secondary">
+            📥 Latest Release
+        </a>
+    </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+    <div class="footer-logo">
+        ⚡ tarhiata<span>-ops</span>
+    </div>
+    <p>Built with ❤️ in México 🇲🇽 · <a href="https://github.com/Dall06/tarhiata-ops" target="_blank">GitHub</a> · <a href="https://github.com/Dall06/tarhiata-ops/blob/main/docs/es/README.md" target="_blank">Docs ES</a></p>
+    <p style="color:var(--muted);">MIT License · v1.0.0-beta</p>
+</footer>
+
+</body>
+</html>

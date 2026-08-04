@@ -1,0 +1,13 @@
+bin/
+.DS_Store
+*.db
+*.sqlite
+*.log
+tmp/
+.env
+*.pem
+*.key
+id_rsa
+id_ed25519
+# Track the logs directory placeholder
+!docs/logs/.gitkeep

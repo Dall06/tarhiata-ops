@@ -1,0 +1,20 @@
+name: 'Tarhiata-Ops Action'
+description: 'Install and run the Tarhiata-Ops PaaS CLI inside GitHub Actions workflows'
+author: 'Dall06'
+branding:
+  icon: 'server'
+  color: 'green'
+inputs:
+  version:
+    description: 'Versión de Tarhiata-Ops a instalar'
+    required: false
+    default: 'latest'
+runs:
+  using: 'composite'
+  steps:
+    - name: Download Tarhiata Binary
+      shell: bash
+      run: |
+        curl -sSL "https://github.com/Dall06/tarhiata-ops/releases/latest/download/tarhiata-linux-amd64" -o /usr/local/bin/tarhiata
+        chmod +x /usr/local/bin/tarhiata
+        tarhiata --help

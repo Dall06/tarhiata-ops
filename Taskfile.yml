@@ -1,0 +1,28 @@
+version: '3'
+
+tasks:
+  default:
+    desc: "Muestra las tareas disponibles"
+    cmds:
+      - task --list-all
+
+  build:
+    desc: "Compila el CLI de tarhiata-ops para el sistema actual"
+    cmds:
+      - go build -o bin/tarhiata cmd/tarhiata/main.go
+
+  run:
+    desc: "Ejecuta el CLI en modo desarrollo"
+    cmds:
+      - go run cmd/tarhiata/main.go {{.CLI_ARGS}}
+
+  test:
+    desc: "Ejecuta todas las pruebas (Table-Driven Tests)"
+    cmds:
+      - go test -v ./...
+
+  cover:
+    desc: "Muestra el reporte de cobertura de tests por paquete"
+    cmds:
+      - go test -cover ./...
+
