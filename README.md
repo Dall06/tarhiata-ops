@@ -174,3 +174,4 @@ Commands:
 ---
 
 *Built with ❤️ to manage infrastructure with zero overhead directly from your terminal and web dashboard.*
+
