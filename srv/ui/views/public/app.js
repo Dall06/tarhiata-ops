@@ -561,39 +561,37 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Tab Switching Navigation ---
     function activateTab(tabName) {
-        const tabs = [tabSwarmServices, tabSwarmDatabases, tabHostServices, tabHostDevices, tabSwarmTopology];
-        const views = [viewSwarmServices, viewSwarmDatabases, viewHostServices, viewHostDevices, viewSwarmTopology];
+        const tabs = [tabSwarmServices, tabSwarmDatabases, tabHostServices, tabHostDevices, tabSwarmTopology].filter(Boolean);
+        const views = [viewSwarmServices, viewSwarmDatabases, viewHostServices, viewHostDevices, viewSwarmTopology].filter(Boolean);
         tabs.forEach(t => { if (t) t.classList.remove('active'); });
         views.forEach(v => { if (v) v.style.display = 'none'; });
 
-        if (location.hash !== `#${tabName}`) {
-            history.replaceState(null, '', `#${tabName}`);
+        const effectiveTab = (tabName === 'topology') ? 'services' : tabName;
+        if (location.hash !== `#${effectiveTab}`) {
+            history.replaceState(null, '', `#${effectiveTab}`);
         }
 
-        if (tabName === 'services' && tabSwarmServices && viewSwarmServices) {
+        if (effectiveTab === 'services' && tabSwarmServices && viewSwarmServices) {
             tabSwarmServices.classList.add('active');
             viewSwarmServices.style.display = 'block';
+            renderAppCards(swarmServicesCache);
+            renderNodesTable(swarmNodesCache);
+            renderTopologyServicesTable(swarmServicesCache, swarmDatabasesCache, currentServiceLinks);
+            if (selectedServerName) loadServiceLinks();
         }
-        if (tabName === 'databases' && tabSwarmDatabases && viewSwarmDatabases) {
+        if (effectiveTab === 'databases' && tabSwarmDatabases && viewSwarmDatabases) {
             tabSwarmDatabases.classList.add('active');
             viewSwarmDatabases.style.display = 'block';
         }
-        if (tabName === 'host' && tabHostServices && viewHostServices) {
+        if (effectiveTab === 'host' && tabHostServices && viewHostServices) {
             tabHostServices.classList.add('active');
             viewHostServices.style.display = 'block';
             renderServicesTable(currentHostServices);
         }
-        if (tabName === 'devices' && tabHostDevices && viewHostDevices) {
+        if (effectiveTab === 'devices' && tabHostDevices && viewHostDevices) {
             tabHostDevices.classList.add('active');
             viewHostDevices.style.display = 'block';
             loadHostDevices();
-        }
-        if (tabName === 'topology' && tabSwarmTopology && viewSwarmTopology) {
-            tabSwarmTopology.classList.add('active');
-            viewSwarmTopology.style.display = 'block';
-            renderNodesTable(swarmNodesCache);
-            renderTopologyServicesTable(swarmServicesCache, swarmDatabasesCache, currentServiceLinks);
-            if (selectedServerName) loadServiceLinks();
         }
     }
 
@@ -601,7 +599,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (tabSwarmDatabases) tabSwarmDatabases.addEventListener('click', () => activateTab('databases'));
     if (tabHostServices) tabHostServices.addEventListener('click', () => activateTab('host'));
     if (tabHostDevices) tabHostDevices.addEventListener('click', () => activateTab('devices'));
-    if (tabSwarmTopology) tabSwarmTopology.addEventListener('click', () => activateTab('topology'));
+    if (tabSwarmTopology) tabSwarmTopology.addEventListener('click', () => activateTab('services'));
     if (btnRefreshDevices) btnRefreshDevices.addEventListener('click', () => loadHostDevices(true));
 
     // --- Render Popover Server Directory & Quick Fleet Chips ---

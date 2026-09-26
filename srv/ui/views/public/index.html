@@ -241,7 +241,7 @@
             <div class="tabs-segmented-control">
                 <button type="button" class="tab-segment active" id="tabSwarmServices">
                     <span class="tab-emoji">🚀</span>
-                    <span>Aplicaciones Docker</span>
+                    <span>Servicios Docker &amp; Nodos</span>
                     <span class="tab-counter-pill" id="tabServicesCount">0</span>
                 </button>
                 <button type="button" class="tab-segment" id="tabSwarmDatabases">
@@ -259,11 +259,6 @@
                     <span>Dispositivos &amp; Hardware</span>
                     <span class="tab-counter-pill" id="tabDevicesCount">0</span>
                 </button>
-                <button type="button" class="tab-segment" id="tabSwarmTopology">
-                    <span class="tab-emoji">🌐</span>
-                    <span>Nodos &amp; Enlaces</span>
-                    <span class="tab-counter-pill" id="tabTopologyCount">0</span>
-                </button>
             </div>
 
             <div class="tabs-right-actions">
@@ -278,12 +273,20 @@
 
         <!-- Dynamic Content Views -->
         <section class="studio-work-area">
-            <!-- TAB 1: APLICACIONES DOCKER -->
+            <!-- TAB 1: SERVICIOS DOCKER & NODOS DEL CLÚSTER -->
             <div class="studio-view active" id="viewSwarmServices">
                 <div class="view-header-strip">
                     <div>
-                        <h2 class="view-title">Aplicaciones y Contenedores</h2>
+                        <h2 class="view-title">Aplicaciones y Contenedores Docker</h2>
                         <p class="view-subtitle">Servicios en ejecución en este VPS con proxy inverso Traefik y SSL automático.</p>
+                    </div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button type="button" class="action-btn action-btn-terminal" id="btnCopyJoinToken" title="Copiar comando docker swarm join para unir un nuevo servidor">
+                            📋 Copiar Token Swarm
+                        </button>
+                        <button type="button" class="action-btn action-btn-primary" id="btnOpenWorkerModal">
+                            ⚡ + Añadir Nodo Worker
+                        </button>
                     </div>
                 </div>
 
@@ -360,6 +363,93 @@
                     <button type="button" class="action-btn action-btn-primary" onclick="document.getElementById('btnOpenDeployModal').click()">
                         + Desplegar Primera Aplicación
                     </button>
+                </div>
+
+                <!-- Nodos del Clúster -->
+                <div class="view-header-strip" style="margin-top: 36px;">
+                    <div>
+                        <h2 class="view-title">Nodos del Clúster Swarm</h2>
+                        <p class="view-subtitle">Servidores físicos y VPSs interconectados ejecutando tareas del clúster.</p>
+                    </div>
+                </div>
+
+                <div class="tactical-table-wrap" style="margin-bottom: 24px;">
+                    <table class="t-table">
+                        <thead>
+                            <tr>
+                                <th>Servidor (Hostname)</th>
+                                <th>Estado</th>
+                                <th>Disponibilidad</th>
+                                <th>Rol en Clúster</th>
+                                <th>Servicios Asignados</th>
+                                <th>Versión Docker</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="swarmNodesTableBody">
+                            <tr>
+                                <td colspan="7" class="t-td-empty">Consultando nodos del clúster...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Topología de Servicios y Red -->
+                <div class="view-header-strip" style="margin-top: 36px;">
+                    <div>
+                        <h2 class="view-title">Topología de Servicios y Red</h2>
+                        <p class="view-subtitle">Mapeo de resolución DNS interna, puertos, exposición pública y asignación a nodos.</p>
+                    </div>
+                    <span class="t-badge" id="topologyServicesCountBadge">0 servicios</span>
+                </div>
+
+                <div class="tactical-table-wrap" style="margin-bottom: 24px;">
+                    <table class="t-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 22%;">Servicio / Aplicación</th>
+                                <th style="width: 12%;">Tipo</th>
+                                <th style="width: 22%;">DNS Interno</th>
+                                <th style="width: 20%;">Red Pública / Dominio</th>
+                                <th style="width: 14%;">Nodo Asignado</th>
+                                <th style="width: 10%;">Réplicas</th>
+                            </tr>
+                        </thead>
+                        <tbody id="topologyServicesTableBody">
+                            <tr>
+                                <td colspan="6" class="t-td-empty">Consultando servicios de la topología...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Enlaces de Servicio -->
+                <div class="view-header-strip" style="margin-top: 36px;">
+                    <div>
+                        <h2 class="view-title">Conexiones entre Apps y Bases de Datos (Service Links)</h2>
+                        <p class="view-subtitle">Variables de entorno inyectadas entre servicios dentro de la red privada del clúster.</p>
+                    </div>
+                    <button type="button" class="action-btn action-btn-terminal" id="btnOpenLinkModal">
+                        🔗 + Enlazar Servicios
+                    </button>
+                </div>
+
+                <div class="tactical-table-wrap" style="margin-bottom: 24px;">
+                    <table class="t-table">
+                        <thead>
+                            <tr>
+                                <th>App Consumidora</th>
+                                <th>Variable Inyectada</th>
+                                <th>Destino (BD / App)</th>
+                                <th>Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody id="linksTableBody">
+                            <tr>
+                                <td colspan="4" class="t-td-empty">Sin enlaces activos. Haz clic en '+ Enlazar Servicios'.</td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
@@ -574,103 +664,6 @@
                             </table>
                         </div>
                     </div>
-                </div>
-            </div>
-
-            <!-- TAB 4: NODOS & ENLACES (Cluster Topology) -->
-                <!-- Nodos del Clúster -->
-                <div class="view-header-strip">
-                    <div>
-                        <h2 class="view-title">Nodos del Clúster Swarm</h2>
-                        <p class="view-subtitle">Servidores físicos y VPSs interconectados ejecutando tareas del clúster.</p>
-                    </div>
-                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                        <button type="button" class="action-btn action-btn-terminal" id="btnCopyJoinToken" title="Copiar comando docker swarm join para unir un nuevo servidor">
-                            📋 Copiar Token de Unión
-                        </button>
-                        <button type="button" class="action-btn action-btn-primary" id="btnOpenWorkerModal">
-                            ⚡ + Añadir Nodo Worker
-                        </button>
-                    </div>
-                </div>
-
-                <div class="tactical-table-wrap" style="margin-bottom: 24px;">
-                    <table class="t-table">
-                        <thead>
-                            <tr>
-                                <th>Servidor (Hostname)</th>
-                                <th>Estado</th>
-                                <th>Disponibilidad</th>
-                                <th>Rol en Clúster</th>
-                                <th>Servicios Asignados</th>
-                                <th>Versión Docker</th>
-                                <th>Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody id="swarmNodesTableBody">
-                            <tr>
-                                <td colspan="7" class="t-td-empty">Consultando nodos del clúster...</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Topología de Servicios y Red -->
-                <div class="view-header-strip">
-                    <div>
-                        <h2 class="view-title">Topología de Servicios y Red</h2>
-                        <p class="view-subtitle">Mapeo de resolución DNS interna, puertos, exposición pública y asignación a nodos.</p>
-                    </div>
-                    <span class="t-badge" id="topologyServicesCountBadge">0 servicios</span>
-                </div>
-
-                <div class="tactical-table-wrap" style="margin-bottom: 24px;">
-                    <table class="t-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 22%;">Servicio / Aplicación</th>
-                                <th style="width: 12%;">Tipo</th>
-                                <th style="width: 22%;">DNS Interno</th>
-                                <th style="width: 20%;">Red Pública / Dominio</th>
-                                <th style="width: 14%;">Nodo Asignado</th>
-                                <th style="width: 10%;">Réplicas</th>
-                            </tr>
-                        </thead>
-                        <tbody id="topologyServicesTableBody">
-                            <tr>
-                                <td colspan="6" class="t-td-empty">Consultando servicios de la topología...</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Enlaces de Servicio -->
-                <div class="view-header-strip">
-                    <div>
-                        <h2 class="view-title">Conexiones entre Apps y Bases de Datos (Service Links)</h2>
-                        <p class="view-subtitle">Variables de entorno inyectadas entre servicios dentro de la red privada del clúster.</p>
-                    </div>
-                    <button type="button" class="action-btn action-btn-terminal" id="btnOpenLinkModal">
-                        🔗 + Enlazar Servicios
-                    </button>
-                </div>
-
-                <div class="tactical-table-wrap" style="margin-bottom: 24px;">
-                    <table class="t-table">
-                        <thead>
-                            <tr>
-                                <th>App Consumidora</th>
-                                <th>Variable Inyectada</th>
-                                <th>Destino (BD / App)</th>
-                                <th>Acción</th>
-                            </tr>
-                        </thead>
-                        <tbody id="linksTableBody">
-                            <tr>
-                                <td colspan="4" class="t-td-empty">Sin enlaces activos. Haz clic en '+ Enlazar Servicios'.</td>
-                            </tr>
-                        </tbody>
-                    </table>
                 </div>
             </div>
         </section>
