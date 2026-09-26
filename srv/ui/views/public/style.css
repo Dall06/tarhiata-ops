@@ -404,7 +404,7 @@ body {
     box-sizing: border-box;
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 1120px) {
     .server-bento-hero {
         grid-template-columns: 1fr;
     }
@@ -417,12 +417,11 @@ body {
     padding: 18px 20px;
     display: flex;
     flex-direction: column;
-    justify-content: space-between;
+    gap: 14px;
     transition: var(--ease-out);
     box-shadow: var(--shadow-sm);
     min-width: 0;
     max-width: 100%;
-    overflow: hidden;
     box-sizing: border-box;
 }
 
@@ -442,15 +441,18 @@ body {
 
 .server-status-badge-row {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     gap: 12px;
+    flex-wrap: wrap;
 }
 
 .server-main-title-group {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 10px;
+    min-width: 0;
+    flex: 1 1 auto;
 }
 
 .server-title-meta-col {
@@ -527,26 +529,34 @@ body {
     display: flex;
     align-items: center;
     gap: 6px;
-    white-space: nowrap;
+    flex-wrap: wrap;
     flex-shrink: 0;
+}
+
+.server-actions-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding-bottom: 2px;
 }
 
 .mini-btn {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-xs);
     color: var(--text-secondary);
     font-family: var(--font-sans);
-    font-size: 0.72rem;
+    font-size: 0.74rem;
     font-weight: 600;
-    padding: 3px 7px;
+    padding: 4px 9px;
     cursor: pointer;
     transition: var(--ease-out);
     white-space: nowrap;
-    flex-shrink: 0;
+    flex: 0 0 auto;
 }
 
 .mini-btn:hover {
@@ -610,7 +620,7 @@ body {
 /* Specs 3-card grid */
 .server-specs-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
 }
 
