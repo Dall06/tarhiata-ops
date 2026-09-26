@@ -578,7 +578,72 @@
             </div>
 
             <!-- TAB 4: NODOS & ENLACES (Cluster Topology) -->
-            <div class="studio-view" id="viewSwarmTopology" style="display:none;">
+                <!-- Nodos del Clúster -->
+                <div class="view-header-strip">
+                    <div>
+                        <h2 class="view-title">Nodos del Clúster Swarm</h2>
+                        <p class="view-subtitle">Servidores físicos y VPSs interconectados ejecutando tareas del clúster.</p>
+                    </div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button type="button" class="action-btn action-btn-terminal" id="btnCopyJoinToken" title="Copiar comando docker swarm join para unir un nuevo servidor">
+                            📋 Copiar Token de Unión
+                        </button>
+                        <button type="button" class="action-btn action-btn-primary" id="btnOpenWorkerModal">
+                            ⚡ + Añadir Nodo Worker
+                        </button>
+                    </div>
+                </div>
+
+                <div class="tactical-table-wrap" style="margin-bottom: 24px;">
+                    <table class="t-table">
+                        <thead>
+                            <tr>
+                                <th>Servidor (Hostname)</th>
+                                <th>Estado</th>
+                                <th>Disponibilidad</th>
+                                <th>Rol en Clúster</th>
+                                <th>Servicios Asignados</th>
+                                <th>Versión Docker</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="swarmNodesTableBody">
+                            <tr>
+                                <td colspan="7" class="t-td-empty">Consultando nodos del clúster...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Topología de Servicios y Red -->
+                <div class="view-header-strip">
+                    <div>
+                        <h2 class="view-title">Topología de Servicios y Red</h2>
+                        <p class="view-subtitle">Mapeo de resolución DNS interna, puertos, exposición pública y asignación a nodos.</p>
+                    </div>
+                    <span class="t-badge" id="topologyServicesCountBadge">0 servicios</span>
+                </div>
+
+                <div class="tactical-table-wrap" style="margin-bottom: 24px;">
+                    <table class="t-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 22%;">Servicio / Aplicación</th>
+                                <th style="width: 12%;">Tipo</th>
+                                <th style="width: 22%;">DNS Interno</th>
+                                <th style="width: 20%;">Red Pública / Dominio</th>
+                                <th style="width: 14%;">Nodo Asignado</th>
+                                <th style="width: 10%;">Réplicas</th>
+                            </tr>
+                        </thead>
+                        <tbody id="topologyServicesTableBody">
+                            <tr>
+                                <td colspan="6" class="t-td-empty">Consultando servicios de la topología...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
                 <!-- Enlaces de Servicio -->
                 <div class="view-header-strip">
                     <div>
@@ -603,42 +668,6 @@
                         <tbody id="linksTableBody">
                             <tr>
                                 <td colspan="4" class="t-td-empty">Sin enlaces activos. Haz clic en '+ Enlazar Servicios'.</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Nodos del Clúster -->
-                <div class="view-header-strip">
-                    <div>
-                        <h2 class="view-title">Nodos del Clúster Swarm</h2>
-                        <p class="view-subtitle">Servidores físicos y VPSs interconectados ejecutando tareas del clúster.</p>
-                    </div>
-                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                        <button type="button" class="action-btn action-btn-terminal" id="btnCopyJoinToken" title="Copiar comando docker swarm join para unir un nuevo servidor">
-                            📋 Copiar Token de Unión
-                        </button>
-                        <button type="button" class="action-btn action-btn-primary" id="btnOpenWorkerModal">
-                            ⚡ + Añadir Nodo Worker
-                        </button>
-                    </div>
-                </div>
-
-                <div class="tactical-table-wrap">
-                    <table class="t-table">
-                        <thead>
-                            <tr>
-                                <th>Servidor (Hostname)</th>
-                                <th>Estado</th>
-                                <th>Disponibilidad</th>
-                                <th>Rol en Clúster</th>
-                                <th>Versión Docker</th>
-                                <th>Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody id="swarmNodesTableBody">
-                            <tr>
-                                <td colspan="6" class="t-td-empty">Consultando nodos del clúster...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -836,11 +865,13 @@
                     <div class="form-row-grid">
                         <div class="form-field">
                             <label for="linkFrom">App Origen (Consumidora)</label>
-                            <input type="text" id="linkFrom" class="t-input" placeholder="ej: mi-backend" required>
+                            <input type="text" id="linkFrom" list="serviceListFrom" class="t-input" placeholder="Selecciona o escribe app (ej: mi-backend)" required autocomplete="off">
+                            <datalist id="serviceListFrom"></datalist>
                         </div>
                         <div class="form-field">
                             <label for="linkTo">Destino (BD o Servicio)</label>
-                            <input type="text" id="linkTo" class="t-input" placeholder="ej: mi-postgres" required>
+                            <input type="text" id="linkTo" list="serviceListTo" class="t-input" placeholder="Selecciona o escribe destino (ej: mi-postgres)" required autocomplete="off">
+                            <datalist id="serviceListTo"></datalist>
                         </div>
                         <div class="form-field full-span">
                             <label for="linkVar">Variable de Entorno Inyectada</label>

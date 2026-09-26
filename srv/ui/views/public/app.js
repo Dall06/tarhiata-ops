@@ -42,6 +42,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let swarmServicesCache = [];
     let swarmDatabasesCache = [];
     let swarmNodesCache = [];
+    let currentServiceLinks = [];
     let modalMode = 'local';
     let dbDeployMode = 'single-node';
 
@@ -212,6 +213,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const swarmDatabasesTableBody = document.getElementById('swarmDatabasesTableBody');
     const swarmNodesTableBody = document.getElementById('swarmNodesTableBody');
     const linksTableBody = document.getElementById('linksTableBody');
+    const topologyServicesTableBody = document.getElementById('topologyServicesTableBody');
+    const topologyServicesCountBadge = document.getElementById('topologyServicesCountBadge');
+    const serviceListFrom = document.getElementById('serviceListFrom');
+    const serviceListTo = document.getElementById('serviceListTo');
 
     // System Services elements
     const serviceSearchInput = document.getElementById('serviceSearchInput');
@@ -586,6 +591,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (tabName === 'topology' && tabSwarmTopology && viewSwarmTopology) {
             tabSwarmTopology.classList.add('active');
             viewSwarmTopology.style.display = 'block';
+            renderNodesTable(swarmNodesCache);
+            renderTopologyServicesTable(swarmServicesCache, swarmDatabasesCache, currentServiceLinks);
             if (selectedServerName) loadServiceLinks();
         }
     }
@@ -856,7 +863,10 @@ document.addEventListener('DOMContentLoaded', () => {
             swarmDatabasesCardsGrid.innerHTML = '';
             swarmDatabasesEmpty.style.display = 'flex';
             if (swarmNodesTableBody) {
-                swarmNodesTableBody.innerHTML = `<tr><td colspan="6" class="t-td-empty">El Framework no está instalado o activo en este servidor. Haz clic en "Instalar Framework".</td></tr>`;
+                swarmNodesTableBody.innerHTML = `<tr><td colspan="7" class="t-td-empty">El Framework no está instalado o activo en este servidor. Haz clic en "Instalar Framework".</td></tr>`;
+            }
+            if (topologyServicesTableBody) {
+                topologyServicesTableBody.innerHTML = `<tr><td colspan="6" class="t-td-empty">El Framework no está instalado o activo en este servidor.</td></tr>`;
             }
 
             if (linkPortainer) linkPortainer.href = '#';
@@ -905,7 +915,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (tabServicesCount) tabServicesCount.textContent = swarmServicesCache.length;
         if (tabDatabasesCount) tabDatabasesCount.textContent = swarmDatabasesCache.length;
-        if (tabTopologyCount) tabTopologyCount.textContent = swarmNodesCache.length;
+        if (tabTopologyCount) tabTopologyCount.textContent = (swarmNodesCache.length + swarmServicesCache.length + swarmDatabasesCache.length);
 
         if (!isSilent || servicesSig !== oldServicesSig) {
             renderAppCards(swarmServicesCache);
@@ -913,8 +923,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!isSilent || dbsSig !== oldDbsSig) {
             renderDatabaseCards(swarmDatabasesCache);
         }
-        if (!isSilent || nodesSig !== oldNodesSig) {
+        if (!isSilent || nodesSig !== oldNodesSig || servicesSig !== oldServicesSig || dbsSig !== oldDbsSig) {
             renderNodesTable(swarmNodesCache);
+            renderTopologyServicesTable(swarmServicesCache, swarmDatabasesCache, currentServiceLinks);
         }
     }
 
@@ -1228,7 +1239,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderNodesTable(nodes) {
         if (!swarmNodesTableBody) return;
         if (!nodes || nodes.length === 0) {
-            swarmNodesTableBody.innerHTML = `<tr><td colspan="6" class="t-td-empty">No se detectaron nodos adicionales.</td></tr>`;
+            swarmNodesTableBody.innerHTML = `<tr><td colspan="7" class="t-td-empty">No se detectaron nodos adicionales.</td></tr>`;
             return;
         }
 
@@ -1236,8 +1247,35 @@ document.addEventListener('DOMContentLoaded', () => {
         nodes.forEach(node => {
             const tr = document.createElement('tr');
             const isLeader = node.managerStatus && node.managerStatus.toLowerCase().includes('leader');
+            const isManager = isLeader || (node.managerStatus && node.managerStatus.toLowerCase().includes('reachable'));
             const avail = (node.availability || 'active').toLowerCase();
             const isDrain = avail === 'drain';
+            const nodeHost = (node.hostname || '').toLowerCase();
+
+            // Buscar qué servicios y BDs están alojados en este nodo
+            const assignedList = [];
+            (swarmServicesCache || []).forEach(s => {
+                const tgt = (s.targetNode || '').toLowerCase();
+                if (!tgt || tgt === 'all' || tgt === nodeHost || (isManager && (tgt === 'manager' || tgt === 'lider' || tgt === 'leader'))) {
+                    assignedList.push({ name: s.name, type: 'app' });
+                }
+            });
+            (swarmDatabasesCache || []).forEach(db => {
+                const tgt = (db.targetNode || '').toLowerCase();
+                if (!tgt || tgt === 'all' || tgt === nodeHost || (isManager && (tgt === 'manager' || tgt === 'lider' || tgt === 'leader'))) {
+                    assignedList.push({ name: db.name, type: 'db' });
+                }
+            });
+
+            let assignedHtml = '<span style="color:var(--text-muted); font-size:0.75rem;">Sin cargas asignadas</span>';
+            if (assignedList.length > 0) {
+                assignedHtml = `<div style="display:flex; gap:4px; flex-wrap:wrap;">` +
+                    assignedList.map(item => {
+                        const icon = item.type === 'db' ? '🗄️' : '🚀';
+                        return `<span class="t-badge t-badge-active" style="font-size:0.72rem; padding:1px 6px;">${icon} ${escapeHtml(item.name)}</span>`;
+                    }).join('') +
+                    `</div>`;
+            }
 
             let actionsHtml = '';
             if (isLeader) {
@@ -1257,6 +1295,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td><span class="svc-pill ${node.status && node.status.toLowerCase() === 'ready' ? 'svc-pill-active' : ''}">${escapeHtml(node.status)}</span></td>
                 <td style="color:${isDrain ? 'var(--accent-warning, #f59e0b)' : 'var(--text-muted)'};">${escapeHtml(node.availability)}</td>
                 <td><span class="t-badge ${isLeader ? 't-badge-active' : ''}">${escapeHtml(node.managerStatus || 'Worker')}</span></td>
+                <td>${assignedHtml}</td>
                 <td style="color:var(--text-muted); font-family:var(--font-mono); font-size:0.75rem;">${escapeHtml(node.engineVersion || '—')}</td>
                 <td>${actionsHtml}</td>
             `;
@@ -1559,6 +1598,155 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // --- Render Topology Services Table (Services & Databases network mapping) ---
+    function renderTopologyServicesTable(services, databases, links) {
+        if (!topologyServicesTableBody) return;
+        const svcs = services || [];
+        const dbs = databases || [];
+        const lnks = links || [];
+        const total = svcs.length + dbs.length;
+
+        if (topologyServicesCountBadge) {
+            topologyServicesCountBadge.textContent = `${total} ${total === 1 ? 'servicio' : 'servicios'}`;
+        }
+
+        if (total === 0) {
+            topologyServicesTableBody.innerHTML = `<tr><td colspan="6" class="t-td-empty">Sin servicios desplegados en la topología de red. Despliega una app o base de datos.</td></tr>`;
+            return;
+        }
+
+        let rowsHtml = '';
+
+        // 1. Apps Docker
+        svcs.forEach(s => {
+            const isPublic = s.expose || (s.domain && s.domain !== '');
+            let port = '80';
+            if (s.port) {
+                port = s.port;
+            } else if (s.ports) {
+                const match = String(s.ports).match(/(\d+)/);
+                if (match) port = match[1];
+            }
+
+            // Enlaces asociados a esta app
+            const relatedLinks = lnks.filter(l => (l.source_svc || l.SourceSvc) === s.name);
+            let linkBadgesHtml = '';
+            if (relatedLinks.length > 0) {
+                linkBadgesHtml = `<div style="display:flex; gap:4px; flex-wrap:wrap; margin-top:4px;">` +
+                    relatedLinks.map(l => {
+                        const target = l.target_svc || l.TargetSvc;
+                        const vName = l.env_var_name || l.EnvVarName;
+                        return `<span class="t-badge" style="font-size:0.7rem; border-color:rgba(99,102,241,0.3); background:rgba(99,102,241,0.1); color:#a5b4fc;" title="Variable inyectada: ${escapeHtml(vName)}">🔗 ${escapeHtml(target)}</span>`;
+                    }).join('') +
+                    `</div>`;
+            }
+
+            const publicRouteHtml = isPublic && s.domain
+                ? `<a href="https://${escapeHtml(s.domain)}" target="_blank" style="color:var(--brand-primary); text-decoration:none; display:inline-flex; align-items:center; gap:4px; font-weight:600;">
+                     🌐 https://${escapeHtml(s.domain)} ↗
+                   </a>`
+                : `<span style="color:var(--text-muted); font-size:0.75rem;">🔒 Red Interna Swarm</span>`;
+
+            const targetNodeHtml = s.targetNode
+                ? `<span class="t-badge" style="font-size:0.75rem;">${escapeHtml(s.targetNode)}</span>`
+                : `<span style="color:var(--text-muted); font-size:0.75rem;">Cualquiera (Global/Replica)</span>`;
+
+            rowsHtml += `
+                <tr>
+                    <td>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span style="font-size:1.1rem; line-height:1;">🚀</span>
+                            <div style="min-width:0; overflow:hidden;">
+                                <strong style="color:#fff; font-size:0.88rem; display:block; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(s.name)}</strong>
+                                <span style="font-size:0.72rem; color:var(--text-muted); font-family:var(--font-mono); display:block; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(s.image || 'imagen docker')}</span>
+                            </div>
+                        </div>
+                    </td>
+                    <td><span class="t-badge t-badge-active" style="font-size:0.72rem;">App Docker</span></td>
+                    <td>
+                        <code style="font-family:var(--font-mono); font-size:0.78rem; color:var(--brand-primary);">${escapeHtml(s.name)}:${escapeHtml(port)}</code>
+                        ${linkBadgesHtml}
+                    </td>
+                    <td>${publicRouteHtml}</td>
+                    <td>${targetNodeHtml}</td>
+                    <td><span class="svc-pill svc-pill-active" style="font-size:0.72rem;">${escapeHtml(s.replicas || '1/1')}</span></td>
+                </tr>
+            `;
+        });
+
+        // 2. Bases de Datos
+        dbs.forEach(db => {
+            const dbPort = db.port || getDefaultPort(db.engine);
+            const targetNodeHtml = db.targetNode
+                ? `<span class="t-badge" style="font-size:0.75rem;">${escapeHtml(db.targetNode)}</span>`
+                : `<span style="color:var(--text-muted); font-size:0.75rem;">Manager / Primario</span>`;
+
+            // Buscar si alguna app está consumiendo esta BD
+            const consumerLinks = lnks.filter(l => (l.target_svc || l.TargetSvc) === db.name);
+            let consumerBadgesHtml = '';
+            if (consumerLinks.length > 0) {
+                consumerBadgesHtml = `<div style="display:flex; gap:4px; flex-wrap:wrap; margin-top:4px;">` +
+                    consumerLinks.map(l => {
+                        const src = l.source_svc || l.SourceSvc;
+                        return `<span class="t-badge" style="font-size:0.7rem; border-color:rgba(16,185,129,0.3); background:rgba(16,185,129,0.1); color:#34d399;" title="Consumido por ${escapeHtml(src)}">⬅️ ${escapeHtml(src)}</span>`;
+                    }).join('') +
+                    `</div>`;
+            }
+
+            rowsHtml += `
+                <tr>
+                    <td>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span style="font-size:1.1rem; line-height:1;">🗄️</span>
+                            <div style="min-width:0; overflow:hidden;">
+                                <strong style="color:#fff; font-size:0.88rem; display:block; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(db.name)}</strong>
+                                <span style="font-size:0.72rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">${escapeHtml(db.engine || 'BD')} · ${escapeHtml(db.deployType || 'single-node')}</span>
+                            </div>
+                        </div>
+                    </td>
+                    <td><span class="t-badge" style="font-size:0.72rem; background:rgba(16,185,129,0.12); color:#10b981; border:1px solid rgba(16,185,129,0.25);">Base de Datos</span></td>
+                    <td>
+                        <code style="font-family:var(--font-mono); font-size:0.78rem; color:#34d399;">tarhiata-db-${escapeHtml(db.name)}:${escapeHtml(dbPort)}</code>
+                        ${consumerBadgesHtml}
+                    </td>
+                    <td><span style="color:var(--text-muted); font-size:0.75rem;">🔒 Aislada (Red Swarm)</span></td>
+                    <td>${targetNodeHtml}</td>
+                    <td><span class="svc-pill ${db.status === 'online' ? 'svc-pill-active' : ''}" style="font-size:0.72rem;">${escapeHtml(db.status ? db.status.toUpperCase() : '1/1')}</span></td>
+                </tr>
+            `;
+        });
+
+        topologyServicesTableBody.innerHTML = rowsHtml;
+    }
+
+    // --- Populate Link Modal Dropdowns ---
+    function populateLinkModalDropdowns() {
+        if (serviceListFrom) {
+            serviceListFrom.innerHTML = '';
+            (swarmServicesCache || []).forEach(svc => {
+                const opt = document.createElement('option');
+                opt.value = svc.name;
+                opt.label = `${svc.name} (App)`;
+                serviceListFrom.appendChild(opt);
+            });
+        }
+        if (serviceListTo) {
+            serviceListTo.innerHTML = '';
+            (swarmDatabasesCache || []).forEach(db => {
+                const opt = document.createElement('option');
+                opt.value = db.name;
+                opt.label = `${db.name} (${db.engine || 'BD'})`;
+                serviceListTo.appendChild(opt);
+            });
+            (swarmServicesCache || []).forEach(svc => {
+                const opt = document.createElement('option');
+                opt.value = svc.name;
+                opt.label = `${svc.name} (App)`;
+                serviceListTo.appendChild(opt);
+            });
+        }
+    }
+
     // --- Load Service Links ---
     async function loadServiceLinks() {
         if (!linksTableBody) return;
@@ -1567,13 +1755,16 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!res.ok) return;
 
             const links = await res.json();
-            if (!links || links.length === 0) {
+            currentServiceLinks = Array.isArray(links) ? links : [];
+            renderTopologyServicesTable(swarmServicesCache, swarmDatabasesCache, currentServiceLinks);
+
+            if (!currentServiceLinks || currentServiceLinks.length === 0) {
                 linksTableBody.innerHTML = `<tr><td colspan="4" class="t-td-empty">Sin enlaces activos. Haz clic en '+ Enlazar Servicios'.</td></tr>`;
                 return;
             }
 
             linksTableBody.innerHTML = '';
-            links.forEach(l => {
+            currentServiceLinks.forEach(l => {
                 const tr = document.createElement('tr');
                 const src = l.source_svc || l.SourceSvc;
                 const tgt = l.target_svc || l.TargetSvc;
@@ -2385,7 +2576,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- Modal: Service Linking ---
-    btnOpenLinkModal.addEventListener('click', () => { formLink.reset(); linkModal.style.display = 'flex'; });
+    if (btnOpenLinkModal) {
+        btnOpenLinkModal.addEventListener('click', () => {
+            populateLinkModalDropdowns();
+            formLink.reset();
+            linkModal.style.display = 'flex';
+        });
+    }
     btnCloseLinkModal.addEventListener('click', () => { formLink.reset(); linkModal.style.display = 'none'; });
     btnCancelLink.addEventListener('click', () => { formLink.reset(); linkModal.style.display = 'none'; });
     linkModal.addEventListener('click', (e) => {

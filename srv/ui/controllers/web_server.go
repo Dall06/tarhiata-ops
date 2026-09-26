@@ -318,7 +318,7 @@ func (w *WebServer) Echo() *echo.Echo {
 	e.Any("/api/tools/prune", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handlePrune))))
 	e.Any("/api/tools/restart-traefik", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleRestartTraefik))))
 	e.Any("/api/topology", echo.WrapHandler(http.HandlerFunc(w.handleTopology)))
-	e.Any("/api/links", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleLinks))))
+	e.Any("/api/links", echo.WrapHandler(http.HandlerFunc(w.handleLinks)))
 	e.Any("/api/nodes", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleNodes))))
 	e.Any("/api/nodes/join-token", echo.WrapHandler(http.HandlerFunc(w.handleNodeJoinToken)))
 	e.Any("/api/nodes/update", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleNodeUpdate))))
