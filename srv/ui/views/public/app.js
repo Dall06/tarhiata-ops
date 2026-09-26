@@ -591,7 +591,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (effectiveTab === 'devices' && tabHostDevices && viewHostDevices) {
             tabHostDevices.classList.add('active');
             viewHostDevices.style.display = 'block';
-            loadHostDevices();
+            if (currentHostDevices) {
+                renderHostDevices(currentHostDevices);
+            } else {
+                loadHostDevices();
+            }
         }
     }
 
@@ -676,11 +680,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Activar estados de esqueleto de carga de inmediato para el nuevo VPS
         activateServerLoadingSkeletons(s);
+        currentHostDevices = null;
 
-        await refreshServerTelemetry(serverName);
-        if (location.hash === '#devices' || (viewHostDevices && viewHostDevices.style.display !== 'none')) {
-            loadHostDevices();
-        }
+        await Promise.all([
+            refreshServerTelemetry(serverName),
+            loadHostDevices()
+        ]);
     }
 
     // --- Refresh Telemetry (Parallel Host & Swarm + Silent Refresh) ---
@@ -1434,11 +1439,13 @@ document.addEventListener('DOMContentLoaded', () => {
         isLoadingDevices = true;
         if (btnRefreshDevices) btnRefreshDevices.disabled = true;
 
-        if (hwStorageTableBody) hwStorageTableBody.innerHTML = `<tr><td colspan="7" class="t-td-empty">Consultando unidades de disco...</td></tr>`;
-        if (hwGpuCardsContainer) hwGpuCardsContainer.innerHTML = `<div class="t-td-empty" style="padding: 24px; text-align: center; width: 100%;">Consultando tarjetas gráficas...</div>`;
-        if (hwUsbTableBody) hwUsbTableBody.innerHTML = `<tr><td colspan="4" class="t-td-empty">Consultando periféricos USB...</td></tr>`;
-        if (hwDisplaysContainer) hwDisplaysContainer.innerHTML = `<div class="t-td-empty" style="padding: 24px; text-align: center; width: 100%;">Consultando salidas de video...</div>`;
-        if (hwPciTableBody) hwPciTableBody.innerHTML = `<tr><td colspan="4" class="t-td-empty">Consultando controladores PCI...</td></tr>`;
+        if (!currentHostDevices || forceFresh) {
+            if (hwStorageTableBody) hwStorageTableBody.innerHTML = `<tr><td colspan="7" class="t-td-empty">Consultando unidades de disco...</td></tr>`;
+            if (hwGpuCardsContainer) hwGpuCardsContainer.innerHTML = `<div class="t-td-empty" style="padding: 24px; text-align: center; width: 100%;">Consultando tarjetas gráficas...</div>`;
+            if (hwUsbTableBody) hwUsbTableBody.innerHTML = `<tr><td colspan="4" class="t-td-empty">Consultando periféricos USB...</td></tr>`;
+            if (hwDisplaysContainer) hwDisplaysContainer.innerHTML = `<div class="t-td-empty" style="padding: 24px; text-align: center; width: 100%;">Consultando salidas de video...</div>`;
+            if (hwPciTableBody) hwPciTableBody.innerHTML = `<tr><td colspan="4" class="t-td-empty">Consultando controladores PCI...</td></tr>`;
+        }
 
         try {
             const freshParam = forceFresh ? '&fresh=true' : '';
@@ -1973,7 +1980,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     btnDeskRefresh.addEventListener('click', () => {
-        if (selectedServerName) refreshServerTelemetry(selectedServerName);
+        if (selectedServerName) {
+            refreshServerTelemetry(selectedServerName);
+            loadHostDevices(true);
+        }
     });
 
     btnDeskActivate.addEventListener('click', () => {
@@ -4581,6 +4591,9 @@ document.addEventListener('DOMContentLoaded', () => {
             isAutoRefreshing = true;
             try {
                 await refreshServerTelemetry(selectedServerName, true);
+                if (location.hash === '#devices' || (viewHostDevices && viewHostDevices.style.display !== 'none')) {
+                    await loadHostDevices();
+                }
             } catch (pollErr) {
                 console.debug('Fallo durante polling automático de telemetría:', pollErr);
             } finally {
