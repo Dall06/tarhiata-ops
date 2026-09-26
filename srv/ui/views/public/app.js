@@ -83,9 +83,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Skeleton Loader Helper ---
     function deactivateInitialSkeletons() {
-        if (!document.body.classList.contains('is-initial-loading')) return;
         document.body.classList.remove('is-initial-loading');
-        document.querySelectorAll('.skeleton-target').forEach(el => el.classList.remove('skeleton-target'));
+        document.body.classList.remove('is-server-loading');
     }
 
     // --- DOM Elements: Bento Server Hero ---
@@ -164,6 +163,127 @@ document.addEventListener('DOMContentLoaded', () => {
     const serviceSearchInput = document.getElementById('serviceSearchInput');
     const servicesSummaryText = document.getElementById('servicesSummaryText');
     const servicesTableBody = document.getElementById('servicesTableBody');
+
+    // --- Skeleton Render Engine ---
+    function renderSkeletonCards() {
+        if (swarmServicesCardsGrid) {
+            if (swarmServicesEmpty) swarmServicesEmpty.style.display = 'none';
+            swarmServicesCardsGrid.innerHTML = `
+                <div class="skeleton-card">
+                    <div class="skeleton-card-header">
+                        <div class="skeleton-card-title-group">
+                            <div class="skeleton-box skeleton-card-icon"></div>
+                            <div class="skeleton-card-text">
+                                <div class="skeleton-box skeleton-card-line-lg"></div>
+                                <div class="skeleton-box skeleton-card-line-sm"></div>
+                            </div>
+                        </div>
+                        <div class="skeleton-box skeleton-card-pill"></div>
+                    </div>
+                    <div class="skeleton-box skeleton-card-url" style="margin-top:14px;"></div>
+                    <div class="skeleton-card-footer">
+                        <div class="skeleton-box skeleton-card-pill" style="width:60px;"></div>
+                        <div class="skeleton-card-actions">
+                            <div class="skeleton-box skeleton-card-btn"></div>
+                            <div class="skeleton-box skeleton-card-btn"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="skeleton-card">
+                    <div class="skeleton-card-header">
+                        <div class="skeleton-card-title-group">
+                            <div class="skeleton-box skeleton-card-icon"></div>
+                            <div class="skeleton-card-text">
+                                <div class="skeleton-box skeleton-card-line-lg"></div>
+                                <div class="skeleton-box skeleton-card-line-sm"></div>
+                            </div>
+                        </div>
+                        <div class="skeleton-box skeleton-card-pill"></div>
+                    </div>
+                    <div class="skeleton-box skeleton-card-url" style="margin-top:14px;"></div>
+                    <div class="skeleton-card-footer">
+                        <div class="skeleton-box skeleton-card-pill" style="width:60px;"></div>
+                        <div class="skeleton-card-actions">
+                            <div class="skeleton-box skeleton-card-btn"></div>
+                            <div class="skeleton-box skeleton-card-btn"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="skeleton-card">
+                    <div class="skeleton-card-header">
+                        <div class="skeleton-card-title-group">
+                            <div class="skeleton-box skeleton-card-icon"></div>
+                            <div class="skeleton-card-text">
+                                <div class="skeleton-box skeleton-card-line-lg"></div>
+                                <div class="skeleton-box skeleton-card-line-sm"></div>
+                            </div>
+                        </div>
+                        <div class="skeleton-box skeleton-card-pill"></div>
+                    </div>
+                    <div class="skeleton-box skeleton-card-url" style="margin-top:14px;"></div>
+                    <div class="skeleton-card-footer">
+                        <div class="skeleton-box skeleton-card-pill" style="width:60px;"></div>
+                        <div class="skeleton-card-actions">
+                            <div class="skeleton-box skeleton-card-btn"></div>
+                            <div class="skeleton-box skeleton-card-btn"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        if (swarmDatabasesCardsGrid) {
+            if (swarmDatabasesEmpty) swarmDatabasesEmpty.style.display = 'none';
+            swarmDatabasesCardsGrid.innerHTML = `
+                <div class="skeleton-card">
+                    <div class="skeleton-card-header">
+                        <div class="skeleton-card-title-group">
+                            <div class="skeleton-box skeleton-card-icon"></div>
+                            <div class="skeleton-card-text">
+                                <div class="skeleton-box skeleton-card-line-lg"></div>
+                                <div class="skeleton-box skeleton-card-line-sm"></div>
+                            </div>
+                        </div>
+                        <div class="skeleton-box skeleton-card-pill"></div>
+                    </div>
+                    <div class="skeleton-box skeleton-card-url" style="margin-top:14px;"></div>
+                </div>
+                <div class="skeleton-card">
+                    <div class="skeleton-card-header">
+                        <div class="skeleton-card-title-group">
+                            <div class="skeleton-box skeleton-card-icon"></div>
+                            <div class="skeleton-card-text">
+                                <div class="skeleton-box skeleton-card-line-lg"></div>
+                                <div class="skeleton-box skeleton-card-line-sm"></div>
+                            </div>
+                        </div>
+                        <div class="skeleton-box skeleton-card-pill"></div>
+                    </div>
+                    <div class="skeleton-box skeleton-card-url" style="margin-top:14px;"></div>
+                </div>
+            `;
+        }
+    }
+
+    function activateServerLoadingSkeletons(server) {
+        document.body.classList.add('is-server-loading');
+
+        if (deskServerTitle) deskServerTitle.textContent = server.name;
+        if (deskHost) deskHost.textContent = `${server.user || 'root'}@${server.host || 'localhost'}${server.port > 0 ? `:${server.port}` : ''}`;
+        if (deskModeBadge) deskModeBadge.textContent = (server.cloudProvider || 'SSH').toUpperCase();
+        if (deskActiveBadge) deskActiveBadge.style.display = server.isActive ? 'inline-block' : 'none';
+        if (btnDeskActivate) btnDeskActivate.style.display = server.isActive ? 'none' : 'inline-flex';
+
+        if (topActiveName) topActiveName.textContent = server.name;
+        if (topActiveHost) topActiveHost.textContent = server.host || 'localhost';
+        if (topActiveLatency) topActiveLatency.textContent = 'Midiendo...';
+        if (topActiveDot) topActiveDot.className = 'status-dot status-pending';
+
+        if (deskStatusDot) deskStatusDot.className = 'ops-status-dot status-pending';
+        if (tileLatencyDisplay) tileLatencyDisplay.textContent = 'Midiendo...';
+        if (tileUptime) tileUptime.textContent = 'Conectando...';
+
+        renderSkeletonCards();
+    }
 
     // Modales
     const serverModal = document.getElementById('serverModal');
@@ -463,16 +583,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!s) return;
 
-        // Hero identity
-        deskServerTitle.textContent = s.name;
-        deskHost.textContent = `${s.user || 'root'}@${s.host || 'localhost'}${s.port > 0 ? `:${s.port}` : ''}`;
-        deskModeBadge.textContent = (s.cloudProvider || 'SSH').toUpperCase();
-        deskActiveBadge.style.display = s.isActive ? 'inline-block' : 'none';
-        btnDeskActivate.style.display = s.isActive ? 'none' : 'inline-flex';
-
-        // Update Top Switcher Display
-        topActiveName.textContent = s.name;
-        topActiveHost.textContent = s.host || 'localhost';
+        // Activar estados de esqueleto de carga de inmediato para el nuevo VPS
+        activateServerLoadingSkeletons(s);
 
         await refreshServerTelemetry(serverName);
     }
@@ -600,6 +712,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btnBootstrapSwarm.title = `Instalar Framework de orquestación en '${serverName}'`;
         } finally {
             if (!isSilent) btnDeskRefresh.disabled = false;
+            deactivateInitialSkeletons();
         }
     }
 
@@ -741,14 +854,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="app-card-header">
                         <div class="app-card-title-group">
                             <div class="app-card-icon">🚀</div>
-                            <div>
-                                <h3 class="app-card-name">${escapeHtml(svc.name)}</h3>
-                                <div class="app-card-image">${escapeHtml(svc.image)}</div>
+                            <div style="min-width:0; flex:1; overflow:hidden;">
+                                <h3 class="app-card-name" title="${escapeHtml(svc.name)}">${escapeHtml(svc.name)}</h3>
+                                <div class="app-card-image" title="${escapeHtml(svc.image)}">${escapeHtml(svc.image)}</div>
                             </div>
                         </div>
                         <div class="app-card-badges">
                             ${isPublic && svc.domain ? '<span class="card-ssl-pill" style="background:rgba(16,185,129,0.12); color:#10b981; border:1px solid rgba(16,185,129,0.25);" title="Certificado SSL Activo vía Traefik">🔒 SSL</span>' : ''}
-                            <span class="svc-pill svc-pill-active">
+                            <span class="svc-pill svc-pill-active" style="flex-shrink:0;">
                                 <span class="status-dot status-online" style="width:6px; height:6px;"></span>
                                 ${escapeHtml(svc.replicas)} Réplicas
                             </span>
@@ -760,8 +873,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
 
                 <div class="app-card-actions">
-                    <span class="t-badge" style="font-size:0.72rem;">${isPublic ? '🌐 Público SSL' : '🔒 Privado'}</span>
-                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                    <div class="app-card-actions-meta">
+                        <span class="t-badge" style="font-size:0.72rem;">${isPublic ? '🌐 Público SSL' : '🔒 Privado'}</span>
+                    </div>
+                    <div class="app-card-actions-buttons">
                         <button type="button" class="mini-btn btn-logs-svc" data-name="${escapeHtml(svc.name)}" title="Ver logs en tiempo real">
                             📜 Logs
                         </button>
@@ -890,32 +1005,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
             card.innerHTML = `
                 <div>
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
-                        <div style="display:flex; align-items:center; gap:10px;">
-                            <div style="font-size:1.6rem; line-height:1;">🗄️</div>
-                            <div>
-                                <h3 style="font-size:1.05rem; font-weight:700; color:#fff;">${escapeHtml(db.name)}</h3>
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px; gap:8px;">
+                        <div style="display:flex; align-items:center; gap:10px; min-width:0; flex:1; overflow:hidden;">
+                            <div style="font-size:1.6rem; line-height:1; flex-shrink:0;">🗄️</div>
+                            <div style="min-width:0; flex:1; overflow:hidden;">
+                                <h3 style="font-size:1.02rem; font-weight:700; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(db.name)}">${escapeHtml(db.name)}</h3>
                                 <div style="font-size:0.72rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">
                                     ${escapeHtml(db.engine)} · ${escapeHtml(db.deployType)}
                                 </div>
                             </div>
                         </div>
-                        <span class="svc-pill ${isOnline ? 'svc-pill-active' : ''}">
+                        <span class="svc-pill ${isOnline ? 'svc-pill-active' : ''}" style="flex-shrink:0;">
                             ${escapeHtml(db.status ? db.status.toUpperCase() : 'ONLINE')}
                         </span>
                     </div>
 
                     <div class="db-conn-box">
-                        <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(connStr)}</span>
+                        <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; flex:1;" title="${escapeHtml(connStr)}">${escapeHtml(connStr)}</span>
                         <button type="button" class="mini-btn btn-copy-conn" data-conn="${escapeHtml(connStr)}" title="Copiar cadena de conexión">
                             Copiar
                         </button>
                     </div>
                 </div>
 
-                <div style="display:flex; justify-content:space-between; align-items:center; pt:12px; border-top:1px solid var(--border-subtle); margin-top:12px;">
-                    <span style="font-size:0.74rem; color:var(--text-dim);">Puerto: ${escapeHtml(port)}</span>
-                    <div style="display:flex; gap:6px;">
+                <div class="db-card-actions">
+                    <div class="db-card-actions-meta">
+                        <span>Puerto: <code style="font-family:var(--font-mono);">${escapeHtml(port)}</code></span>
+                    </div>
+                    <div class="db-card-actions-buttons">
                         <button type="button" class="mini-btn btn-logs-db" data-name="${escapeHtml(db.name)}" title="Ver logs en tiempo real">
                             📜 Logs
                         </button>
@@ -928,8 +1045,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         <button type="button" class="mini-btn btn-vol-db" data-name="${escapeHtml(db.name)}" title="Explorar archivos del volumen persistente">
                             📁 Archivos
                         </button>
-                        <button type="button" class="mini-btn btn-delete-db" data-name="${escapeHtml(db.name)}" style="color:var(--status-offline);">
-                            Eliminar BD
+                        <button type="button" class="mini-btn btn-delete-db" data-name="${escapeHtml(db.name)}" style="color:var(--status-offline);" title="Eliminar base de datos">
+                            ✕ Eliminar
                         </button>
                     </div>
                 </div>
