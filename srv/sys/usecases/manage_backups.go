@@ -25,7 +25,11 @@ func (uc *ManageBackupsUseCase) CreateSnapshot(req domain.BackupRequest, config 
 	if err := uc.ssh.Connect(config); err != nil {
 		return nil, fmt.Errorf("falló conexión SSH: %w", err)
 	}
-	defer uc.ssh.Close()
+	defer func() {
+		if clErr := uc.ssh.Close(); clErr != nil {
+			slog.Warn("manage_backups: error cerrando sesión SSH en CreateSnapshot", "error", clErr)
+		}
+	}()
 
 	if _, err := uc.ssh.RunCommand("mkdir -p /opt/tarhiata/backups"); err != nil {
 		return nil, fmt.Errorf("falló al crear directorio de backups: %w", err)
@@ -168,7 +172,11 @@ func (uc *ManageBackupsUseCase) RestoreSnapshot(backupID int, config domain.Serv
 	if err := uc.ssh.Connect(config); err != nil {
 		return fmt.Errorf("falló conexión SSH: %w", err)
 	}
-	defer uc.ssh.Close()
+	defer func() {
+		if clErr := uc.ssh.Close(); clErr != nil {
+			slog.Warn("manage_backups: error cerrando sesión SSH en RestoreSnapshot", "error", clErr)
+		}
+	}()
 
 	if backup.TargetType == "database" {
 		db, err := uc.repo.GetDatabase(backup.TargetName)
@@ -225,7 +233,11 @@ func (uc *ManageBackupsUseCase) DownloadSnapshot(backupID int, config domain.Ser
 	if err := uc.ssh.Connect(config); err != nil {
 		return nil, "", fmt.Errorf("falló conexión SSH: %w", err)
 	}
-	defer uc.ssh.Close()
+	defer func() {
+		if clErr := uc.ssh.Close(); clErr != nil {
+			slog.Warn("manage_backups: error cerrando sesión SSH en DownloadSnapshot", "error", clErr)
+		}
+	}()
 
 	res, err := uc.ssh.RunCommand(fmt.Sprintf("base64 -w 0 %s", backup.FilePath))
 	if err != nil || res.ExitCode != 0 {

@@ -426,6 +426,54 @@ func TestWebServer_HandleDatabasesBackup(t *testing.T) {
 			cfg:            &domain.ServerConfig{Host: "1.2.3.4"},
 			expectedStatus: http.StatusBadRequest,
 		},
+		{
+			name:           "List Backups with Target Filter (GET)",
+			method:         http.MethodGet,
+			url:            "/api/databases/backup?targetName=postgres-app",
+			body:           "",
+			cfg:            &domain.ServerConfig{Host: "1.2.3.4"},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "Restore Backup Method Not Allowed (GET)",
+			method:         http.MethodGet,
+			url:            "/api/backups/restore",
+			body:           "",
+			cfg:            &domain.ServerConfig{Host: "1.2.3.4"},
+			expectedStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:           "Restore Backup Invalid JSON (POST)",
+			method:         http.MethodPost,
+			url:            "/api/backups/restore",
+			body:           `{invalid}`,
+			cfg:            &domain.ServerConfig{Host: "1.2.3.4"},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Restore Backup Missing VPS Config (POST)",
+			method:         http.MethodPost,
+			url:            "/api/backups/restore",
+			body:           `{"backupId":1}`,
+			cfg:            nil,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Download Backup Missing VPS Config (GET)",
+			method:         http.MethodGet,
+			url:            "/api/backups/download?id=1",
+			body:           "",
+			cfg:            nil,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Create Backup with Unconfigured Server (POST)",
+			method:         http.MethodPost,
+			url:            "/api/databases/backup?server=nonexistent",
+			body:           `{"targetName":"db-main","engine":"postgres"}`,
+			cfg:            nil,
+			expectedStatus: http.StatusBadRequest,
+		},
 	}
 
 	for _, tc := range tests {
@@ -443,6 +491,8 @@ func TestWebServer_HandleDatabasesBackup(t *testing.T) {
 			rr := httptest.NewRecorder()
 			if strings.HasPrefix(tc.url, "/api/backups/download") {
 				ws.handleDownloadBackup(rr, req)
+			} else if strings.HasPrefix(tc.url, "/api/backups/restore") {
+				ws.handleRestoreBackup(rr, req)
 			} else {
 				ws.handleBackups(rr, req)
 			}

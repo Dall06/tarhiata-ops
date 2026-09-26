@@ -365,6 +365,11 @@
                         <h2 class="view-title">Bases de Datos &amp; Almacenamiento</h2>
                         <p class="view-subtitle">Instancias locales en Swarm, servidores dedicados o conexiones remotas listas para usar.</p>
                     </div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button type="button" class="action-btn action-btn-terminal" id="btnOpenBackupsModal" title="Ver y restaurar copias de seguridad">
+                            📦 Historial de Backups
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Grid de Tarjetas de Base de Datos -->
@@ -770,6 +775,44 @@
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Modal: Historial y Gestión de Backups / Snapshots -->
+    <div class="t-modal-overlay" id="backupsModal" style="display:none;" role="dialog" aria-modal="true">
+        <div class="t-modal-card" style="max-width: 840px; width: 92vw;">
+            <div class="t-modal-header">
+                <div>
+                    <h3 class="t-modal-title">📦 Historial de Snapshots y Backups</h3>
+                    <p class="t-modal-subtitle">Respaldos SQL, volcados binarios y archivos comprimidos almacenados en el servidor.</p>
+                </div>
+                <button type="button" class="t-close-btn" id="btnCloseBackupsModal" aria-label="Cerrar">&times;</button>
+            </div>
+            <div class="form-body" style="padding: 16px 20px;">
+                <div class="tactical-table-wrap" style="max-height: 420px; overflow-y: auto;">
+                    <table class="t-table">
+                        <thead>
+                            <tr>
+                                <th>Target / Base de Datos</th>
+                                <th>Motor</th>
+                                <th>Archivo</th>
+                                <th>Tamaño</th>
+                                <th>Fecha</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="backupsTableBody">
+                            <tr>
+                                <td colspan="6" class="t-td-empty">Consultando copias de seguridad...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="t-modal-footer">
+                <button type="button" class="t-btn t-btn-secondary" id="btnDismissBackupsModal">Cerrar</button>
+                <button type="button" class="t-btn t-btn-primary" id="btnRefreshBackupsModal">🔄 Actualizar</button>
+            </div>
         </div>
     </div>
 

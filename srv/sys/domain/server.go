@@ -204,6 +204,7 @@ type BackupRequest struct {
 	Engine      string `json:"engine,omitempty"` // "postgres", "mysql", "mongo", "redis"
 	TargetNode  string `json:"targetNode"`  // Afinidad de nodo ("manager", "worker-1", etc.)
 	BackupID    int    `json:"backupId"`    // Para restauración
+	Server      string `json:"server,omitempty"` // VPS de destino
 	S3Target    string `json:"s3Target,omitempty"`    // Nombre de la instancia MinIO/S3 o "custom"
 	BucketName  string `json:"bucketName,omitempty"`  // Nombre del Bucket (ej: "backups")
 	CustomS3URL string `json:"customS3Url,omitempty"` // URL externa (ej: "https://s3.amazonaws.com" o Cloudflare R2)

@@ -383,6 +383,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const linkVar = document.getElementById('linkVar');
     const btnSubmitLink = document.getElementById('btnSubmitLink');
 
+    // Backups Modal Elements
+    const backupsModal = document.getElementById('backupsModal');
+    const btnOpenBackupsModal = document.getElementById('btnOpenBackupsModal');
+    const btnCloseBackupsModal = document.getElementById('btnCloseBackupsModal');
+    const btnDismissBackupsModal = document.getElementById('btnDismissBackupsModal');
+    const btnRefreshBackupsModal = document.getElementById('btnRefreshBackupsModal');
+    const backupsTableBody = document.getElementById('backupsTableBody');
+
     // Edit Service Modal Elements
     const editServiceModal = document.getElementById('editServiceModal');
     const btnCloseEditServiceModal = document.getElementById('btnCloseEditServiceModal');
@@ -2680,13 +2688,14 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast(`Generando respaldo de '${name}'...`, 'info');
 
         try {
-            const res = await fetch('/api/databases/backup', {
+            const res = await fetch(`/api/databases/backup?server=${encodeURIComponent(selectedServerName || '')}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     targetName: name,
                     targetType: 'database',
-                    engine: engine || 'postgres'
+                    engine: engine || 'postgres',
+                    server: selectedServerName || ''
                 })
             });
 
@@ -2704,12 +2713,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (backupId) {
                 const downloadLink = document.createElement('a');
-                downloadLink.href = `/api/backups/download?id=${backupId}`;
+                downloadLink.href = `/api/backups/download?id=${backupId}&server=${encodeURIComponent(selectedServerName || '')}`;
                 downloadLink.download = filename;
                 document.body.appendChild(downloadLink);
                 downloadLink.click();
                 document.body.removeChild(downloadLink);
                 showToast(`Descarga de '${filename}' iniciada`, 'info');
+            }
+
+            if (backupsModal && backupsModal.style.display !== 'none') {
+                loadBackups();
             }
         } catch (err) {
             showToast(`Fallo de conexión: ${err.message}`, 'error');
@@ -2719,6 +2732,137 @@ document.addEventListener('DOMContentLoaded', () => {
                 btnElement.innerHTML = originalContent;
             }
         }
+    }
+
+    // --- Modal: Historial y Restauración de Backups ---
+    async function loadBackups() {
+        if (!backupsTableBody) return;
+        backupsTableBody.innerHTML = '<tr><td colspan="6" class="t-td-empty">Consultando copias de seguridad...</td></tr>';
+        try {
+            const res = await fetch(`/api/backups?server=${encodeURIComponent(selectedServerName || '')}`);
+            if (!res.ok) {
+                backupsTableBody.innerHTML = '<tr><td colspan="6" class="t-td-empty">Error al consultar respaldos del servidor.</td></tr>';
+                return;
+            }
+            const backups = await res.json();
+            if (!backups || backups.length === 0) {
+                backupsTableBody.innerHTML = '<tr><td colspan="6" class="t-td-empty">No se encontraron copias de seguridad registradas. Genera una desde tus bases de datos.</td></tr>';
+                return;
+            }
+            backupsTableBody.innerHTML = '';
+            backups.forEach(b => {
+                const tr = document.createElement('tr');
+                const sizeStr = formatFileSize(b.sizeBytes || b.SizeBytes || 0);
+                const bId = b.id || b.ID;
+                const targetName = b.targetName || b.TargetName || '—';
+                const engine = b.engine || b.Engine || 'database';
+                const filename = b.filename || b.Filename || '—';
+                const createdAt = b.createdAt || b.CreatedAt || '—';
+
+                tr.innerHTML = `
+                    <td style="font-weight:700; color:#fff;">${escapeHtml(targetName)}</td>
+                    <td><span class="svc-pill svc-pill-active">${escapeHtml(engine)}</span></td>
+                    <td style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(filename)}">${escapeHtml(filename)}</td>
+                    <td style="color:var(--text-secondary); font-size:0.8rem;">${escapeHtml(sizeStr)}</td>
+                    <td style="color:var(--text-muted); font-size:0.75rem;">${escapeHtml(createdAt)}</td>
+                    <td>
+                        <div style="display:flex; gap:6px; align-items:center;">
+                            <a class="mini-btn btn-dl-backup" href="/api/backups/download?id=${bId}&server=${encodeURIComponent(selectedServerName || '')}" download="${escapeHtml(filename)}" title="Descargar snapshot SQL/archivo" style="text-decoration:none;">
+                                📥 Descargar
+                            </a>
+                            <button type="button" class="mini-btn btn-restore-backup" data-id="${bId}" data-target="${escapeHtml(targetName)}" title="Restaurar base de datos desde este snapshot" style="color:var(--accent-warning, #f59e0b);">
+                                ♻️ Restaurar
+                            </button>
+                            <button type="button" class="mini-btn btn-del-backup" data-id="${bId}" data-file="${escapeHtml(filename)}" title="Eliminar respaldo" style="color:var(--status-offline);">
+                                🗑️
+                            </button>
+                        </div>
+                    </td>
+                `;
+                backupsTableBody.appendChild(tr);
+            });
+
+            // Bind restore events
+            document.querySelectorAll('.btn-restore-backup').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const id = btn.getAttribute('data-id');
+                    const target = btn.getAttribute('data-target');
+                    if (!id) return;
+                    if (!confirm(`¿Restaurar la base de datos '${target}' desde este respaldo? ADVERTENCIA: Esta operación sobrescribirá los datos actuales con el contenido del snapshot.`)) return;
+                    btn.disabled = true;
+                    showToast(`Restaurando '${target}' desde snapshot...`, 'info');
+                    try {
+                        const res = await fetch(`/api/backups/restore?server=${encodeURIComponent(selectedServerName || '')}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ backupId: parseInt(id, 10), server: selectedServerName || '' })
+                        });
+                        if (res.ok) {
+                            showToast(`¡Base de datos '${target}' restaurada con éxito!`, 'success');
+                            if (selectedServerName) await loadSwarmStatus(selectedServerName);
+                        } else {
+                            const errText = await res.text();
+                            showToast(`Error al restaurar: ${errText}`, 'error');
+                        }
+                    } catch (err) {
+                        showToast(`Error de red: ${err.message}`, 'error');
+                    } finally {
+                        btn.disabled = false;
+                    }
+                });
+            });
+
+            // Bind delete events
+            document.querySelectorAll('.btn-del-backup').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const id = btn.getAttribute('data-id');
+                    const file = btn.getAttribute('data-file');
+                    if (!id) return;
+                    if (!confirm(`¿Eliminar definitivamente el respaldo '${file}'?`)) return;
+                    btn.disabled = true;
+                    try {
+                        const res = await fetch(`/api/backups?id=${encodeURIComponent(id)}&server=${encodeURIComponent(selectedServerName || '')}`, {
+                            method: 'DELETE'
+                        });
+                        if (res.ok) {
+                            showToast(`Respaldo eliminado`, 'info');
+                            await loadBackups();
+                        } else {
+                            const errText = await res.text();
+                            showToast(`Error al eliminar: ${errText}`, 'error');
+                        }
+                    } catch (err) {
+                        showToast(`Error de red: ${err.message}`, 'error');
+                    } finally {
+                        btn.disabled = false;
+                    }
+                });
+            });
+
+        } catch (err) {
+            backupsTableBody.innerHTML = `<tr><td colspan="6" class="t-td-empty">Error cargando copias de seguridad: ${escapeHtml(err.message)}</td></tr>`;
+        }
+    }
+
+    if (btnOpenBackupsModal) {
+        btnOpenBackupsModal.addEventListener('click', () => {
+            if (backupsModal) {
+                backupsModal.style.display = 'flex';
+                loadBackups();
+            }
+        });
+    }
+
+    function closeBackupsModal() {
+        if (backupsModal) backupsModal.style.display = 'none';
+    }
+    if (btnCloseBackupsModal) btnCloseBackupsModal.addEventListener('click', closeBackupsModal);
+    if (btnDismissBackupsModal) btnDismissBackupsModal.addEventListener('click', closeBackupsModal);
+    if (btnRefreshBackupsModal) btnRefreshBackupsModal.addEventListener('click', () => loadBackups());
+    if (backupsModal) {
+        backupsModal.addEventListener('click', (e) => {
+            if (e.target === backupsModal) closeBackupsModal();
+        });
     }
 
     // --- Modal: Gestor de Variables de Entorno (.env) ---

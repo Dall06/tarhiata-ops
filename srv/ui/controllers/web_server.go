@@ -3320,6 +3320,20 @@ func (w *WebServer) handleBackups(rw http.ResponseWriter, req *http.Request) {
 		if backups == nil {
 			backups = []domain.SavedBackup{}
 		}
+		targetFilter := strings.TrimSpace(req.URL.Query().Get("targetName"))
+		if targetFilter != "" {
+			var filtered []domain.SavedBackup
+			for _, b := range backups {
+				if strings.EqualFold(b.TargetName, targetFilter) {
+					filtered = append(filtered, b)
+				}
+			}
+			if filtered == nil {
+				filtered = []domain.SavedBackup{}
+			}
+			jsonResponse(rw, filtered)
+			return
+		}
 		jsonResponse(rw, backups)
 		return
 	}
@@ -3340,14 +3354,12 @@ func (w *WebServer) handleBackups(rw http.ResponseWriter, req *http.Request) {
 			http.Error(rw, "Parámetro 'targetName' o 'name' requerido", http.StatusBadRequest)
 			return
 		}
-		cfg := w.getConfig()
-		if cfg == nil || cfg.Host == "" {
-			if loaded, err := w.repo.GetServerConfig(); err == nil && loaded != nil && loaded.Host != "" {
-				w.setConfig(loaded)
-				cfg = loaded
-			}
+		serverTarget := req.URL.Query().Get("server")
+		if serverTarget == "" && bReq.Server != "" {
+			serverTarget = bReq.Server
 		}
-		if cfg == nil || cfg.Host == "" {
+		cfg := w.resolveTargetServer(serverTarget)
+		if cfg == nil || (cfg.Host == "" && !cfg.IsLocal()) {
 			http.Error(rw, "VPS no configurado", http.StatusBadRequest)
 			return
 		}
@@ -3388,14 +3400,12 @@ func (w *WebServer) handleRestoreBackup(rw http.ResponseWriter, req *http.Reques
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
-	cfg := w.getConfig()
-	if cfg == nil || cfg.Host == "" {
-		if loaded, err := w.repo.GetServerConfig(); err == nil && loaded != nil && loaded.Host != "" {
-			w.setConfig(loaded)
-			cfg = loaded
-		}
+	serverTarget := req.URL.Query().Get("server")
+	if serverTarget == "" && bReq.Server != "" {
+		serverTarget = bReq.Server
 	}
-	if cfg == nil || cfg.Host == "" {
+	cfg := w.resolveTargetServer(serverTarget)
+	if cfg == nil || (cfg.Host == "" && !cfg.IsLocal()) {
 		http.Error(rw, "VPS no configurado", http.StatusBadRequest)
 		return
 	}
@@ -3415,14 +3425,9 @@ func (w *WebServer) handleDownloadBackup(rw http.ResponseWriter, req *http.Reque
 		http.Error(rw, "ID de backup inválido", http.StatusBadRequest)
 		return
 	}
-	cfg := w.getConfig()
-	if cfg == nil || cfg.Host == "" {
-		if loaded, err := w.repo.GetServerConfig(); err == nil && loaded != nil && loaded.Host != "" {
-			w.setConfig(loaded)
-			cfg = loaded
-		}
-	}
-	if cfg == nil || cfg.Host == "" {
+	serverTarget := req.URL.Query().Get("server")
+	cfg := w.resolveTargetServer(serverTarget)
+	if cfg == nil || (cfg.Host == "" && !cfg.IsLocal()) {
 		http.Error(rw, "VPS no configurado", http.StatusBadRequest)
 		return
 	}
