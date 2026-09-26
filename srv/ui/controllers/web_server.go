@@ -24,6 +24,7 @@ import (
 	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
 	"github.com/Dall06/tarhiata-ops/srv/sys/usecases"
 	"github.com/Dall06/tarhiata-ops/opt/banner"
+	"github.com/Dall06/tarhiata-ops/pkg/exs"
 	"github.com/Dall06/tarhiata-ops/pkg/osterminal"
 	"github.com/Dall06/tarhiata-ops/srv/ui/dto"
 	"github.com/Dall06/tarhiata-ops/srv/ui/views/public"
@@ -204,6 +205,7 @@ func (w *WebServer) Echo() *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
+	e.HTTPErrorHandler = exs.EchoHTTPErrorHandler
 
 	// Middlewares globales de Echo
 	e.Use(echomw.Recover())
