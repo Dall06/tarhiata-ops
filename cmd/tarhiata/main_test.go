@@ -175,3 +175,109 @@ func TestHandleStatusCommand(t *testing.T) {
 		t.Errorf("expected status output, got: %s", out)
 	}
 }
+
+func TestIsValidIdentifier_TableDriven(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{name: "Valid alphanumeric", input: "my-service-1", expected: true},
+		{name: "Valid with dots and underscores", input: "api.v1_node", expected: true},
+		{name: "Valid single letter", input: "a", expected: true},
+		{name: "Valid uppercase", input: "AppService2", expected: true},
+		{name: "Invalid with space", input: "my service", expected: false},
+		{name: "Invalid with semicolon", input: "service;rm -rf /", expected: false},
+		{name: "Invalid with pipe", input: "service|cat", expected: false},
+		{name: "Invalid with slash", input: "folder/service", expected: false},
+		{name: "Invalid empty", input: "", expected: false},
+		{name: "Invalid special char", input: "service$name", expected: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isValidIdentifier(tc.input)
+			if got != tc.expected {
+				t.Errorf("isValidIdentifier(%q) = %v, expected %v", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestIsJSONOutput(t *testing.T) {
+	os.Unsetenv("TARHIATA_JSON")
+	if isJSONOutput() {
+		t.Error("expected isJSONOutput() to be false when TARHIATA_JSON is not set")
+	}
+
+	os.Setenv("TARHIATA_JSON", "true")
+	defer os.Unsetenv("TARHIATA_JSON")
+	if !isJSONOutput() {
+		t.Error("expected isJSONOutput() to be true when TARHIATA_JSON=true")
+	}
+}
+
+func TestConfirmAction_AutoYes(t *testing.T) {
+	os.Setenv("TARHIATA_AUTO_YES", "true")
+	defer os.Unsetenv("TARHIATA_AUTO_YES")
+
+	if !confirmAction("¿Eliminar nodo?") {
+		t.Error("expected confirmAction to return true when TARHIATA_AUTO_YES is true")
+	}
+}
+
+func TestHandleListCommand_JSON(t *testing.T) {
+	repo, cleanup := setupTempRepo(t)
+	defer cleanup()
+
+	if err := repo.SaveService(domain.SavedService{Name: "json-svc", ImageSource: "node:18"}); err != nil {
+		t.Fatalf("unexpected error saving service: %v", err)
+	}
+
+	os.Setenv("TARHIATA_JSON", "true")
+	defer os.Unsetenv("TARHIATA_JSON")
+
+	out := captureOutput(func() {
+		handleListCommand(repo)
+	})
+
+	if !strings.Contains(out, `"services"`) || !strings.Contains(out, `"json-svc"`) {
+		t.Errorf("expected JSON output containing services array, got: %s", out)
+	}
+}
+
+func TestHandleStatusCommand_JSON(t *testing.T) {
+	repo, cleanup := setupTempRepo(t)
+	defer cleanup()
+
+	os.Setenv("TARHIATA_JSON", "true")
+	defer os.Unsetenv("TARHIATA_JSON")
+
+	out := captureOutput(func() {
+		handleStatusCommand(repo, &domain.ServerConfig{Host: "192.168.1.50", User: "ubuntu"})
+	})
+
+	if !strings.Contains(out, `"192.168.1.50"`) || !strings.Contains(out, `"configured": true`) {
+		t.Errorf("expected JSON status output, got: %s", out)
+	}
+}
+
+func TestHandleTopologyCommand_JSON(t *testing.T) {
+	repo, cleanup := setupTempRepo(t)
+	defer cleanup()
+
+	if err := repo.SaveService(domain.SavedService{Name: "topo-svc", Port: 8080}); err != nil {
+		t.Fatalf("unexpected error saving service: %v", err)
+	}
+
+	os.Setenv("TARHIATA_JSON", "true")
+	defer os.Unsetenv("TARHIATA_JSON")
+
+	out := captureOutput(func() {
+		handleTopologyCommand(repo)
+	})
+
+	if !strings.Contains(out, `"topo-svc"`) || !strings.Contains(out, `"service_links"`) {
+		t.Errorf("expected JSON topology output, got: %s", out)
+	}
+}

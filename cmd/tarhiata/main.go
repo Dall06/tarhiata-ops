@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -27,7 +28,14 @@ func isValidIdentifier(s string) bool {
 	return validIdentifierRegex.MatchString(s)
 }
 
+func isJSONOutput() bool {
+	return os.Getenv("TARHIATA_JSON") == "true"
+}
+
 func confirmAction(prompt string) bool {
+	if os.Getenv("TARHIATA_AUTO_YES") == "true" {
+		return true
+	}
 	fmt.Printf("%s (s/N): ", prompt)
 	var confirm string
 	if _, err := fmt.Scanln(&confirm); err != nil {
@@ -62,12 +70,22 @@ func main() {
 	// 3. Enrutamiento de Comandos CLI (Mapeo 1 a 1 con Casos de Uso)
 	args := os.Args[1:]
 
-	// Detección de flag global --expose o -e para exposición deliberada de red
+	// Detección de flags globales: --expose (-e), --yes (-y), --json
 	expose := false
+	autoYes := false
+	jsonOut := false
 	filteredArgs := make([]string, 0, len(args))
 	for _, arg := range args {
 		if arg == "--expose" || arg == "-e" {
 			expose = true
+			continue
+		}
+		if arg == "--yes" || arg == "-y" {
+			autoYes = true
+			continue
+		}
+		if arg == "--json" {
+			jsonOut = true
 			continue
 		}
 		filteredArgs = append(filteredArgs, arg)
@@ -75,6 +93,16 @@ func main() {
 	if expose {
 		if setErr := os.Setenv("TARHIATA_EXPOSE", "true"); setErr != nil {
 			slog.Warn("main: error configurando TARHIATA_EXPOSE", "error", setErr)
+		}
+	}
+	if autoYes {
+		if setErr := os.Setenv("TARHIATA_AUTO_YES", "true"); setErr != nil {
+			slog.Warn("main: error configurando TARHIATA_AUTO_YES", "error", setErr)
+		}
+	}
+	if jsonOut {
+		if setErr := os.Setenv("TARHIATA_JSON", "true"); setErr != nil {
+			slog.Warn("main: error configurando TARHIATA_JSON", "error", setErr)
 		}
 	}
 	args = filteredArgs
@@ -1264,6 +1292,15 @@ func handleRegistryCommand(repo *repositories.SQLiteRepository, config *domain.S
 			fmt.Printf("❌ Error al listar registries: %v\n", err)
 			return
 		}
+		if isJSONOutput() {
+			jsonBytes, errJSON := json.MarshalIndent(creds, "", "  ")
+			if errJSON != nil {
+				fmt.Printf("❌ Error serializando JSON: %v\n", errJSON)
+				return
+			}
+			fmt.Println(string(jsonBytes))
+			return
+		}
 		if len(creds) == 0 {
 			fmt.Println("ℹ️ No hay registries privados autenticados.")
 			return
@@ -1404,6 +1441,20 @@ func handleListCommand(repo *repositories.SQLiteRepository) {
 		slog.Warn("main: error leyendo bases de datos en handleList", "error", errDb)
 	}
 
+	if isJSONOutput() {
+		data := map[string]interface{}{
+			"services":  svcs,
+			"databases": dbs,
+		}
+		jsonBytes, errJSON := json.MarshalIndent(data, "", "  ")
+		if errJSON != nil {
+			fmt.Printf("❌ Error serializando JSON: %v\n", errJSON)
+			return
+		}
+		fmt.Println(string(jsonBytes))
+		return
+	}
+
 	fmt.Println("========================================================")
 	fmt.Println(" 📦 CATÁLOGO DE SERVICIOS Y BASES DE DATOS DE TARHIATA")
 	fmt.Println("========================================================")
@@ -1422,6 +1473,38 @@ func handleListCommand(repo *repositories.SQLiteRepository) {
 }
 
 func handleStatusCommand(repo *repositories.SQLiteRepository, config *domain.ServerConfig) {
+	svcs, errSvc := repo.GetServices()
+	if errSvc != nil {
+		slog.Warn("main: error leyendo servicios en handleStatus", "error", errSvc)
+	}
+	dbs, errDb := repo.GetDatabases()
+	if errDb != nil {
+		slog.Warn("main: error leyendo bases de datos en handleStatus", "error", errDb)
+	}
+
+	if isJSONOutput() {
+		host := ""
+		user := ""
+		if config != nil {
+			host = config.Host
+			user = config.User
+		}
+		data := map[string]interface{}{
+			"host":        host,
+			"user":        user,
+			"configured":  config != nil && config.Host != "",
+			"apps_count": len(svcs),
+			"dbs_count":  len(dbs),
+		}
+		jsonBytes, errJSON := json.MarshalIndent(data, "", "  ")
+		if errJSON != nil {
+			fmt.Printf("❌ Error serializando JSON: %v\n", errJSON)
+			return
+		}
+		fmt.Println(string(jsonBytes))
+		return
+	}
+
 	fmt.Println("========================================================")
 	fmt.Println(" 📊 TARHIATA CLUSTER STATUS")
 	fmt.Println("========================================================")
@@ -1430,14 +1513,6 @@ func handleStatusCommand(repo *repositories.SQLiteRepository, config *domain.Ser
 		fmt.Printf(" 🔒 Swarm Cluster: OPERACIONAL (Master Active)\n")
 	} else {
 		fmt.Println(" 🔴 Host IP:       NO CONFIGURADO (Ejecuta: tarhiata config --host <IP>)")
-	}
-	svcs, errSvc := repo.GetServices()
-	if errSvc != nil {
-		slog.Warn("main: error leyendo servicios en handleStatus", "error", errSvc)
-	}
-	dbs, errDb := repo.GetDatabases()
-	if errDb != nil {
-		slog.Warn("main: error leyendo bases de datos en handleStatus", "error", errDb)
 	}
 	fmt.Printf(" 📦 Total Apps:    %d\n", len(svcs))
 	fmt.Printf(" 🗄️ Total BDs:     %d\n", len(dbs))
@@ -1456,6 +1531,21 @@ func handleTopologyCommand(repo *repositories.SQLiteRepository) {
 	links, errLinks := repo.GetServiceLinks()
 	if errLinks != nil {
 		slog.Warn("main: error leyendo service links en handleTopology", "error", errLinks)
+	}
+
+	if isJSONOutput() {
+		data := map[string]interface{}{
+			"services":      svcs,
+			"databases":     dbs,
+			"service_links": links,
+		}
+		jsonBytes, errJSON := json.MarshalIndent(data, "", "  ")
+		if errJSON != nil {
+			fmt.Printf("❌ Error serializando JSON: %v\n", errJSON)
+			return
+		}
+		fmt.Println(string(jsonBytes))
+		return
 	}
 
 	fmt.Println("========================================================")
