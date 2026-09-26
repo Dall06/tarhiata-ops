@@ -46,7 +46,9 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 await navigator.clipboard.writeText(text);
                 return true;
-            } catch (_) {}
+            } catch (clipErr) {
+                console.debug('clipboard.writeText no soportado o denegado:', clipErr);
+            }
         }
         const textArea = document.createElement('textarea');
         textArea.value = text;
@@ -58,7 +60,9 @@ document.addEventListener('DOMContentLoaded', () => {
         let ok = false;
         try {
             ok = document.execCommand('copy');
-        } catch (_) {}
+        } catch (execErr) {
+            console.debug('execCommand copy falló:', execErr);
+        }
         document.body.removeChild(textArea);
         return ok;
     }
@@ -262,6 +266,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             `;
         }
+
+        if (swarmNodesTableBody) {
+            swarmNodesTableBody.innerHTML = `<tr><td colspan="5" class="t-td-empty"><div class="skeleton-box" style="height:20px; width:60%; margin:auto;"></div></td></tr>`;
+        }
+        if (linkPortainer) linkPortainer.href = '#';
+        if (linkDozzle) linkDozzle.href = '#';
+        if (linkTraefik) linkTraefik.href = '#';
+        if (swarmStateBadge) {
+            swarmStateBadge.className = 'swarm-status-tag skeleton-target';
+            swarmStateBadge.style.color = '';
+            swarmStateBadge.style.background = '';
+            swarmStateBadge.textContent = 'Verificando...';
+        }
+        if (deskSwarm) deskSwarm.textContent = '—';
     }
 
     function activateServerLoadingSkeletons(server) {
@@ -566,7 +584,9 @@ document.addEventListener('DOMContentLoaded', () => {
         selectedServerName = serverName;
         try {
             localStorage.setItem('tarhiata_last_server', serverName);
-        } catch (_) {}
+        } catch (storageErr) {
+            console.debug('No se pudo guardar último servidor en localStorage:', storageErr);
+        }
 
         let s = servers.find(x => x.name === serverName);
         if (!s) {
@@ -624,6 +644,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 const dotFleet = document.getElementById(`fleet-dot-${serverName}`);
                 if (dotFleet) dotFleet.className = 'status-dot status-offline';
                 if (!isSilent) showToast(`Fallo al sondear host '${serverName}': ${errText}`, 'error');
+                if (currentReq === telemetryRequestId && serverName === selectedServerName) {
+                    processSwarmStatus(serverName, { active: false }, isSilent);
+                }
                 btnBootstrapSwarm.style.display = 'inline-flex';
                 btnBootstrapSwarm.disabled = false;
                 btnBootstrapSwarm.classList.remove('swarm-configured');
@@ -695,9 +718,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (currentReq === telemetryRequestId && serverName === selectedServerName) {
                     processSwarmStatus(serverName, swarmData, isSilent);
                 }
+            } else {
+                if (currentReq === telemetryRequestId && serverName === selectedServerName) {
+                    processSwarmStatus(serverName, { active: false }, isSilent);
+                }
             }
 
         } catch (err) {
+            if (currentReq === telemetryRequestId && serverName === selectedServerName) {
+                processSwarmStatus(serverName, { active: false }, isSilent);
+            }
             deskStatusDot.className = 'ops-status-dot status-offline';
             tileLatencyDisplay.textContent = 'Latencia: —';
             if (topActiveName.textContent === serverName) {
@@ -1572,7 +1602,8 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 await Promise.all(servers.map(s => testSingleServer(s.name)));
             }
-        } catch (_) {
+        } catch (err) {
+            console.debug('Fallo /api/connect/all, usando sondeo individual:', err);
             await Promise.all(servers.map(s => testSingleServer(s.name)));
         } finally {
             btnTestAll.disabled = false;
@@ -1816,7 +1847,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 feedbackEl.className = 'dns-feedback-hint dns-not-found';
                 feedbackEl.innerHTML = `<span>⚪ ❓ Sin registro A (agrega DNS tipo A hacia ${escapeHtml(serverIp || 'tu VPS')})</span>`;
             }
-        } catch (_) {
+        } catch (dnsErr) {
+            console.debug('Error comprobando resolución DNS:', dnsErr);
             feedbackEl.style.display = 'none';
         }
     }, 350);
@@ -3858,7 +3890,8 @@ document.addEventListener('DOMContentLoaded', () => {
             isAutoRefreshing = true;
             try {
                 await refreshServerTelemetry(selectedServerName, true);
-            } catch (_) {
+            } catch (pollErr) {
+                console.debug('Fallo durante polling automático de telemetría:', pollErr);
             } finally {
                 isAutoRefreshing = false;
             }
