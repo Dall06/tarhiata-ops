@@ -139,15 +139,17 @@ func (h *databaseHandler) runAddDatabaseWizard() {
 
 	if deployType != "external" {
 		b := make([]byte, 16)
-		rand.Read(b)
+		if _, err := rand.Read(b); err != nil {
+			slog.Warn("falló lectura de entropía para password de base de datos", "error", err)
+		}
 		newDB.Password = hex.EncodeToString(b)
 	}
 
 	if err := h.repo.SaveDatabase(newDB); err != nil {
 		fmt.Printf("❌ Error guardando BD: %v\n", err)
-	} else {
-		fmt.Printf("✅ Base de datos %s guardada exitosamente.\n", dbName)
+		return
 	}
+	fmt.Printf("✅ Base de datos %s guardada exitosamente.\n", dbName)
 }
 
 func (h *databaseHandler) runManageDatabaseMenu(dbName string, config domain.ServerConfig) {
@@ -253,8 +255,11 @@ func (h *databaseHandler) runManageDatabaseMenu(dbName string, config domain.Ser
 			if db.DeployType != "external" {
 				sshExec := repositories.NewCryptoSSHExecutor()
 				if err := sshExec.Connect(config); err == nil {
+					defer sshExec.Close()
 					serviceName := fmt.Sprintf("tarhiata-db-%s", db.Name)
-					sshExec.RunCommand(fmt.Sprintf("docker service rm %s", serviceName))
+					if res, errCmd := sshExec.RunCommand(fmt.Sprintf("docker service rm %s", serviceName)); errCmd != nil || (res != nil && res.ExitCode != 0) {
+						slog.Warn("falló comando docker service rm para bd", "service", serviceName, "error", errCmd)
+					}
 
 					if db.DeployType == "single-node" && deleteVolume {
 						// SECURITY CHECK: Solo permitir borrar dentro de un path seguro para evitar Inyección de Rutas (rm -rf /)
@@ -263,13 +268,16 @@ func (h *databaseHandler) runManageDatabaseMenu(dbName string, config domain.Ser
 							return
 						}
 						fmt.Println("🧹 Limpiando volumen de datos huérfano...")
-						sshExec.RunCommand(fmt.Sprintf("rm -rf %s", db.VolumeHostPath))
+						if res, errCmd := sshExec.RunCommand(fmt.Sprintf("rm -rf %s", db.VolumeHostPath)); errCmd != nil || (res != nil && res.ExitCode != 0) {
+							slog.Warn("falló comando rm volumen", "path", db.VolumeHostPath, "error", errCmd)
+						}
 					}
 					if db.DeployType == "multi-node" {
 						nodeName := fmt.Sprintf("tarhiata-db-%s", db.Name)
-						sshExec.RunCommand(fmt.Sprintf("docker node rm -f %s", nodeName))
+						if res, errCmd := sshExec.RunCommand(fmt.Sprintf("docker node rm -f %s", nodeName)); errCmd != nil || (res != nil && res.ExitCode != 0) {
+							slog.Warn("falló comando docker node rm para nodo bd", "node", nodeName, "error", errCmd)
+						}
 					}
-					sshExec.Close()
 				}
 
 				if db.DeployType == "multi-node" {

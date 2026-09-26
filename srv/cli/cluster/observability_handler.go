@@ -88,7 +88,9 @@ func (h *observabilityHandler) runConfigureWizard() {
 	}
 
 	bytes := make([]byte, 8)
-	rand.Read(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		slog.Warn("falló lectura de entropía para password de grafana", "error", err)
+	}
 	grafanaPassword := hex.EncodeToString(bytes)
 
 	newObs := domain.SavedObservability{
@@ -100,9 +102,9 @@ func (h *observabilityHandler) runConfigureWizard() {
 
 	if err := h.repo.SaveObservability(newObs); err != nil {
 		fmt.Printf("❌ Error guardando configuración: %v\n", err)
-	} else {
-		fmt.Println("✅ Configuración de Observabilidad guardada exitosamente.")
+		return
 	}
+	fmt.Println("✅ Configuración de Observabilidad guardada exitosamente.")
 }
 
 func (h *observabilityHandler) runManageMenu(obs *domain.SavedObservability, config domain.ServerConfig) {
@@ -193,12 +195,16 @@ func (h *observabilityHandler) runManageMenu(obs *domain.SavedObservability, con
 			if obs.DeployType != "external" {
 				sshExec := repositories.NewCryptoSSHExecutor()
 				if err := sshExec.Connect(config); err == nil {
-					sshExec.RunCommand("docker stack rm tarhiata_obs")
+					defer sshExec.Close()
+					if res, errCmd := sshExec.RunCommand("docker stack rm tarhiata_obs"); errCmd != nil || (res != nil && res.ExitCode != 0) {
+						slog.Warn("falló comando docker stack rm", "error", errCmd)
+					}
 					if obs.DeployType == "multi-node" {
 						nodeName := "tarhiata-obs-worker"
-						sshExec.RunCommand(fmt.Sprintf("docker node rm -f %s", nodeName))
+						if res, errCmd := sshExec.RunCommand(fmt.Sprintf("docker node rm -f %s", nodeName)); errCmd != nil || (res != nil && res.ExitCode != 0) {
+							slog.Warn("falló comando docker node rm", "node", nodeName, "error", errCmd)
+						}
 					}
-					sshExec.Close()
 				}
 
 				if obs.DeployType == "multi-node" {
@@ -222,7 +228,9 @@ func (h *observabilityHandler) runManageMenu(obs *domain.SavedObservability, con
 					}
 				}
 			}
-			h.repo.DeleteObservability()
+			if errDel := h.repo.DeleteObservability(); errDel != nil {
+				fmt.Printf("⚠️ Error al eliminar observabilidad de SQLite: %v\n", errDel)
+			}
 			fmt.Println("✅ Observabilidad eliminada del catálogo y stack apagado.")
 		}
 	}

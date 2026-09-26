@@ -239,7 +239,9 @@ func (h *serviceHandler) showNetworkMap(config domain.ServerConfig) {
 
 		var mounts []domain.ServiceMount
 		if svc.MountsJSON != "" && svc.MountsJSON != "[]" {
-			json.Unmarshal([]byte(svc.MountsJSON), &mounts)
+			if err := json.Unmarshal([]byte(svc.MountsJSON), &mounts); err != nil {
+				slog.Debug("error decodificando mounts json", "error", err)
+			}
 			fmt.Printf(" ├─ 📁 \033[35mMounts\033[0m      : %d archivos inyectados\n", len(mounts))
 		} else {
 			fmt.Printf(" ├─ 📁 \033[35mMounts\033[0m      : [Ninguno]\n")
@@ -497,7 +499,10 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 		).Run()
 		if err == nil && newImage != "" {
 			svc.ImageSource = newImage
-			h.repo.SaveService(*svc)
+			if errSave := h.repo.SaveService(*svc); errSave != nil {
+				fmt.Printf("❌ Error guardando servicio: %v\n", errSave)
+				return
+			}
 			fmt.Println("✅ Imagen actualizada localmente. Recuerda hacer un 'Desplegar / Actualizar' para aplicar los cambios.")
 		}
 
@@ -562,7 +567,9 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 		if err := cmd.Run(); err == nil {
 			if _, statErr := os.Stat(svc.EnvFilePath); statErr == nil {
 				// Guardamos la nueva ruta por si antes no tenía
-				h.repo.SaveService(*svc)
+				if errSave := h.repo.SaveService(*svc); errSave != nil {
+					slog.Warn("falló al guardar servicio tras editar env", "error", errSave)
+				}
 				fmt.Println("✅ Archivo .env guardado localmente. Recuerda hacer un 'Desplegar / Actualizar' para aplicar los cambios.")
 			} else {
 				fmt.Println("⚠️  No se guardó ningún archivo.")
@@ -670,7 +677,9 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 					}
 					if svc.MountsJSON != "" && svc.MountsJSON != "[]" {
 						var mounts []domain.ServiceMount
-						json.Unmarshal([]byte(svc.MountsJSON), &mounts)
+						if err := json.Unmarshal([]byte(svc.MountsJSON), &mounts); err != nil {
+							slog.Debug("error decodificando mounts json al redesplegar", "error", err)
+						}
 						customService.Mounts = mounts
 					}
 					if err := usecases.NewDeployServiceUseCase(sshExec).Execute(customService, deployConfig); err != nil {

@@ -1716,6 +1716,7 @@ func handleBackupCommand(repo *repositories.SQLiteRepository, config *domain.Ser
 
 	subCmd := args[0]
 	sshExec := repositories.NewCryptoSSHExecutor()
+	defer sshExec.Close()
 	uc := usecases.NewManageBackupsUseCase(repo, sshExec)
 
 	switch subCmd {
@@ -1782,6 +1783,7 @@ func handleEnvCommand(repo *repositories.SQLiteRepository, config *domain.Server
 	}
 	subCmd := args[0]
 	sshExec := repositories.NewCryptoSSHExecutor()
+	defer sshExec.Close()
 	uc := usecases.NewManageEnvVarsUseCase(repo, sshExec)
 	cfg := domain.ServerConfig{}
 	if config != nil {
@@ -1896,6 +1898,7 @@ func handleVolumeCommand(repo *repositories.SQLiteRepository, config *domain.Ser
 	}
 	subCmd := args[0]
 	sshExec := repositories.NewCryptoSSHExecutor()
+	defer sshExec.Close()
 	uc := usecases.NewManageVolumesUseCase(repo, sshExec)
 	cfg := domain.ServerConfig{}
 	if config != nil {
@@ -1959,6 +1962,7 @@ func handleVolumeCommand(repo *repositories.SQLiteRepository, config *domain.Ser
 
 func handleSSLCommand(repo *repositories.SQLiteRepository, config *domain.ServerConfig, args []string) {
 	sshExec := repositories.NewCryptoSSHExecutor()
+	defer sshExec.Close()
 	uc := usecases.NewManageSSLMaintenanceUseCase(repo, sshExec)
 	items, err := uc.InspectSSL()
 	if err != nil {
@@ -2003,6 +2007,7 @@ func handleMaintenanceCommand(repo *repositories.SQLiteRepository, config *domai
 		cfg = *config
 	}
 	sshExec := repositories.NewCryptoSSHExecutor()
+	defer sshExec.Close()
 	uc := usecases.NewManageSSLMaintenanceUseCase(repo, sshExec)
 
 	enable := subCmd == "enable" || subCmd == "on"
@@ -2028,6 +2033,7 @@ func handleDomainCommand(repo *repositories.SQLiteRepository, config *domain.Ser
 		cfg = *config
 	}
 	sshExec := repositories.NewCryptoSSHExecutor()
+	defer sshExec.Close()
 	uc := usecases.NewManageDomainsUseCase(repo, sshExec)
 
 	switch subCmd {
