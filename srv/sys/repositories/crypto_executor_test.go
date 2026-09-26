@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Dall06/tarhiata-ops/pkg/sshclient"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 )
 
@@ -79,5 +80,46 @@ func TestCryptoSSHExecutor_LocalExecution(t *testing.T) {
 
 	if err := exec.Close(); err != nil {
 		t.Errorf("unexpected error closing executor: %v", err)
+	}
+}
+
+func TestCryptoSSHExecutor_PooledExecution(t *testing.T) {
+	dialCount := 0
+	sshclient.GlobalPool.SetDialer(func(host, user, privateKeyPath string, port int) (*sshclient.Client, error) {
+		dialCount++
+		c := sshclient.New()
+		c.SetMockConnected(true)
+		return c, nil
+	})
+
+	remoteCfg := domain.ServerConfig{
+		Host: "192.168.1.100",
+		User: "root",
+		Port: 22,
+	}
+
+	exec1 := NewCryptoSSHExecutor()
+	if err := exec1.Connect(remoteCfg); err != nil {
+		t.Fatalf("unexpected error connecting exec1: %v", err)
+	}
+
+	if !exec1.CheckConnection() {
+		t.Error("expected CheckConnection to be true")
+	}
+
+	exec2 := NewCryptoSSHExecutor()
+	if err := exec2.Connect(remoteCfg); err != nil {
+		t.Fatalf("unexpected error connecting exec2: %v", err)
+	}
+
+	if dialCount != 1 {
+		t.Errorf("expected 1 dial for pooled connections, got %d", dialCount)
+	}
+
+	if err := exec1.Close(); err != nil {
+		t.Errorf("unexpected error on exec1 Close: %v", err)
+	}
+	if err := exec2.Close(); err != nil {
+		t.Errorf("unexpected error on exec2 Close: %v", err)
 	}
 }

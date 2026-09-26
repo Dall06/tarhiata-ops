@@ -111,14 +111,19 @@ func TestManageRegistryAuthUseCase_Delete(t *testing.T) {
 		Username: "dockeruser",
 		Password: "password123",
 	}
-	_ = uc.Save(cred, domain.ServerConfig{})
+	if err := uc.Save(cred, domain.ServerConfig{}); err != nil {
+		t.Fatalf("unexpected error saving registry credential: %v", err)
+	}
 
 	err := uc.Delete("docker.io", domain.ServerConfig{})
 	if err != nil {
 		t.Fatalf("expected no error deleting, got %v", err)
 	}
 
-	list, _ := uc.List()
+	list, err := uc.List()
+	if err != nil {
+		t.Fatalf("unexpected error listing credentials: %v", err)
+	}
 	if len(list) != 0 {
 		t.Errorf("expected 0 credentials after delete, got %d", len(list))
 	}

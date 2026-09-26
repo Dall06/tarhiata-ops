@@ -51,14 +51,18 @@ func TestManageVolumesUseCase_Operations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected list volumes error: %v", err)
 	}
-	_ = vols
+	if vols == nil {
+		t.Fatal("expected non-nil volumes list")
+	}
 
 	// List files
 	files, err := uc.ListVolumeFiles("/opt/data", config)
 	if err != nil {
 		t.Fatalf("unexpected list volume files error: %v", err)
 	}
-	_ = files
+	if files == nil {
+		t.Fatal("expected non-nil volume files list")
+	}
 
 	// Delete file safely
 	err = uc.DeleteFile("/opt/data/old_temp.log", config)

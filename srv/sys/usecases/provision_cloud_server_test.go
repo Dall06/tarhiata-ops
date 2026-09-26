@@ -79,7 +79,9 @@ func TestProvisionCloudServerUseCase_Execute(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &mocks.MockConfigRepository{}
 			if tt.existingSrv != nil {
-				_ = repo.SaveServerConfig(*tt.existingSrv)
+				if err := repo.SaveServerConfig(*tt.existingSrv); err != nil {
+					t.Fatalf("unexpected error saving server config: %v", err)
+				}
 			}
 
 			sshMock := &mocks.MockSSHExecutor{}

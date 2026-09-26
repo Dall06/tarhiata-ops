@@ -16,8 +16,9 @@ import (
 
 // Client es un cliente SSH genérico
 type Client struct {
-	mu   sync.RWMutex
-	conn *ssh.Client
+	mu            sync.RWMutex
+	conn          *ssh.Client
+	mockConnected bool
 }
 
 // New crea una nueva instancia del cliente SSH
@@ -239,11 +240,21 @@ func (c *Client) InteractiveCommand(cmd string) error {
 	return nil
 }
 
+// SetMockConnected permite configurar el estado de conectividad simulado en entornos de prueba.
+func (c *Client) SetMockConnected(connected bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.mockConnected = connected
+}
+
 // CheckConnection hace un "ping" silencioso para verificar si la conexión sigue viva.
 func (c *Client) CheckConnection() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
+	if c.mockConnected {
+		return true
+	}
 	if c.conn == nil {
 		return false
 	}
@@ -256,6 +267,7 @@ func (c *Client) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	c.mockConnected = false
 	if c.conn != nil {
 		err := c.conn.Close()
 		c.conn = nil

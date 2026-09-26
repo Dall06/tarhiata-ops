@@ -12,9 +12,15 @@ func TestSyncClusterStateUseCase(t *testing.T) {
 	sshExec := mocks.NewMockSSHExecutor()
 
 	// Guardar datos iniciales
-	_ = repo.SaveService(domain.SavedService{Name: "api-test", Port: 3000})
-	_ = repo.SaveDatabase(domain.SavedDatabase{Name: "db-test", Engine: "postgres"})
-	_ = repo.SaveServiceLink(domain.ServiceLink{SourceSvc: "api-test", TargetSvc: "db-test", EnvVarName: "DATABASE_URL"})
+	if err := repo.SaveService(domain.SavedService{Name: "api-test", Port: 3000}); err != nil {
+		t.Fatalf("unexpected error saving service: %v", err)
+	}
+	if err := repo.SaveDatabase(domain.SavedDatabase{Name: "db-test", Engine: "postgres"}); err != nil {
+		t.Fatalf("unexpected error saving database: %v", err)
+	}
+	if err := repo.SaveServiceLink(domain.ServiceLink{SourceSvc: "api-test", TargetSvc: "db-test", EnvVarName: "DATABASE_URL"}); err != nil {
+		t.Fatalf("unexpected error saving service link: %v", err)
+	}
 
 	uc := NewSyncClusterStateUseCase(repo, sshExec)
 

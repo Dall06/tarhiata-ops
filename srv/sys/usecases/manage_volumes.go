@@ -93,7 +93,7 @@ func (uc *ManageVolumesUseCase) ListVolumeFiles(targetPath string, config domain
 		return nil, fmt.Errorf("error al listar archivos: %w", err)
 	}
 
-	var items []FileItem
+	items := []FileItem{}
 	lines := strings.Split(strings.TrimSpace(res.Output), "\n")
 	for _, l := range lines {
 		l = strings.TrimSpace(l)

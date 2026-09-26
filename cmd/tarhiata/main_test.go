@@ -124,8 +124,12 @@ func TestHandleListCommand(t *testing.T) {
 	repo, cleanup := setupTempRepo(t)
 	defer cleanup()
 
-	_ = repo.SaveService(domain.SavedService{Name: "svc1", ImageSource: "node:18"})
-	_ = repo.SaveDatabase(domain.SavedDatabase{Name: "db1", Engine: "postgres"})
+	if err := repo.SaveService(domain.SavedService{Name: "svc1", ImageSource: "node:18"}); err != nil {
+		t.Fatalf("unexpected error saving service: %v", err)
+	}
+	if err := repo.SaveDatabase(domain.SavedDatabase{Name: "db1", Engine: "postgres"}); err != nil {
+		t.Fatalf("unexpected error saving database: %v", err)
+	}
 
 	out := captureOutput(func() {
 		handleListCommand(repo)

@@ -95,11 +95,13 @@ func TestManagePreviewEnv_CreateAndListAndDestroy(t *testing.T) {
 	sshExec := mocks.NewMockSSHExecutor()
 
 	// Guardar una BD para probar link
-	_ = repo.SaveDatabase(domain.SavedDatabase{
+	if err := repo.SaveDatabase(domain.SavedDatabase{
 		Name:         "shop-db",
 		Engine:       "postgres",
 		InternalPort: 5432,
-	})
+	}); err != nil {
+		t.Fatalf("unexpected error saving database: %v", err)
+	}
 
 	uc := NewManagePreviewEnvUseCase(repo, sshExec)
 	config := domain.ServerConfig{Host: "127.0.0.1"}

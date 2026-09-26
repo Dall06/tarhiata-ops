@@ -17,8 +17,13 @@ func TestClient_ConcurrencyAndLocking(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = client.CheckConnection()
-			_, _, _ = client.RunCommand("echo test")
+			if client.CheckConnection() {
+				t.Error("expected false connection")
+			}
+			out, code, err := client.RunCommand("echo test")
+			if err == nil {
+				t.Errorf("expected error running command on uninitialized client, got code %d, out %s", code, out)
+			}
 		}()
 	}
 	wg.Wait()

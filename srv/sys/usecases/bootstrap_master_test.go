@@ -122,11 +122,13 @@ func TestBootstrapMasterService_Execute(t *testing.T) {
 	sshExec := mocks.NewMockSSHExecutor()
 
 	// 1. Configurar un enlace previo para api-shop -> old-db
-	_ = repo.SaveServiceLink(domain.ServiceLink{
+	if err := repo.SaveServiceLink(domain.ServiceLink{
 		SourceSvc:  "api-shop",
 		TargetSvc:  "old-db",
 		EnvVarName: "DATABASE_URL",
-	})
+	}); err != nil {
+		t.Fatalf("unexpected error saving service link: %v", err)
+	}
 
 	linkUC := NewLinkServicesUseCase(repo, sshExec)
 	unlinkUC := NewUnlinkServicesUseCase(repo, sshExec)

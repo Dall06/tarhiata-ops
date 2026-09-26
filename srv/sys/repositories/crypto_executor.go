@@ -16,12 +16,22 @@ type CryptoSSHExecutor struct {
 	client  *sshclient.Client
 	isLocal bool
 	config  domain.ServerConfig
+	poolKey string
+	pooled  bool
 }
 
-// NewCryptoSSHExecutor crea una nueva instancia del adaptador
+// NewCryptoSSHExecutor crea una nueva instancia del adaptador con pooling activo por defecto.
 func NewCryptoSSHExecutor() *CryptoSSHExecutor {
 	return &CryptoSSHExecutor{
+		pooled: true,
+	}
+}
+
+// NewUnpooledCryptoSSHExecutor crea un ejecutor con conexión dedicada sin pasar por el pool.
+func NewUnpooledCryptoSSHExecutor() *CryptoSSHExecutor {
+	return &CryptoSSHExecutor{
 		client: sshclient.New(),
+		pooled: false,
 	}
 }
 
@@ -38,6 +48,23 @@ func (e *CryptoSSHExecutor) Connect(config domain.ServerConfig) error {
 		return nil
 	}
 	e.isLocal = false
+	if e.pooled {
+		if e.poolKey != "" {
+			sshclient.GlobalPool.Release(e.poolKey)
+			e.poolKey = ""
+		}
+		key := sshclient.PoolKey(config.Host, config.User, config.PrivateKey, config.Port)
+		client, err := sshclient.GlobalPool.Get(config.Host, config.User, config.PrivateKey, config.Port)
+		if err != nil {
+			return err
+		}
+		e.client = client
+		e.poolKey = key
+		return nil
+	}
+	if e.client == nil {
+		e.client = sshclient.New()
+	}
 	return e.client.Connect(config.Host, config.User, config.PrivateKey, config.Port)
 }
 
@@ -62,6 +89,14 @@ func (e *CryptoSSHExecutor) RunCommand(cmd string) (*domain.CommandResult, error
 		return result, nil
 	}
 
+	if e.client == nil {
+		return &domain.CommandResult{
+			Output:   "",
+			ExitCode: -1,
+			Error:    fmt.Errorf("cliente ssh no conectado"),
+		}, nil
+	}
+
 	out, exitCode, err := e.client.RunCommand(cmd)
 	result := &domain.CommandResult{
 		Output:   out,
@@ -84,6 +119,9 @@ func (e *CryptoSSHExecutor) InteractiveShell() error {
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
 	}
+	if e.client == nil {
+		return fmt.Errorf("cliente ssh no conectado")
+	}
 	return e.client.InteractiveShell()
 }
 
@@ -95,6 +133,9 @@ func (e *CryptoSSHExecutor) InteractiveCommand(cmd string) error {
 		execCmd.Stdout = os.Stdout
 		execCmd.Stderr = os.Stderr
 		return execCmd.Run()
+	}
+	if e.client == nil {
+		return fmt.Errorf("cliente ssh no conectado")
 	}
 	return e.client.InteractiveCommand(cmd)
 }
@@ -108,15 +149,29 @@ func (e *CryptoSSHExecutor) CheckConnection() bool {
 		}
 		return true
 	}
+	if e.client == nil {
+		return false
+	}
 	return e.client.CheckConnection()
 }
 
-// Close finaliza la conexión.
+// Close finaliza la conexión o la devuelve al pool si está activa.
 func (e *CryptoSSHExecutor) Close() error {
 	if e.isLocal {
 		return nil
 	}
-	return e.client.Close()
+	if e.pooled && e.poolKey != "" {
+		sshclient.GlobalPool.Release(e.poolKey)
+		e.client = nil
+		e.poolKey = ""
+		return nil
+	}
+	if e.client != nil {
+		err := e.client.Close()
+		e.client = nil
+		return err
+	}
+	return nil
 }
 
 // WriteRemoteFile escribe un archivo en el servidor remoto o localmente de forma segura.
