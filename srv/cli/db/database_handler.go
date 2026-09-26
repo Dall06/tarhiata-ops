@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -92,7 +93,8 @@ func (h *databaseHandler) runAddDatabaseWizard() {
 		return
 	}
 
-	if matched, _ := regexp.MatchString(`^[A-Za-z0-9_-]+$`, dbName); !matched {
+	matched, errMatch := regexp.MatchString(`^[A-Za-z0-9_-]+$`, dbName)
+	if errMatch != nil || !matched {
 		fmt.Println("❌ Nombre de base de datos inválido. Solo se permiten letras, números y guiones.")
 		return
 	}
@@ -264,7 +266,10 @@ func (h *databaseHandler) runManageDatabaseMenu(dbName string, config domain.Ser
 
 				if db.DeployType == "multi-node" {
 					fmt.Println("⏳ Destruyendo servidor dedicado en la nube (Vultr)...")
-					homeDir, _ := os.UserHomeDir()
+					homeDir, errHome := os.UserHomeDir()
+					if errHome != nil {
+						homeDir = os.TempDir()
+					}
 					nodeName := fmt.Sprintf("tarhiata-db-%s", db.Name)
 					workspace := filepath.Join(homeDir, ".config", "tarhiata", "terraform", "worker_"+nodeName)
 					prov := repositories.NewVultrProvisioner(workspace)
@@ -273,13 +278,16 @@ func (h *databaseHandler) runManageDatabaseMenu(dbName string, config domain.Ser
 						fmt.Printf("⚠️ Hubo un problema al intentar destruir la instancia: %v (Por favor verifique en su panel de Vultr)\n", err)
 						fmt.Println("❌ Operación abortada para evitar pérdida de estado. Repare el nodo manualmente o reintente.")
 						return
-					} else {
-						fmt.Println("🔥 Servidor dedicado destruido y eliminado de la facturación.")
-						os.RemoveAll(workspace) // Limpiar basura de Terraform (GAP 3)
+					}
+					fmt.Println("🔥 Servidor dedicado destruido y eliminado de la facturación.")
+					if errRm := os.RemoveAll(workspace); errRm != nil {
+						slog.Warn("fallo al limpiar workspace de terraform", "workspace", workspace, "error", errRm)
 					}
 				}
 			}
-			h.repo.DeleteDatabase(db.Name)
+			if errDel := h.repo.DeleteDatabase(db.Name); errDel != nil {
+				slog.Warn("fallo al eliminar base de datos del catálogo", "db", db.Name, "error", errDel)
+			}
 			fmt.Println("✅ Base de datos eliminada del catálogo y apagada.")
 		}
 	}

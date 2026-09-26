@@ -1916,8 +1916,9 @@ func (w *WebServer) handleWorkerProvision(rw http.ResponseWriter, req *http.Requ
 		reqData.LabelType = "worker"
 	}
 
-	cfg := w.getConfig()
-	if cfg == nil || cfg.Host == "" {
+	serverTarget := req.URL.Query().Get("server")
+	cfg := w.resolveTargetServer(serverTarget)
+	if cfg == nil || (cfg.Host == "" && !cfg.IsLocal()) {
 		send("error", "❌ No hay ningún VPS Manager configurado")
 		return
 	}
@@ -2147,15 +2148,26 @@ func (w *WebServer) handleServiceRollback(rw http.ResponseWriter, req *http.Requ
 	rollbackCmd := fmt.Sprintf("docker service rollback %s || docker service rollback %s_%s || docker service rollback tarhiata-app-%s || docker service rollback tarhiata_%s",
 		serviceName, serviceName, serviceName, serviceName, serviceName)
 	res, err := sshExec.RunCommand(rollbackCmd)
-	if err != nil || res.ExitCode != 0 {
-		jsonError(rw, fmt.Sprintf("Error al realizar rollback: %s", res.Output), http.StatusInternalServerError)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		out := ""
+		if res != nil {
+			out = res.Output
+		}
+		if out == "" && err != nil {
+			out = err.Error()
+		}
+		jsonError(rw, fmt.Sprintf("Error al realizar rollback: %s", out), http.StatusInternalServerError)
 		return
 	}
 
+	outStr := ""
+	if res != nil {
+		outStr = res.Output
+	}
 	jsonResponse(rw, map[string]string{
 		"status":  "rolled_back",
 		"service": serviceName,
-		"output":  res.Output,
+		"output":  outStr,
 	})
 }
 
@@ -2644,13 +2656,20 @@ func (w *WebServer) handleNodes(rw http.ResponseWriter, req *http.Request) {
 			slog.Debug("aviso al poner nodo en drain", "node", nodeID, "error", err)
 		}
 		res, err := sshExec.RunCommand(fmt.Sprintf("docker node rm --force %s", nodeID))
-		if (err != nil || res.ExitCode != 0) && hostname != "" {
+		if (err != nil || res == nil || res.ExitCode != 0) && hostname != "" {
 			// Intentar remover por hostname como alternativa
 			res, err = sshExec.RunCommand(fmt.Sprintf("docker node rm --force %s", hostname))
 		}
 
-		if err != nil || res.ExitCode != 0 {
-			jsonError(rw, fmt.Sprintf("Error al remover nodo de Swarm: %s", res.Output), http.StatusInternalServerError)
+		if err != nil || res == nil || res.ExitCode != 0 {
+			out := ""
+			if res != nil {
+				out = res.Output
+			}
+			if out == "" && err != nil {
+				out = err.Error()
+			}
+			jsonError(rw, fmt.Sprintf("Error al remover nodo de Swarm: %s", out), http.StatusInternalServerError)
 			return
 		}
 		jsonResponse(rw, map[string]string{"status": "node_removed", "id": nodeID})
@@ -2833,22 +2852,43 @@ func (w *WebServer) handleNodeUpdate(rw http.ResponseWriter, req *http.Request) 
 			return
 		}
 		res, err := sshExec.RunCommand(fmt.Sprintf("docker node update --availability %s %s", avail, input.ID))
-		if err != nil || res.ExitCode != 0 {
-			jsonError(rw, fmt.Sprintf("Error al actualizar disponibilidad: %s", res.Output), http.StatusInternalServerError)
+		if err != nil || res == nil || res.ExitCode != 0 {
+			out := ""
+			if res != nil {
+				out = res.Output
+			}
+			if out == "" && err != nil {
+				out = err.Error()
+			}
+			jsonError(rw, fmt.Sprintf("Error al actualizar disponibilidad: %s", out), http.StatusInternalServerError)
 			return
 		}
 	}
 
 	if input.Role == "manager" {
 		res, err := sshExec.RunCommand(fmt.Sprintf("docker node promote %s", input.ID))
-		if err != nil || res.ExitCode != 0 {
-			jsonError(rw, fmt.Sprintf("Error al promover nodo a manager: %s", res.Output), http.StatusInternalServerError)
+		if err != nil || res == nil || res.ExitCode != 0 {
+			out := ""
+			if res != nil {
+				out = res.Output
+			}
+			if out == "" && err != nil {
+				out = err.Error()
+			}
+			jsonError(rw, fmt.Sprintf("Error al promover nodo a manager: %s", out), http.StatusInternalServerError)
 			return
 		}
 	} else if input.Role == "worker" {
 		res, err := sshExec.RunCommand(fmt.Sprintf("docker node demote %s", input.ID))
-		if err != nil || res.ExitCode != 0 {
-			jsonError(rw, fmt.Sprintf("Error al demoler nodo a worker: %s", res.Output), http.StatusInternalServerError)
+		if err != nil || res == nil || res.ExitCode != 0 {
+			out := ""
+			if res != nil {
+				out = res.Output
+			}
+			if out == "" && err != nil {
+				out = err.Error()
+			}
+			jsonError(rw, fmt.Sprintf("Error al demoler nodo a worker: %s", out), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -4008,7 +4048,7 @@ func (w *WebServer) handleContainerStats(rw http.ResponseWriter, req *http.Reque
 
 	cmdStats := fmt.Sprintf("docker stats --no-stream --format '{\"container\":\"{{.Container}}\",\"cpu\":\"{{.CPUPerc}}\",\"memUsage\":\"{{.MemUsage}}\",\"memPerc\":\"{{.MemPerc}}\",\"netIo\":\"{{.NetIO}}\",\"blockIo\":\"{{.BlockIO}}\"}' %s", containerID)
 	resStats, err := sshExec.RunCommand(cmdStats)
-	if err != nil || resStats.ExitCode != 0 || strings.TrimSpace(resStats.Output) == "" {
+	if err != nil || resStats == nil || resStats.ExitCode != 0 || strings.TrimSpace(resStats.Output) == "" {
 		w.setCache(cacheKey, fallbackStats, 5*time.Second)
 		jsonResponse(rw, fallbackStats)
 		return

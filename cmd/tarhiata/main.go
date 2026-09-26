@@ -887,7 +887,7 @@ func handleNodeCommand(repo *repositories.SQLiteRepository, config *domain.Serve
 		}
 		defer sshExec.Close()
 		res, err := sshExec.RunCommand("docker node ls")
-		if err != nil {
+		if err != nil || res == nil {
 			fmt.Printf("❌ Error consultando nodos Swarm: %v\n", err)
 			return
 		}
@@ -986,8 +986,15 @@ func handleNodeCommand(repo *repositories.SQLiteRepository, config *domain.Serve
 			fmt.Printf("⚠️ Advertencia al drenar nodo: %v\n", errDrain)
 		}
 		res, err := sshExec.RunCommand(fmt.Sprintf("docker node rm --force %s", nodeID))
-		if err != nil || res.ExitCode != 0 {
-			fmt.Printf("❌ Error al remover nodo: %s\n", res.Output)
+		if err != nil || res == nil || res.ExitCode != 0 {
+			out := ""
+			if res != nil {
+				out = res.Output
+			}
+			if out == "" && err != nil {
+				out = err.Error()
+			}
+			fmt.Printf("❌ Error al remover nodo: %s\n", out)
 			return
 		}
 		fmt.Printf("✅ Nodo '%s' removido del clúster Swarm exitosamente.\n", nodeID)
@@ -1021,8 +1028,15 @@ func handleNodeCommand(repo *repositories.SQLiteRepository, config *domain.Serve
 		}
 		defer sshExec.Close()
 		res, err := sshExec.RunCommand(fmt.Sprintf("docker node update --availability %s %s", avail, nodeID))
-		if err != nil || res.ExitCode != 0 {
-			fmt.Printf("❌ Error actualizando nodo: %s\n", res.Output)
+		if err != nil || res == nil || res.ExitCode != 0 {
+			out := ""
+			if res != nil {
+				out = res.Output
+			}
+			if out == "" && err != nil {
+				out = err.Error()
+			}
+			fmt.Printf("❌ Error actualizando nodo: %s\n", out)
 			return
 		}
 		fmt.Printf("✅ Disponibilidad del nodo '%s' actualizada a '%s'.\n", nodeID, avail)
@@ -1154,8 +1168,15 @@ func handleRollbackCommand(config *domain.ServerConfig, args []string) {
 	rollbackCmd := fmt.Sprintf("docker service rollback %s || docker service rollback %s_%s || docker service rollback tarhiata-app-%s || docker service rollback tarhiata_%s",
 		svcName, svcName, svcName, svcName, svcName)
 	res, err := sshExec.RunCommand(rollbackCmd)
-	if err != nil || res.ExitCode != 0 {
-		fmt.Printf("❌ Error al realizar rollback: %s\n", res.Output)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		out := ""
+		if res != nil {
+			out = res.Output
+		}
+		if out == "" && err != nil {
+			out = err.Error()
+		}
+		fmt.Printf("❌ Error al realizar rollback: %s\n", out)
 		return
 	}
 	fmt.Printf("✅ Rollback completado exitosamente para el servicio '%s'.\n", svcName)
@@ -1461,7 +1482,7 @@ func handlePruneCommand(config *domain.ServerConfig) {
 	defer sshExec.Close()
 
 	res, err := sshExec.RunCommand("docker system prune -af")
-	if err != nil {
+	if err != nil || res == nil {
 		fmt.Printf("❌ Error ejecutando docker system prune: %v\n", err)
 		return
 	}

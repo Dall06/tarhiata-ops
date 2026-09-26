@@ -2,6 +2,7 @@ package usecases
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
@@ -24,7 +25,11 @@ func (uc *InitServerUseCase) Execute(acmeEmail string) error {
 
 	// 0. Liberar posibles bloqueos de apt por procesos de cloud-init atascados (ej. get-docker.sh sin noninteractive)
 	fmt.Println("⏳ [Bootstrapper] Comprobando integridad del servidor y liberando dpkg locks si es necesario...")
-	uc.ssh.RunCommand("export DEBIAN_FRONTEND=noninteractive; killall -9 apt apt-get dpkg 2>/dev/null; dpkg --configure -a 2>/dev/null")
+	if resClean, errClean := uc.ssh.RunCommand("export DEBIAN_FRONTEND=noninteractive; killall -9 apt apt-get dpkg 2>/dev/null; dpkg --configure -a 2>/dev/null"); errClean != nil {
+		slog.Debug("aviso al liberar bloqueos dpkg", "error", errClean)
+	} else if resClean != nil && resClean.ExitCode != 0 {
+		slog.Debug("aviso código de salida en dpkg cleanup", "exitCode", resClean.ExitCode)
+	}
 
 	// 0.5. Hardening de SSH y prevención de Fuerza Bruta
 	if err := uc.hardenSSH(); err != nil {
@@ -74,11 +79,11 @@ func (uc *InitServerUseCase) installFail2Ban() error {
 	fmt.Println("🛡️  [Bootstrapper] Instalando Fail2Ban para prevenir fuerza bruta...")
 
 	// Solo instala fail2ban si no existe
-	res, _ := uc.ssh.RunCommand("command -v fail2ban-server")
-	if res.ExitCode != 0 {
-		_, err := uc.ssh.RunCommand("export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y fail2ban")
-		if err != nil {
-			return err
+	res, err := uc.ssh.RunCommand("command -v fail2ban-server")
+	if err != nil || res == nil || res.ExitCode != 0 {
+		_, errInst := uc.ssh.RunCommand("export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y fail2ban")
+		if errInst != nil {
+			return errInst
 		}
 	}
 
@@ -95,7 +100,7 @@ findtime = 600
 	if err := uc.ssh.WriteRemoteFile("/etc/fail2ban/jail.local", jailConfig); err != nil {
 		return err
 	}
-	_, err := uc.ssh.RunCommand("systemctl restart fail2ban")
+	_, err = uc.ssh.RunCommand("systemctl restart fail2ban")
 	return err
 }
 
@@ -144,40 +149,54 @@ func (uc *InitServerUseCase) ensureSwarmActive() error {
 	// Inicializar Swarm (Si el VPS tiene múltiples interfaces, Docker elegirá la default,
 	// pero podríamos pasarle --advertise-addr de la VLAN en el futuro si es necesario).
 	res, err = uc.ssh.RunCommand("docker swarm init")
-	if err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("falló docker swarm init: %s", res.Output)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		errMsg := ""
+		if res != nil {
+			errMsg = res.Output
+		}
+		if errMsg == "" && err != nil {
+			errMsg = err.Error()
+		}
+		return fmt.Errorf("falló docker swarm init: %s", errMsg)
 	}
 	return nil
 }
 
 func (uc *InitServerUseCase) configureFirewall() error {
 	// 1. Validar que ufw exista (Ubuntu/Debian)
-	res, _ := uc.ssh.RunCommand("command -v ufw")
-	if res.ExitCode != 0 {
-		_, err := uc.ssh.RunCommand("apt-get update && apt-get install -y ufw")
-		if err != nil {
-			return fmt.Errorf("no se pudo instalar ufw automáticamente")
+	res, err := uc.ssh.RunCommand("command -v ufw")
+	if err != nil || res == nil || res.ExitCode != 0 {
+		_, errInst := uc.ssh.RunCommand("apt-get update && apt-get install -y ufw")
+		if errInst != nil {
+			return fmt.Errorf("no se pudo instalar ufw automáticamente: %w", errInst)
 		}
 	}
 
 	// 2. Reglas de Seguridad Base (Respetando servicios existentes)
-	// Nota: Confiamos en Cloud Firewalls (Vultr/DO) y redes overlay de Swarm.
-	// Eliminar manipulación manual de iptables evita romper el Routing Mesh distribuido.
 	commands := []string{
+		"ufw allow 22/tcp",   // Garantizar puerto SSH base
+		"ufw allow ssh",      // Garantizar perfil SSH
 		"ufw allow 80/tcp",   // HTTP para Traefik
 		"ufw allow 443/tcp",  // HTTPS para Traefik y SSL
 		"ufw allow 2377/tcp", // Docker Swarm Cluster Management
 		"ufw allow 7946/tcp", // Docker Swarm Node Communication
 		"ufw allow 7946/udp", // Docker Swarm Node Communication
 		"ufw allow 4789/udp", // Docker Swarm Overlay Network Mesh
-		"CURRENT_SSH_PORT=$(echo $SSH_CLIENT | awk '{print $3}'); if [ -n \"$CURRENT_SSH_PORT\" ]; then ufw allow $CURRENT_SSH_PORT/tcp; else ufw allow ssh; fi", // Puerto SSH dinámico
+		"CURRENT_SSH_PORT=$(echo $SSH_CLIENT | awk '{print $3}'); if [ -n \"$CURRENT_SSH_PORT\" ]; then ufw allow $CURRENT_SSH_PORT/tcp; fi", // Puerto SSH dinámico
 		"ufw --force enable", // Encender el escudo
 	}
 
 	for _, cmd := range commands {
-		res, err := uc.ssh.RunCommand(cmd)
-		if err != nil || res.ExitCode != 0 {
-			return fmt.Errorf("falló el comando del firewall '%s': %s", cmd, res.Output)
+		resCmd, errCmd := uc.ssh.RunCommand(cmd)
+		if errCmd != nil || resCmd == nil || resCmd.ExitCode != 0 {
+			out := ""
+			if resCmd != nil {
+				out = resCmd.Output
+			}
+			if out == "" && errCmd != nil {
+				out = errCmd.Error()
+			}
+			return fmt.Errorf("falló el comando del firewall '%s': %s", cmd, out)
 		}
 	}
 
@@ -185,19 +204,19 @@ func (uc *InitServerUseCase) configureFirewall() error {
 }
 
 func (uc *InitServerUseCase) deployTraefik(acmeEmail string) error {
-	// 1. Crear redes overlay pública e interna para servicios y bases de datos
-	resPub, _ := uc.ssh.RunCommand("docker network ls | grep tarhiata_public")
-	if resPub.ExitCode != 0 {
-		_, err := uc.ssh.RunCommand("docker network create --driver overlay tarhiata_public")
-		if err != nil {
-			return fmt.Errorf("falló al crear la red overlay pública de tarhiata: %w", err)
+	// 1. Crear redes overlay pública e interna para servicios y bases de datos con --attachable
+	resPub, errPub := uc.ssh.RunCommand("docker network ls | grep tarhiata_public")
+	if errPub != nil || resPub == nil || resPub.ExitCode != 0 {
+		resNetPub, errNetPub := uc.ssh.RunCommand("docker network create --driver overlay --attachable tarhiata_public")
+		if errNetPub != nil || (resNetPub != nil && resNetPub.ExitCode != 0 && !strings.Contains(resNetPub.Output, "already exists")) {
+			return fmt.Errorf("falló al crear la red overlay pública de tarhiata: %w", errNetPub)
 		}
 	}
-	resInt, _ := uc.ssh.RunCommand("docker network ls | grep tarhiata_internal")
-	if resInt.ExitCode != 0 {
-		_, err := uc.ssh.RunCommand("docker network create --driver overlay tarhiata_internal")
-		if err != nil {
-			return fmt.Errorf("falló al crear la red overlay interna de tarhiata: %w", err)
+	resInt, errInt := uc.ssh.RunCommand("docker network ls | grep tarhiata_internal")
+	if errInt != nil || resInt == nil || resInt.ExitCode != 0 {
+		resNetInt, errNetInt := uc.ssh.RunCommand("docker network create --driver overlay --attachable tarhiata_internal")
+		if errNetInt != nil || (resNetInt != nil && resNetInt.ExitCode != 0 && !strings.Contains(resNetInt.Output, "already exists")) {
+			return fmt.Errorf("falló al crear la red overlay interna de tarhiata: %w", errNetInt)
 		}
 	}
 
@@ -248,8 +267,15 @@ networks:
 	}
 
 	res, err := uc.ssh.RunCommand("docker stack deploy -c /tmp/traefik-stack.yml tarhiata_proxy")
-	if err != nil || (res != nil && res.ExitCode != 0) {
-		return fmt.Errorf("falló al desplegar traefik: %v", err)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		out := ""
+		if res != nil {
+			out = res.Output
+		}
+		if out == "" && err != nil {
+			out = err.Error()
+		}
+		return fmt.Errorf("falló al desplegar traefik: %s", out)
 	}
 
 	return nil

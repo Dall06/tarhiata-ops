@@ -39,8 +39,18 @@ func (uc *ManageNodesUseCase) ListNodes(config domain.ServerConfig) ([]NodeInfo,
 	defer uc.ssh.Close()
 
 	res, err := uc.ssh.RunCommand("docker node ls --format '{{.ID}}|{{.Hostname}}|{{.Status}}|{{.Availability}}|{{.ManagerStatus}}|{{.EngineVersion}}'")
-	if err != nil || res.ExitCode != 0 {
-		return nil, fmt.Errorf("error al listar nodos Swarm: %s", res.Output)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		out := ""
+		if res != nil {
+			out = res.Output
+		}
+		if out == "" && err != nil {
+			out = err.Error()
+		}
+		if strings.Contains(strings.ToLower(out), "not a swarm manager") || strings.Contains(strings.ToLower(out), "cannot connect to the docker daemon") {
+			return []NodeInfo{}, nil
+		}
+		return nil, fmt.Errorf("error al listar nodos Swarm: %s", out)
 	}
 
 	var nodes []NodeInfo
@@ -95,7 +105,7 @@ func (uc *ManageNodesUseCase) ListNodes(config domain.ServerConfig) ([]NodeInfo,
 func (uc *ManageNodesUseCase) getNodeLabels(nodeID string) map[string]string {
 	labels := make(map[string]string)
 	res, err := uc.ssh.RunCommand(fmt.Sprintf("docker node inspect %s --format '{{json .Spec.Labels}}'", nodeID))
-	if err == nil && res.ExitCode == 0 && res.Output != "" && res.Output != "null\n" {
+	if err == nil && res != nil && res.ExitCode == 0 && res.Output != "" && res.Output != "null\n" {
 		out := strings.TrimSpace(res.Output)
 		out = strings.TrimPrefix(out, "{")
 		out = strings.TrimSuffix(out, "}")
@@ -130,8 +140,15 @@ func (uc *ManageNodesUseCase) UpdateNodeAvailability(nodeID, availability string
 	defer uc.ssh.Close()
 
 	res, err := uc.ssh.RunCommand(fmt.Sprintf("docker node update --availability %s %s", availability, nodeID))
-	if err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("error al actualizar disponibilidad del nodo: %s", res.Output)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		out := ""
+		if res != nil {
+			out = res.Output
+		}
+		if out == "" && err != nil {
+			out = err.Error()
+		}
+		return fmt.Errorf("error al actualizar disponibilidad del nodo: %s", out)
 	}
 	return nil
 }
@@ -157,8 +174,15 @@ func (uc *ManageNodesUseCase) SetNodeRole(nodeID, role string, config domain.Ser
 	}
 
 	res, err := uc.ssh.RunCommand(cmd)
-	if err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("error al cambiar rol del nodo: %s", res.Output)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		out := ""
+		if res != nil {
+			out = res.Output
+		}
+		if out == "" && err != nil {
+			out = err.Error()
+		}
+		return fmt.Errorf("error al cambiar rol del nodo: %s", out)
 	}
 	return nil
 }
@@ -180,8 +204,15 @@ func (uc *ManageNodesUseCase) AddNodeLabel(nodeID, key, value string, config dom
 	defer uc.ssh.Close()
 
 	res, err := uc.ssh.RunCommand(fmt.Sprintf("docker node update --label-add %s=%s %s", key, value, nodeID))
-	if err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("error al agregar etiqueta al nodo: %s", res.Output)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		out := ""
+		if res != nil {
+			out = res.Output
+		}
+		if out == "" && err != nil {
+			out = err.Error()
+		}
+		return fmt.Errorf("error al agregar etiqueta al nodo: %s", out)
 	}
 	return nil
 }
@@ -202,8 +233,15 @@ func (uc *ManageNodesUseCase) RemoveNodeLabel(nodeID, key string, config domain.
 	defer uc.ssh.Close()
 
 	res, err := uc.ssh.RunCommand(fmt.Sprintf("docker node update --label-rm %s %s", key, nodeID))
-	if err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("error al eliminar etiqueta del nodo: %s", res.Output)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		out := ""
+		if res != nil {
+			out = res.Output
+		}
+		if out == "" && err != nil {
+			out = err.Error()
+		}
+		return fmt.Errorf("error al eliminar etiqueta del nodo: %s", out)
 	}
 	return nil
 }

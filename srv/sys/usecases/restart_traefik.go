@@ -16,9 +16,17 @@ func NewRestartTraefikUseCase(sshExec ports.SSHExecutor) *RestartTraefikUseCase 
 }
 
 func (uc *RestartTraefikUseCase) Execute() (string, error) {
-	res, err := uc.sshExec.RunCommand("docker service update --force traefik_traefik")
-	if err != nil {
-		return "", fmt.Errorf("error reiniciando proxy Traefik: %w", err)
+	cmd := "docker service update --force tarhiata_proxy_traefik 2>&1 || docker service update --force traefik_traefik 2>&1 || docker service update --force tarhiata_traefik 2>&1"
+	res, err := uc.sshExec.RunCommand(cmd)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		out := ""
+		if res != nil {
+			out = res.Output
+		}
+		if out == "" && err != nil {
+			out = err.Error()
+		}
+		return "", fmt.Errorf("error reiniciando proxy Traefik: %s", out)
 	}
 	output := strings.TrimSpace(res.Output)
 	if output == "" {

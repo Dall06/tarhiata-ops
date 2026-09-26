@@ -83,9 +83,20 @@ func (uc *ManageBackupsUseCase) CreateSnapshot(req domain.BackupRequest, config 
 		dumpCmd = fmt.Sprintf("tar -czf %s -C /opt/data %s 2>/dev/null || true", remotePath, req.TargetName)
 	}
 
+	if _, errMk := uc.ssh.RunCommand("mkdir -p /opt/tarhiata/backups"); errMk != nil {
+		slog.Warn("aviso al crear directorio de backups en el VPS", "error", errMk)
+	}
+
 	res, err := uc.ssh.RunCommand(dumpCmd)
-	if err != nil || res.ExitCode != 0 {
-		return nil, fmt.Errorf("error al ejecutar backup: %s", res.Output)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		out := ""
+		if res != nil {
+			out = res.Output
+		}
+		if out == "" && err != nil {
+			out = err.Error()
+		}
+		return nil, fmt.Errorf("error al ejecutar backup: %s", out)
 	}
 
 	remotePath := fmt.Sprintf("/opt/tarhiata/backups/%s", filename)
@@ -209,15 +220,29 @@ func (uc *ManageBackupsUseCase) RestoreSnapshot(backupID int, config domain.Serv
 		}
 
 		res, err := uc.ssh.RunCommand(restoreCmd)
-		if err != nil || res.ExitCode != 0 {
-			return fmt.Errorf("falló la restauración de BD: %s", res.Output)
+		if err != nil || res == nil || res.ExitCode != 0 {
+			out := ""
+			if res != nil {
+				out = res.Output
+			}
+			if out == "" && err != nil {
+				out = err.Error()
+			}
+			return fmt.Errorf("falló la restauración de BD: %s", out)
 		}
 	} else {
 		// Volume restore
 		restoreCmd := fmt.Sprintf("tar -xzf %s -C /opt/data/", backup.FilePath)
 		res, err := uc.ssh.RunCommand(restoreCmd)
-		if err != nil || res.ExitCode != 0 {
-			return fmt.Errorf("falló la restauración del volumen: %s", res.Output)
+		if err != nil || res == nil || res.ExitCode != 0 {
+			out := ""
+			if res != nil {
+				out = res.Output
+			}
+			if out == "" && err != nil {
+				out = err.Error()
+			}
+			return fmt.Errorf("falló la restauración del volumen: %s", out)
 		}
 	}
 
@@ -240,8 +265,15 @@ func (uc *ManageBackupsUseCase) DownloadSnapshot(backupID int, config domain.Ser
 	}()
 
 	res, err := uc.ssh.RunCommand(fmt.Sprintf("base64 -w 0 %s", backup.FilePath))
-	if err != nil || res.ExitCode != 0 {
-		return nil, "", fmt.Errorf("falló la lectura remota del backup: %s", res.Output)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		out := ""
+		if res != nil {
+			out = res.Output
+		}
+		if out == "" && err != nil {
+			out = err.Error()
+		}
+		return nil, "", fmt.Errorf("falló la lectura remota del backup: %s", out)
 	}
 
 	data, err := base64.StdEncoding.DecodeString(strings.TrimSpace(res.Output))

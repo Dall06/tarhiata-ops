@@ -4,13 +4,15 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
 	"github.com/Dall06/tarhiata-ops/srv/sys/usecases"
 	"github.com/charmbracelet/huh"
-	"os"
-	"path/filepath"
 )
 
 type observabilityHandler struct {
@@ -201,7 +203,10 @@ func (h *observabilityHandler) runManageMenu(obs *domain.SavedObservability, con
 
 				if obs.DeployType == "multi-node" {
 					fmt.Println("⏳ Destruyendo servidor dedicado de logs en la nube (Vultr)...")
-					homeDir, _ := os.UserHomeDir()
+					homeDir, errHome := os.UserHomeDir()
+					if errHome != nil {
+						homeDir = os.TempDir()
+					}
 					nodeName := "tarhiata-obs-worker"
 					workspace := filepath.Join(homeDir, ".config", "tarhiata", "terraform", "worker_"+nodeName)
 					prov := repositories.NewVultrProvisioner(workspace)
@@ -210,9 +215,10 @@ func (h *observabilityHandler) runManageMenu(obs *domain.SavedObservability, con
 						fmt.Printf("⚠️ Hubo un problema al intentar destruir la instancia: %v (Por favor verifique en su panel de Vultr)\n", err)
 						fmt.Println("❌ Operación abortada para evitar pérdida de estado. Repare el nodo manualmente o reintente.")
 						return
-					} else {
-						fmt.Println("🔥 Servidor dedicado destruido y eliminado de la facturación.")
-						os.RemoveAll(workspace)
+					}
+					fmt.Println("🔥 Servidor dedicado destruido y eliminado de la facturación.")
+					if errRm := os.RemoveAll(workspace); errRm != nil {
+						slog.Warn("fallo al limpiar workspace de terraform", "workspace", workspace, "error", errRm)
 					}
 				}
 			}

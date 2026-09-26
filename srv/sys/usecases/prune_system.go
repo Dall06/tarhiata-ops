@@ -17,8 +17,15 @@ func NewPruneSystemUseCase(sshExec ports.SSHExecutor) *PruneSystemUseCase {
 
 func (uc *PruneSystemUseCase) Execute() (string, error) {
 	res, err := uc.sshExec.RunCommand("docker system prune -af")
-	if err != nil {
-		return "", fmt.Errorf("error ejecutando docker system prune: %w", err)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		out := ""
+		if res != nil {
+			out = res.Output
+		}
+		if out == "" && err != nil {
+			out = err.Error()
+		}
+		return "", fmt.Errorf("error ejecutando docker system prune: %s", out)
 	}
 	output := strings.TrimSpace(res.Output)
 	if output == "" {

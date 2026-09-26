@@ -155,6 +155,16 @@ func (uc *ManageDomainsUseCase) syncTraefikDomains(svc domain.SavedService, rule
 		--label-add "traefik.http.routers.%s-tls.rule=%s" \
 		%s`, svc.Name, ruleStr, svc.Name, ruleStr, containerName)
 
-	uc.ssh.RunCommand(cmd)
+	res, err := uc.ssh.RunCommand(cmd)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		out := ""
+		if res != nil {
+			out = res.Output
+		}
+		if out == "" && err != nil {
+			out = err.Error()
+		}
+		return fmt.Errorf("error sincronizando dominios en Traefik: %s", out)
+	}
 	return nil
 }

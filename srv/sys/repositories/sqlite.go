@@ -497,7 +497,10 @@ func (r *SQLiteRepository) DeleteServerConfig(name string) error {
 	if err != nil {
 		return fmt.Errorf("error eliminando servidor '%s': %w", name, err)
 	}
-	rowsAffected, _ := res.RowsAffected()
+	rowsAffected, errRows := res.RowsAffected()
+	if errRows != nil {
+		return fmt.Errorf("error verificando filas afectadas: %w", errRows)
+	}
 	if rowsAffected == 0 {
 		return fmt.Errorf("servidor '%s' no encontrado", name)
 	}

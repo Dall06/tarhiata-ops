@@ -2143,7 +2143,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 externalUrl: dbExternalURL.value.trim(),
                 volumeHostPath: dbVolumePath.value.trim(),
                 internalPort: parseInt(dbPort.value || getDefaultPort(dbEngine.value), 10),
-                targetNode: dbTargetNode.value.trim() || targetServer
+                targetNode: dbTargetNode.value.trim() || 'manager'
             };
 
             const res = await fetch(`/api/deploy-db?server=${encodeURIComponent(targetServer)}`, {

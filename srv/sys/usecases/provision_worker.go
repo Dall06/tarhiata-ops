@@ -2,6 +2,7 @@ package usecases
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,7 +50,10 @@ func (uc *ProvisionWorkerUseCase) ExecuteWithPlanAndRegion(config domain.ServerC
 
 	fmt.Printf("🏗️  [2/6] Provisionando VM '%s' (Plan: %s) en Vultr vía Terraform...\n", nodeName, requestedPlan)
 	var provisioner ports.Provisioner
-	homeDir, _ := os.UserHomeDir()
+	homeDir, errHome := os.UserHomeDir()
+	if errHome != nil {
+		homeDir = os.TempDir()
+	}
 	var activeToken string
 	var region string
 	if uc.Provisioner != nil {
@@ -86,13 +90,17 @@ func (uc *ProvisionWorkerUseCase) ExecuteWithPlanAndRegion(config domain.ServerC
 	defer func() {
 		if !setupSuccess {
 			fmt.Println("⚠️ Ocurrió un error en la configuración. Ejecutando ROLLBACK (terraform destroy) para evitar costos fantasma...")
-			provisioner.DestroyNode(activeToken, nodeName)
+			if errDestroy := provisioner.DestroyNode(activeToken, nodeName); errDestroy != nil {
+				slog.Warn("rollback: fallo al destruir nodo huérfano", "node", nodeName, "error", errDestroy)
+			}
 		}
 	}()
 
 	// Guardar la llave privada de forma persistente (GAP 2)
 	keyDir := filepath.Join(homeDir, ".ssh")
-	os.MkdirAll(keyDir, 0700)
+	if errMk := os.MkdirAll(keyDir, 0700); errMk != nil {
+		slog.Warn("fallo creando directorio de llaves SSH", "dir", keyDir, "error", errMk)
+	}
 	keyPath := filepath.Join(keyDir, "tarhiata_worker_"+nodeName+".pem")
 
 	// Solo re-escribimos la llave si no existe o si Terraform la acaba de crear (simplificado: siempre intentamos escribirla si tenemos contenido)
@@ -138,9 +146,17 @@ func (uc *ProvisionWorkerUseCase) ExecuteWithPlanAndRegion(config domain.ServerC
 
 	fmt.Println("🔗 [5/6] Asegurando red y clúster Swarm...")
 	// Asegurar que el Firewall UFW del Manager permita los puertos del clúster Swarm
-	uc.managerSSH.RunCommand("ufw allow 2377/tcp && ufw allow 7946/tcp && ufw allow 7946/udp && ufw allow 4789/udp")
+	if resUfw, errUfw := uc.managerSSH.RunCommand("ufw allow 2377/tcp && ufw allow 7946/tcp && ufw allow 7946/udp && ufw allow 4789/udp"); errUfw != nil {
+		slog.Debug("aviso al abrir puertos swarm en manager", "error", errUfw)
+	} else if resUfw != nil && resUfw.ExitCode != 0 {
+		slog.Debug("código de salida al abrir puertos swarm en manager", "exitCode", resUfw.ExitCode)
+	}
 	// Asegurar que el Worker tenga Docker arriba y sus puertos de Swarm abiertos
-	workerSSH.RunCommand("systemctl start docker || service docker start && ufw allow 2377/tcp && ufw allow 7946/tcp && ufw allow 7946/udp && ufw allow 4789/udp")
+	if resWkrUfw, errWkrUfw := workerSSH.RunCommand("systemctl start docker || service docker start && ufw allow 2377/tcp && ufw allow 7946/tcp && ufw allow 7946/udp && ufw allow 4789/udp"); errWkrUfw != nil {
+		slog.Debug("aviso al encender docker y abrir puertos swarm en worker", "error", errWkrUfw)
+	} else if resWkrUfw != nil && resWkrUfw.ExitCode != 0 {
+		slog.Debug("código de salida al encender docker en worker", "exitCode", resWkrUfw.ExitCode)
+	}
 
 	joinCmd := fmt.Sprintf("docker swarm join --token %s %s:2377", joinToken, managerIP)
 	joinRes, joinErr := workerSSH.RunCommand(joinCmd)
@@ -152,8 +168,8 @@ func (uc *ProvisionWorkerUseCase) ExecuteWithPlanAndRegion(config domain.ServerC
 
 	// Obtenemos el hostname real del nodo worker
 	actualHostname := nodeName
-	resHost, _ := workerSSH.RunCommand("hostname")
-	if resHost != nil && strings.TrimSpace(resHost.Output) != "" {
+	resHost, errHost := workerSSH.RunCommand("hostname")
+	if errHost == nil && resHost != nil && strings.TrimSpace(resHost.Output) != "" {
 		actualHostname = strings.TrimSpace(resHost.Output)
 	}
 
@@ -173,8 +189,8 @@ func (uc *ProvisionWorkerUseCase) ExecuteWithPlanAndRegion(config domain.ServerC
 		if labeled { break }
 
 		// 2. Buscar por ID de nodo worker en el clúster
-		resList, _ := uc.managerSSH.RunCommand("docker node ls --format '{{.ID}} {{.Hostname}}'")
-		if resList != nil && resList.Output != "" {
+		resList, errList := uc.managerSSH.RunCommand("docker node ls --format '{{.ID}} {{.Hostname}}'")
+		if errList == nil && resList != nil && resList.Output != "" {
 			for _, line := range strings.Split(resList.Output, "\n") {
 				line = strings.TrimSpace(line)
 				if line == "" { continue }

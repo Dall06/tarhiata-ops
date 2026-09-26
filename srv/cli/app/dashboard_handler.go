@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
@@ -91,8 +92,14 @@ func (h *DashboardHandler) RenderDashboard(config *domain.ServerConfig) {
 	}
 	card1 := cardStyle.Render(c1Text)
 
-	services, _ := h.repo.GetServices()
-	dbs, _ := h.repo.GetDatabases()
+	services, errSvc := h.repo.GetServices()
+	if errSvc != nil {
+		slog.Warn("dashboard: error obteniendo servicios", "error", errSvc)
+	}
+	dbs, errDB := h.repo.GetDatabases()
+	if errDB != nil {
+		slog.Warn("dashboard: error obteniendo bases de datos", "error", errDB)
+	}
 
 	c2Text := titleStyle.Render("Platform") + "\n\n"
 	c2Text += fmt.Sprintf("%s %s\n", labelStyle.Render("Services: "), valueStyle.Render(fmt.Sprintf("%d running", len(services))))

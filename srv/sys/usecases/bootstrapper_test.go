@@ -24,7 +24,7 @@ func TestInitServer_Execute(t *testing.T) {
 				"ufw allow 80/tcp",
 				"ufw allow 443/tcp",
 				"docker swarm init",
-				"docker network create --driver overlay tarhiata_public",
+				"docker network create --driver overlay --attachable tarhiata_public",
 				"tarhiata_proxy", // El stack de traefik
 			},
 		},

@@ -2,6 +2,7 @@ package usecases
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
@@ -16,8 +17,56 @@ func NewDeployObservabilityUseCase(ssh ports.SSHExecutor) ports.DeployObservabil
 	return &DeployObservabilityUseCase{ssh: ssh}
 }
 
+func (uc *DeployObservabilityUseCase) ensurePreflight() error {
+	resDocker, errDocker := uc.ssh.RunCommand("command -v docker")
+	if errDocker != nil || resDocker == nil || resDocker.ExitCode != 0 || strings.TrimSpace(resDocker.Output) == "" {
+		errMsg := "Docker no está instalado o no se encuentra en el PATH del VPS"
+		if resDocker != nil && strings.TrimSpace(resDocker.Output) != "" {
+			errMsg = resDocker.Output
+		}
+		if errDocker != nil {
+			errMsg = fmt.Sprintf("%s (%v)", errMsg, errDocker)
+		}
+		return fmt.Errorf("pre-flight check fallido: %s", errMsg)
+	}
+
+	resSwarm, errSwarm := uc.ssh.RunCommand("docker info --format '{{.Swarm.LocalNodeState}}'")
+	swarmState := ""
+	if resSwarm != nil {
+		swarmState = strings.TrimSpace(resSwarm.Output)
+	}
+	if errSwarm != nil || swarmState != "active" {
+		slog.Info("Docker Swarm inactivo en el VPS. Inicializando Swarm...", "state", swarmState)
+		resInit, errInit := uc.ssh.RunCommand("docker swarm init")
+		if errInit != nil || resInit == nil || resInit.ExitCode != 0 {
+			initOut := ""
+			if resInit != nil {
+				initOut = resInit.Output
+			}
+			return fmt.Errorf("falló auto-inicialización de Docker Swarm: %s (err: %v)", initOut, errInit)
+		}
+	}
+
+	// Asegurar redes overlay requeridas para Traefik y componentes internos
+	for _, netName := range []string{"tarhiata_public", "tarhiata_internal"} {
+		resNet, errNet := uc.ssh.RunCommand(fmt.Sprintf("docker network create --driver overlay --attachable %s 2>&1 || true", netName))
+		if errNet != nil {
+			slog.Warn("aviso al asegurar red overlay", "network", netName, "error", errNet)
+		}
+		if resNet != nil && strings.Contains(resNet.Output, "error") && !strings.Contains(resNet.Output, "already exists") {
+			slog.Warn("aviso al crear red overlay", "network", netName, "output", resNet.Output)
+		}
+	}
+
+	return nil
+}
+
 // Execute despliega Portainer (Dashboard) y Dozzle (Logs web ultra-ligeros)
 func (uc *DeployObservabilityUseCase) Execute(exposePublic bool) error {
+	if err := uc.ensurePreflight(); err != nil {
+		return err
+	}
+
 	var middlewaresDef, portainerMiddleware, dozzleMiddleware string
 	if !exposePublic {
 		middlewaresDef = "- \"traefik.http.middlewares.vpn-allowlist.ipallowlist.sourcerange=100.64.0.0/10,127.0.0.1/32\""
@@ -33,6 +82,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer_data:/data
     networks:
+      - tarhiata_public
       - tarhiata_internal
     deploy:
       labels:
@@ -53,6 +103,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
+      - tarhiata_public
       - tarhiata_internal
     deploy:
       labels:
@@ -65,6 +116,8 @@ services:
         constraints: [node.role == manager]
 
 networks:
+  tarhiata_public:
+    external: true
   tarhiata_internal:
     external: true
 
@@ -78,8 +131,15 @@ volumes:
 	}
 
 	res, err := uc.ssh.RunCommand("docker stack deploy -c /tmp/observability-stack.yml tarhiata_obs")
-	if err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("falló al desplegar observabilidad: %s", res.Output)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		errMsg := ""
+		if res != nil {
+			errMsg = res.Output
+		}
+		if errMsg == "" && err != nil {
+			errMsg = err.Error()
+		}
+		return fmt.Errorf("falló al desplegar observabilidad: %s", errMsg)
 	}
 
 	return nil
@@ -90,6 +150,10 @@ func (uc *DeployObservabilityUseCase) ExecutePersistent(exposePublic bool, deplo
 }
 
 func (uc *DeployObservabilityUseCase) ExecutePersistentWithVolume(exposePublic bool, deployType, grafanaPassword, volumePath string) error {
+	if err := uc.ensurePreflight(); err != nil {
+		return err
+	}
+
 	if volumePath == "" {
 		volumePath = "/opt/data/obs"
 	}
@@ -109,7 +173,9 @@ func (uc *DeployObservabilityUseCase) ExecutePersistentWithVolume(exposePublic b
 	// 1. Crear directorios y permisos directamente por SSH en el volumen especificado
 	mkdirCmd := fmt.Sprintf("mkdir -p %s/config %s/data/loki %s/data/grafana %s/data/portainer && chown -R 472:472 %s/data/grafana && chown -R 10001:10001 %s/data/loki",
 		volumePath, volumePath, volumePath, volumePath, volumePath, volumePath)
-	uc.ssh.RunCommand(mkdirCmd)
+	if resMk, errMk := uc.ssh.RunCommand(mkdirCmd); errMk != nil || (resMk != nil && resMk.ExitCode != 0) {
+		slog.Warn("aviso al crear directorios de observabilidad persistente", "path", volumePath, "error", errMk)
+	}
 
 	// 2. Escribir Loki Config
 	lokiConfig := `auth_enabled: false
@@ -224,8 +290,12 @@ cat << 'EOF' > /host%s/config/grafana-datasources.yaml
 EOF
 "`, constraint, volumePath, lokiConfig, volumePath, promtailConfig, volumePath, prometheusConfig, volumePath, grafanaDatasource)
 
-	uc.ssh.RunCommand(writeConfigCmd)
-	uc.ssh.RunCommand("docker service rm write-configs-obs")
+	if resCfg, errCfg := uc.ssh.RunCommand(writeConfigCmd); errCfg != nil || (resCfg != nil && resCfg.ExitCode != 0) {
+		slog.Warn("aviso al escribir configs de observabilidad", "error", errCfg)
+	}
+	if _, errRm := uc.ssh.RunCommand("docker service rm write-configs-obs"); errRm != nil {
+		slog.Debug("aviso al remover servicio efímero write-configs-obs", "error", errRm)
+	}
 
 	// 4. Stack Compose
 	var middlewaresDef, portainerMiddleware, grafanaMiddleware string
@@ -244,6 +314,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - %s/data/portainer:/data
     networks:
+      - tarhiata_public
       - tarhiata_internal
     deploy:
       labels:
@@ -318,6 +389,7 @@ services:
       - %s/data/grafana:/var/lib/grafana
       - %s/config/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
     networks:
+      - tarhiata_public
       - tarhiata_internal
     deploy:
       labels:
@@ -330,6 +402,8 @@ services:
         constraints: [%%s]
 
 networks:
+  tarhiata_public:
+    external: true
   tarhiata_internal:
     external: true
 `, volumePath, volumePath, volumePath, volumePath, volumePath, volumePath, volumePath, volumePath)
@@ -340,8 +414,15 @@ networks:
 	}
 
 	res, err := uc.ssh.RunCommand("docker stack deploy -c /tmp/obs-persist-stack.yml tarhiata_obs")
-	if err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("falló al desplegar observabilidad: %s", res.Output)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		errMsg := ""
+		if res != nil {
+			errMsg = res.Output
+		}
+		if errMsg == "" && err != nil {
+			errMsg = err.Error()
+		}
+		return fmt.Errorf("falló al desplegar observabilidad: %s", errMsg)
 	}
 
 	return nil

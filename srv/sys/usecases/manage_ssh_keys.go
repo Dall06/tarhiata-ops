@@ -75,7 +75,10 @@ func (uc *ManageSSHKeysUseCase) ListKeys(cfg domain.ServerConfig) ([]domain.SSHK
 	// 1. Obtener llaves registradas en la cuenta de Vultr vía Vultr API v2
 	vultrKeysMap := make(map[string]bool)
 	if cfg.VultrAPIToken != "" {
-		req, _ := http.NewRequest(http.MethodGet, "https://api.vultr.com/v2/ssh-keys", nil)
+		req, errReq := http.NewRequest(http.MethodGet, "https://api.vultr.com/v2/ssh-keys", nil)
+		if errReq != nil {
+			return nil, fmt.Errorf("error construyendo petición Vultr: %w", errReq)
+		}
 		req.Header.Set("Authorization", "Bearer "+cfg.VultrAPIToken)
 		resp, err := uc.httpClient.Do(req)
 		if err == nil && resp.StatusCode == http.StatusOK {
@@ -164,15 +167,22 @@ func (uc *ManageSSHKeysUseCase) AddKey(cfg domain.ServerConfig, publicKey string
 	}
 
 	// Verificar si ya existe para evitar duplicados
-	res, _ := sshExec.RunCommand("cat /root/.ssh/authorized_keys 2>/dev/null")
-	if strings.Contains(res.Output, publicKey) {
+	resCheck, errCheck := sshExec.RunCommand("cat /root/.ssh/authorized_keys 2>/dev/null")
+	if errCheck == nil && resCheck != nil && strings.Contains(resCheck.Output, publicKey) {
 		return fmt.Errorf("la llave SSH ya se encuentra registrada en authorized_keys")
 	}
 
 	cmd := fmt.Sprintf("mkdir -p /root/.ssh && chmod 700 /root/.ssh && echo '%s' >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys", publicKey)
 	res, err := sshExec.RunCommand(cmd)
-	if err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("error añadiendo llave SSH: %s", res.Output)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		out := ""
+		if res != nil {
+			out = res.Output
+		}
+		if out == "" && err != nil {
+			out = err.Error()
+		}
+		return fmt.Errorf("error añadiendo llave SSH: %s", out)
 	}
 
 	return nil
@@ -230,8 +240,15 @@ func (uc *ManageSSHKeysUseCase) DeleteKey(cfg domain.ServerConfig, targetIdentif
 
 	cmd := fmt.Sprintf("echo '%s' | base64 -d > /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys", encoded)
 	res, err := sshExec.RunCommand(cmd)
-	if err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("error al actualizar /root/.ssh/authorized_keys: %s", res.Output)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		out := ""
+		if res != nil {
+			out = res.Output
+		}
+		if out == "" && err != nil {
+			out = err.Error()
+		}
+		return fmt.Errorf("error al actualizar /root/.ssh/authorized_keys: %s", out)
 	}
 
 	return nil

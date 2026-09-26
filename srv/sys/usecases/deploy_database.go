@@ -31,6 +31,46 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 
 	fmt.Printf("\n🚀 Desplegando Base de Datos: %s (%s)...\n", db.Name, db.Engine)
 
+	// 0. Pre-flight: Verificar Docker disponible en el VPS
+	resDocker, errDocker := uc.ssh.RunCommand("command -v docker")
+	if errDocker != nil || resDocker == nil || resDocker.ExitCode != 0 || strings.TrimSpace(resDocker.Output) == "" {
+		errMsg := "Docker no está instalado o no se encuentra en el PATH del VPS"
+		if resDocker != nil && strings.TrimSpace(resDocker.Output) != "" {
+			errMsg = resDocker.Output
+		}
+		if errDocker != nil {
+			errMsg = fmt.Sprintf("%s (%v)", errMsg, errDocker)
+		}
+		return fmt.Errorf("pre-flight check fallido: %s", errMsg)
+	}
+
+	// 1. Pre-flight: Verificar e inicializar Docker Swarm si está inactivo
+	resSwarm, errSwarm := uc.ssh.RunCommand("docker info --format '{{.Swarm.LocalNodeState}}'")
+	swarmState := ""
+	if resSwarm != nil {
+		swarmState = strings.TrimSpace(resSwarm.Output)
+	}
+	if errSwarm != nil || swarmState != "active" {
+		slog.Info("Docker Swarm inactivo en el VPS. Inicializando Swarm...", "state", swarmState)
+		resInit, errInit := uc.ssh.RunCommand("docker swarm init")
+		if errInit != nil || resInit == nil || resInit.ExitCode != 0 {
+			initOut := ""
+			if resInit != nil {
+				initOut = resInit.Output
+			}
+			return fmt.Errorf("falló auto-inicialización de Docker Swarm: %s (err: %v)", initOut, errInit)
+		}
+	}
+
+	// 2. Pre-flight: Asegurar que las redes overlay existan de forma idempotente
+	resNet, errNet := uc.ssh.RunCommand("docker network create --driver overlay --attachable tarhiata_internal 2>&1 || true")
+	if errNet != nil {
+		slog.Warn("aviso al asegurar red overlay tarhiata_internal", "error", errNet)
+	}
+	if resNet != nil && strings.Contains(resNet.Output, "error") && !strings.Contains(resNet.Output, "already exists") {
+		slog.Warn("aviso al crear red tarhiata_internal", "output", resNet.Output)
+	}
+
 	constraint := `"node.role == manager"`
 	if db.TargetNode != "" {
 		if db.TargetNode == "worker" {
@@ -82,7 +122,33 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 		} else if db.TargetNode == "manager" {
 			constraint = `"node.role == manager"`
 		} else {
-			constraint = fmt.Sprintf(`"node.hostname == %s"`, db.TargetNode)
+			// Validar si el targetNode coincide con un hostname o ID real en Swarm
+			isRealNode := false
+			resCheckNode, errCheckNode := uc.ssh.RunCommand("docker node ls --format '{{.Hostname}}|{{.ID}}'")
+			if errCheckNode == nil && resCheckNode != nil && resCheckNode.ExitCode == 0 {
+				for _, line := range strings.Split(resCheckNode.Output, "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" {
+						continue
+					}
+					parts := strings.Split(line, "|")
+					for _, part := range parts {
+						if strings.EqualFold(strings.TrimSpace(part), db.TargetNode) {
+							isRealNode = true
+							break
+						}
+					}
+					if isRealNode {
+						break
+					}
+				}
+			}
+			if isRealNode {
+				constraint = fmt.Sprintf(`"node.hostname == %s"`, db.TargetNode)
+			} else {
+				slog.Info("TargetNode no corresponde a un hostname de Swarm. Usando node.role == manager", "targetNode", db.TargetNode)
+				constraint = `"node.role == manager"`
+			}
 		}
 	} else if db.DeployType == "multi-node" {
 		constraint = fmt.Sprintf(`"node.labels.type == db_%s"`, db.Name)
@@ -99,26 +165,36 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 
 	// Preparar directorio host directamente por SSH sin contenedores efímeros
 	checkCmd := fmt.Sprintf("test -d %s && ls -A %s", db.VolumeHostPath, db.VolumeHostPath)
-	resCheck, _ := uc.ssh.RunCommand(checkCmd)
-	hasExistingData := resCheck != nil && strings.TrimSpace(resCheck.Output) != ""
+	resCheck, errCheck := uc.ssh.RunCommand(checkCmd)
+	hasExistingData := errCheck == nil && resCheck != nil && strings.TrimSpace(resCheck.Output) != ""
 
 	if hasExistingData {
 		if db.CleanExistingData {
 			fmt.Printf("🧹 [Recovery Mode] Limpiando datos antiguos en %s antes de desplegar...\n", db.VolumeHostPath)
-			uc.ssh.RunCommand(fmt.Sprintf("rm -rf %s/*", db.VolumeHostPath))
-			uc.ssh.RunCommand(fmt.Sprintf("mkdir -p %s && chown -R %s %s", db.VolumeHostPath, uid, db.VolumeHostPath))
+			if _, errRm := uc.ssh.RunCommand(fmt.Sprintf("rm -rf %s/*", db.VolumeHostPath)); errRm != nil {
+				slog.Warn("aviso al limpiar datos antiguos", "path", db.VolumeHostPath, "error", errRm)
+			}
+			if _, errMk := uc.ssh.RunCommand(fmt.Sprintf("mkdir -p %s && chown -R %s %s", db.VolumeHostPath, uid, db.VolumeHostPath)); errMk != nil {
+				slog.Warn("aviso al preparar permisos de directorio", "path", db.VolumeHostPath, "error", errMk)
+			}
 		} else {
 			fmt.Printf("📦 [Recovery Mode] ¡Se detectaron datos previos en %s! Reutilizando volumen host para recuperación de base de datos...\n", db.VolumeHostPath)
-			uc.ssh.RunCommand(fmt.Sprintf("mkdir -p %s && chown -R %s %s", db.VolumeHostPath, uid, db.VolumeHostPath))
+			if _, errMk := uc.ssh.RunCommand(fmt.Sprintf("mkdir -p %s && chown -R %s %s", db.VolumeHostPath, uid, db.VolumeHostPath)); errMk != nil {
+				slog.Warn("aviso al preparar permisos de directorio", "path", db.VolumeHostPath, "error", errMk)
+			}
 		}
 	} else {
-		uc.ssh.RunCommand(fmt.Sprintf("mkdir -p %s && chown -R %s %s", db.VolumeHostPath, uid, db.VolumeHostPath))
+		if _, errMk := uc.ssh.RunCommand(fmt.Sprintf("mkdir -p %s && chown -R %s %s", db.VolumeHostPath, uid, db.VolumeHostPath)); errMk != nil {
+			slog.Warn("aviso al crear directorio de datos", "path", db.VolumeHostPath, "error", errMk)
+		}
 	}
 
 	serviceName := fmt.Sprintf("tarhiata-db-%s", db.Name)
 
 	// 2. Apagar la BD si ya existía para actualizarla
-	uc.ssh.RunCommand(fmt.Sprintf("docker service rm %s", serviceName))
+	if _, errRmSvc := uc.ssh.RunCommand(fmt.Sprintf("docker service rm %s", serviceName)); errRmSvc != nil {
+		slog.Debug("aviso al remover servicio previo (si existía)", "service", serviceName, "error", errRmSvc)
+	}
 
 	// 3. Construir el comando de docker service create
 	safePassword := strings.ReplaceAll(db.Password, "'", `'"'"'`)
@@ -195,8 +271,15 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 
 	// 4. Ejecutar el despliegue
 	res, err := uc.ssh.RunCommand(createCmd)
-	if err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("error creando servicio de BD/Storage: %s", res.Output)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		errMsg := ""
+		if res != nil {
+			errMsg = res.Output
+		}
+		if errMsg == "" && err != nil {
+			errMsg = err.Error()
+		}
+		return fmt.Errorf("error creando servicio de BD/Storage: %s", errMsg)
 	}
 
 	fmt.Printf("✅ ¡Servidor de Almacenamiento/BD '%s' (%s) desplegado correctamente en %s!\n", db.Name, db.Engine, db.VolumeHostPath)

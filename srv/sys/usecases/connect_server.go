@@ -52,30 +52,23 @@ func (uc *ConnectServerUseCase) Execute(config domain.ServerConfig) (*domain.Con
 	result.Connected = true
 
 	// 1. Obtener Sistema Operativo y Arquitectura
+	result.OS = "Unknown"
 	osRes, err := uc.executor.RunCommand("uname -s -m")
-	if err != nil {
-		result.OS = "Unknown"
-	}
-	if err == nil {
-		if osRes.ExitCode == 0 {
-			result.OS = strings.TrimSpace(osRes.Output)
-		}
-		if osRes.ExitCode != 0 {
-			result.OS = "Unknown"
-		}
+	if err == nil && osRes != nil && osRes.ExitCode == 0 {
+		result.OS = strings.TrimSpace(osRes.Output)
 	}
 
 	// 2. Verificar disponibilidad de Docker
 	dockerVerRes, err := uc.executor.RunCommand("docker --version")
-	if err == nil && dockerVerRes.ExitCode == 0 {
+	if err == nil && dockerVerRes != nil && dockerVerRes.ExitCode == 0 {
 		result.DockerActive = true
 		result.DockerVersion = strings.TrimSpace(dockerVerRes.Output)
 	}
 
 	// 3. Verificar estado de Docker Swarm
 	if result.DockerActive {
-		swarmRes, err := uc.executor.RunCommand("docker info --format '{{.Swarm.LocalNodeState}}'")
-		if err == nil && strings.TrimSpace(swarmRes.Output) == "active" {
+		swarmRes, errSwarm := uc.executor.RunCommand("docker info --format '{{.Swarm.LocalNodeState}}'")
+		if errSwarm == nil && swarmRes != nil && strings.TrimSpace(swarmRes.Output) == "active" {
 			result.SwarmActive = true
 		}
 	}

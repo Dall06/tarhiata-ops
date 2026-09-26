@@ -2,6 +2,7 @@ package sys
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -151,7 +152,10 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 		}
 
 		fmt.Printf("\n⏳ [Terraform] Construyendo el servidor maestro en %s (Plan: %s). Esto tardará un poco...\n", providerName, selectedPlan)
-		homeDir, _ := os.UserHomeDir()
+		homeDir, errHome := os.UserHomeDir()
+		if errHome != nil {
+			homeDir = os.TempDir()
+		}
 		workspace := filepath.Join(homeDir, ".config", "tarhiata", "terraform", "tarhiata_master")
 
 		var provisioner ports.Provisioner
@@ -180,7 +184,9 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 		// Guardar llave privada localmente
 
 		keyDir := filepath.Join(homeDir, ".ssh")
-		os.MkdirAll(keyDir, 0700)
+		if errMk := os.MkdirAll(keyDir, 0700); errMk != nil {
+			slog.Warn("fallo creando directorio de llaves SSH", "dir", keyDir, "error", errMk)
+		}
 		key = filepath.Join(keyDir, "tarhiata_master_rsa")
 
 		if err := os.WriteFile(key, []byte(privKeyContent), 0600); err != nil {
@@ -196,7 +202,10 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 		cloudProvider = "vultr" // Default fallback
 	}
 
-	port, _ := strconv.Atoi(portStr)
+	port, errPort := strconv.Atoi(portStr)
+	if errPort != nil || port <= 0 {
+		port = 22
+	}
 	newConfig := domain.ServerConfig{
 		Host:       host,
 		Port:       port,

@@ -53,7 +53,7 @@ func (uc *ManageVolumesUseCase) ListVolumes(config domain.ServerConfig) ([]strin
 
 	cmd := fmt.Sprintf("mkdir -p %s && ls -1 %s", BaseDataPath, BaseDataPath)
 	res, err := uc.ssh.RunCommand(cmd)
-	if err != nil || res.ExitCode != 0 {
+	if err != nil || res == nil || res.ExitCode != 0 {
 		return []string{}, nil
 	}
 
@@ -145,8 +145,15 @@ func (uc *ManageVolumesUseCase) ReadFileContent(targetPath string, config domain
 
 	cmd := fmt.Sprintf("head -c 200000 %q", cleanPath)
 	res, err := uc.ssh.RunCommand(cmd)
-	if err != nil || res.ExitCode != 0 {
-		return "", fmt.Errorf("error al leer archivo '%s': %s", cleanPath, res.Output)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		out := ""
+		if res != nil {
+			out = res.Output
+		}
+		if out == "" && err != nil {
+			out = err.Error()
+		}
+		return "", fmt.Errorf("error al leer archivo '%s': %s", cleanPath, out)
 	}
 	return res.Output, nil
 }
@@ -177,13 +184,22 @@ func (uc *ManageVolumesUseCase) WriteFileContent(targetPath string, content stri
 	b64Data := fmt.Sprintf("%x", content) // hex encoding
 	writeCmd := fmt.Sprintf("echo '%s' | xxd -r -p > %q", b64Data, cleanPath)
 	res, err := uc.ssh.RunCommand(writeCmd)
-	if err != nil || res.ExitCode != 0 {
+	if err != nil || res == nil || res.ExitCode != 0 {
 		// Fallback simple si xxd no estuviese presente
 		escaped := strings.ReplaceAll(content, `'`, `'\''`)
 		fallbackCmd := fmt.Sprintf("cat << 'EOF_TARHIATA_FILE' > %q\n%s\nEOF_TARHIATA_FILE", cleanPath, escaped)
 		res2, err2 := uc.ssh.RunCommand(fallbackCmd)
-		if err2 != nil || res2.ExitCode != 0 {
-			return fmt.Errorf("error al escribir archivo: %s", res.Output)
+		if err2 != nil || res2 == nil || res2.ExitCode != 0 {
+			out := ""
+			if res2 != nil {
+				out = res2.Output
+			} else if res != nil {
+				out = res.Output
+			}
+			if out == "" && err2 != nil {
+				out = err2.Error()
+			}
+			return fmt.Errorf("error al escribir archivo: %s", out)
 		}
 	}
 	return nil
@@ -206,8 +222,15 @@ func (uc *ManageVolumesUseCase) DownloadFile(targetPath string, config domain.Se
 
 	cmd := fmt.Sprintf("base64 %q 2>/dev/null || cat %q", cleanPath, cleanPath)
 	res, err := uc.ssh.RunCommand(cmd)
-	if err != nil || res.ExitCode != 0 {
-		return nil, "", fmt.Errorf("error al descargar archivo '%s': %s", cleanPath, res.Output)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		out := ""
+		if res != nil {
+			out = res.Output
+		}
+		if out == "" && err != nil {
+			out = err.Error()
+		}
+		return nil, "", fmt.Errorf("error al descargar archivo '%s': %s", cleanPath, out)
 	}
 
 	// Decodificar base64 si corresponde
@@ -240,8 +263,15 @@ func (uc *ManageVolumesUseCase) DeleteFile(targetPath string, config domain.Serv
 
 	cmd := fmt.Sprintf("rm -rf %q", cleanPath)
 	res, err := uc.ssh.RunCommand(cmd)
-	if err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("error al eliminar '%s': %s", cleanPath, res.Output)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		out := ""
+		if res != nil {
+			out = res.Output
+		}
+		if out == "" && err != nil {
+			out = err.Error()
+		}
+		return fmt.Errorf("error al eliminar '%s': %s", cleanPath, out)
 	}
 	return nil
 }
@@ -263,8 +293,15 @@ func (uc *ManageVolumesUseCase) CreateDirectory(targetPath string, config domain
 
 	cmd := fmt.Sprintf("mkdir -p %q", cleanPath)
 	res, err := uc.ssh.RunCommand(cmd)
-	if err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("error al crear directorio '%s': %s", cleanPath, res.Output)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		out := ""
+		if res != nil {
+			out = res.Output
+		}
+		if out == "" && err != nil {
+			out = err.Error()
+		}
+		return fmt.Errorf("error al crear directorio '%s': %s", cleanPath, out)
 	}
 	return nil
 }
