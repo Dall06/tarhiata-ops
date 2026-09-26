@@ -239,7 +239,10 @@ func isDockerServiceMatch(targetName string, liveMap map[string]bool) bool {
 func (w *WebServer) handleStatus(rw http.ResponseWriter, req *http.Request) {
 	services, errSvc := w.repo.GetServices()
 	databases, errDB := w.repo.GetDatabases()
-	cfg, _ := w.repo.GetServerConfig()
+	cfg, cfgErr := w.repo.GetServerConfig()
+	if cfgErr != nil {
+		slog.Warn("web_server: error obteniendo server config en handleStatus", "error", cfgErr)
+	}
 
 	if errSvc != nil {
 		http.Error(rw, fmt.Sprintf("Error leyendo servicios: %v", errSvc), http.StatusInternalServerError)
@@ -253,10 +256,12 @@ func (w *WebServer) handleStatus(rw http.ResponseWriter, req *http.Request) {
 	if services == nil { services = []domain.SavedService{} }
 	if databases == nil { databases = []domain.SavedDatabase{} }
 
-	// Test real SSH / Host VM connectivity and fetch live Docker services
+	// Preservar siempre todos los servicios y bases de datos guardados localmente
 	isOnline := false
-	activeServices := []domain.SavedService{}
-	activeDatabases := []domain.SavedDatabase{}
+	activeServices := make([]domain.SavedService, len(services))
+	copy(activeServices, services)
+	activeDatabases := make([]domain.SavedDatabase, len(databases))
+	copy(activeDatabases, databases)
 
 	if cfg != nil && cfg.Host != "" {
 		sshExec := repositories.NewCryptoSSHExecutor()
@@ -267,20 +272,24 @@ func (w *WebServer) handleStatus(rw http.ResponseWriter, req *http.Request) {
 			if len(services) == 0 && len(databases) == 0 {
 				syncUC := usecases.NewSyncClusterStateUseCase(w.repo, sshExec)
 				if dump, err := syncUC.ImportStateFromRemote(); err == nil && dump != nil {
-					var errSvc, errDb error
-					services, errSvc = w.repo.GetServices()
-					if errSvc != nil {
-						slog.Warn("falló recargar servicios tras importar estado", "error", errSvc)
+					var errSvcReload, errDbReload error
+					services, errSvcReload = w.repo.GetServices()
+					if errSvcReload != nil {
+						slog.Warn("falló recargar servicios tras importar estado", "error", errSvcReload)
 					}
-					databases, errDb = w.repo.GetDatabases()
-					if errDb != nil {
-						slog.Warn("falló recargar bases de datos tras importar estado", "error", errDb)
+					databases, errDbReload = w.repo.GetDatabases()
+					if errDbReload != nil {
+						slog.Warn("falló recargar bases de datos tras importar estado", "error", errDbReload)
 					}
+					activeServices = append([]domain.SavedService{}, services...)
+					activeDatabases = append([]domain.SavedDatabase{}, databases...)
 				}
 			}
 
 			res, err := sshExec.RunCommand("docker service ls --format '{{.Name}}' && docker ps --format '{{.Names}}'")
-			sshExec.Close()
+			if clErr := sshExec.Close(); clErr != nil {
+				slog.Warn("web_server: error cerrando sshExec en handleStatus", "error", clErr)
+			}
 
 			if err == nil && res != nil && res.Output != "" {
 				liveMap := make(map[string]bool)
@@ -288,17 +297,6 @@ func (w *WebServer) handleStatus(rw http.ResponseWriter, req *http.Request) {
 					t := strings.TrimSpace(line)
 					if t != "" {
 						liveMap[t] = true
-					}
-				}
-
-				for _, s := range services {
-					if isDockerServiceMatch(s.Name, liveMap) {
-						activeServices = append(activeServices, s)
-					}
-				}
-				for _, d := range databases {
-					if isDockerServiceMatch(d.Name, liveMap) {
-						activeDatabases = append(activeDatabases, d)
 					}
 				}
 
@@ -338,10 +336,6 @@ func (w *WebServer) handleStatus(rw http.ResponseWriter, req *http.Request) {
 						activeServices = append(activeServices, discovered)
 					}
 				}
-			} else {
-				// Fallback si no se obtuvieron servicios
-				activeServices = append(activeServices, services...)
-				activeDatabases = append(activeDatabases, databases...)
 			}
 		}
 	}
@@ -351,7 +345,11 @@ func (w *WebServer) handleStatus(rw http.ResponseWriter, req *http.Request) {
 		isLocalTarget = true
 	}
 
-	servers, _ := w.repo.GetAllServerConfigs()
+	servers, srvErr := w.repo.GetAllServerConfigs()
+	if srvErr != nil {
+		slog.Warn("web_server: error obteniendo lista de servidores en handleStatus", "error", srvErr)
+		servers = []domain.ServerConfig{}
+	}
 
 	resp := map[string]interface{}{
 		"config":    cfg,
@@ -828,6 +826,28 @@ func (w *WebServer) handleSwarmStatus(rw http.ResponseWriter, req *http.Request)
 		})
 	}
 
+	// Incorporar información de servicios registrados en SQLite para que no desaparezcan si están detenidos
+	savedSvcs, svcsErr := w.repo.GetServices()
+	if svcsErr != nil {
+		slog.Warn("web_server: error obteniendo servicios para swarm status", "error", svcsErr)
+	} else {
+		for _, s := range savedSvcs {
+			if !liveServicesMap[s.Name] && !liveServicesMap["tarhiata-app-"+s.Name] {
+				portsStr := fmt.Sprintf("%d", s.Port)
+				status.Services = append(status.Services, domain.SwarmServiceInfo{
+					ID:       "stopped",
+					Name:     s.Name,
+					Mode:     "replicated",
+					Replicas: "0/1",
+					Image:    s.ImageSource,
+					Ports:    portsStr,
+					Domain:   s.Domain,
+					Expose:   s.Expose,
+				})
+			}
+		}
+	}
+
 	w.setCache(cacheKey, status, 5*time.Second)
 	jsonResponse(rw, status)
 }
@@ -881,30 +901,8 @@ func (w *WebServer) handleServices(rw http.ResponseWriter, req *http.Request) {
 			http.Error(rw, fmt.Sprintf("Error leyendo servicios: %v", err), http.StatusInternalServerError)
 			return
 		}
-
-		cfg := w.getConfig()
-		if cfg != nil && cfg.Host != "" {
-			sshExec := repositories.NewCryptoSSHExecutor()
-			if err := sshExec.Connect(*cfg); err == nil {
-				defer sshExec.Close()
-				res, err := sshExec.RunCommand("docker service ls --format '{{.Name}}' && docker ps --format '{{.Names}}'")
-				if err == nil && res != nil && res.Output != "" {
-					liveMap := make(map[string]bool)
-					for _, line := range strings.Split(res.Output, "\n") {
-						t := strings.TrimSpace(line)
-						if t != "" {
-							liveMap[t] = true
-						}
-					}
-					var active []domain.SavedService
-					for _, s := range svcs {
-						if isDockerServiceMatch(s.Name, liveMap) {
-							active = append(active, s)
-						}
-					}
-					svcs = active
-				}
-			}
+		if svcs == nil {
+			svcs = []domain.SavedService{}
 		}
 
 		jsonResponse(rw, svcs)
@@ -1159,30 +1157,8 @@ func (w *WebServer) handleDatabases(rw http.ResponseWriter, req *http.Request) {
 			http.Error(rw, fmt.Sprintf("Error leyendo bases de datos: %v", err), http.StatusInternalServerError)
 			return
 		}
-
-		cfg := w.getConfig()
-		if cfg != nil && cfg.Host != "" {
-			sshExec := repositories.NewCryptoSSHExecutor()
-			if err := sshExec.Connect(*cfg); err == nil {
-				defer sshExec.Close()
-				res, err := sshExec.RunCommand("docker service ls --format '{{.Name}}' && docker ps --format '{{.Names}}'")
-				if err == nil && res != nil && res.Output != "" {
-					liveMap := make(map[string]bool)
-					for _, line := range strings.Split(res.Output, "\n") {
-						t := strings.TrimSpace(line)
-						if t != "" {
-							liveMap[t] = true
-						}
-					}
-					var active []domain.SavedDatabase
-					for _, db := range dbs {
-						if db.DeployType == "external" || isDockerServiceMatch(db.Name, liveMap) {
-							active = append(active, db)
-						}
-					}
-					dbs = active
-				}
-			}
+		if dbs == nil {
+			dbs = []domain.SavedDatabase{}
 		}
 
 		for i := range dbs {

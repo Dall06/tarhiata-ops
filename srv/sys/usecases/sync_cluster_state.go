@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
@@ -56,6 +57,15 @@ func (uc *SyncClusterStateUseCase) ExportStateToRemote() error {
 		obs, err = uc.repo.GetObservability()
 		if err != nil {
 			slog.Warn("Error obteniendo observabilidad para exportar", "error", err)
+		}
+	}
+
+	if len(svcs) == 0 && len(dbs) == 0 {
+		// Protección contra sobreescritura accidental: si el local está vacío, no pisar un estado remoto existente
+		resRemote, errRemote := uc.sshExec.RunCommand("cat /opt/tarhiata/state.json 2>/dev/null")
+		if errRemote == nil && resRemote != nil && resRemote.ExitCode == 0 && len(strings.TrimSpace(resRemote.Output)) > 10 {
+			slog.Warn("sync_cluster: exportación omitida para proteger catálogo remoto existente de estado local vacío")
+			return nil
 		}
 	}
 
