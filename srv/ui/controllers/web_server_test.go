@@ -887,6 +887,215 @@ func TestWebServer_HandleSSLAndMaintenance_TableDriven(t *testing.T) {
 	}
 }
 
+func TestLocalAuthMiddleware_SecurityMatrix(t *testing.T) {
+	tests := []struct {
+		name           string
+		isExposed      bool
+		apiKey         string
+		remoteAddr     string
+		headerKey      string
+		queryKey       string
+		expectedStatus int
+	}{
+		{
+			name:           "unexposed local dev allows access without key",
+			isExposed:      false,
+			apiKey:         "",
+			remoteAddr:     "127.0.0.1:45678",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "exposed server allows localhost access without key",
+			isExposed:      true,
+			apiKey:         "",
+			remoteAddr:     "127.0.0.1:45678",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "exposed server blocks remote IP when no key configured",
+			isExposed:      true,
+			apiKey:         "",
+			remoteAddr:     "192.168.1.105:45678",
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:           "exposed server rejects remote IP with wrong key",
+			isExposed:      true,
+			apiKey:         "secret-pass-123",
+			remoteAddr:     "192.168.1.105:45678",
+			headerKey:      "wrong-key",
+			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name:           "exposed server allows remote IP with valid X-API-Key header",
+			isExposed:      true,
+			apiKey:         "secret-pass-123",
+			remoteAddr:     "192.168.1.105:45678",
+			headerKey:      "secret-pass-123",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "exposed server allows remote IP with valid api_key query param",
+			isExposed:      true,
+			apiKey:         "secret-pass-123",
+			remoteAddr:     "192.168.1.105:45678",
+			queryKey:       "secret-pass-123",
+			expectedStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ws := NewWebServer(&mockRepo{}, &domain.ServerConfig{Name: "srv"})
+			ws.SetExposed(tt.isExposed)
+			ws.SetAPIKey(tt.apiKey)
+
+			dummyHandler := func(rw http.ResponseWriter, req *http.Request) {
+				rw.WriteHeader(http.StatusOK)
+			}
+			wrapped := ws.localAuthMiddleware(dummyHandler)
+
+			targetURL := "/api/critical-endpoint"
+			if tt.queryKey != "" {
+				targetURL += "?api_key=" + tt.queryKey
+			}
+			req := httptest.NewRequest(http.MethodPost, targetURL, nil)
+			req.RemoteAddr = tt.remoteAddr
+			if tt.headerKey != "" {
+				req.Header.Set("X-API-Key", tt.headerKey)
+			}
+
+			rr := httptest.NewRecorder()
+			wrapped(rr, req)
+
+			if rr.Code != tt.expectedStatus {
+				t.Errorf("[%s] expected status %d, got %d", tt.name, tt.expectedStatus, rr.Code)
+			}
+		})
+	}
+}
+
+func TestHandleOpenTerminal_SecurityEnforcement(t *testing.T) {
+	tests := []struct {
+		name           string
+		isExposed      bool
+		remoteAddr     string
+		expectedStatus int
+	}{
+		{
+			name:           "remote IP on exposed server is blocked from spawning GUI terminal",
+			isExposed:      true,
+			remoteAddr:     "192.168.1.80:54321",
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:           "localhost on exposed server passes IP check",
+			isExposed:      true,
+			remoteAddr:     "127.0.0.1:54321",
+			expectedStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ws := NewWebServer(&mockRepo{}, &domain.ServerConfig{Name: "srv"})
+			ws.SetExposed(tt.isExposed)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/servers/open-terminal", nil)
+			req.RemoteAddr = tt.remoteAddr
+
+			rr := httptest.NewRecorder()
+			ws.handleOpenTerminal(rr, req)
+
+			if rr.Code != tt.expectedStatus {
+				t.Errorf("[%s] expected status %d, got %d", tt.name, tt.expectedStatus, rr.Code)
+			}
+		})
+	}
+}
+
+func TestMutatingEndpoints_ExposedRemoteProtection(t *testing.T) {
+	tests := []struct {
+		name           string
+		method         string
+		url            string
+		handler        func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request)
+		expectedStatus int
+	}{
+		{
+			name:   "GET services is allowed for remote reader",
+			method: http.MethodGet,
+			url:    "/api/services",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleServices(rr, req)
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:   "POST services is blocked for remote user without key",
+			method: http.MethodPost,
+			url:    "/api/services",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleServices(rr, req)
+			},
+			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name:   "GET databases is allowed for remote reader",
+			method: http.MethodGet,
+			url:    "/api/databases",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleDatabases(rr, req)
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:   "POST databases is blocked for remote user without key",
+			method: http.MethodPost,
+			url:    "/api/databases",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleDatabases(rr, req)
+			},
+			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name:   "POST links is blocked for remote user without key",
+			method: http.MethodPost,
+			url:    "/api/links",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleLinks(rr, req)
+			},
+			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name:   "POST servers is blocked for remote user without key",
+			method: http.MethodPost,
+			url:    "/api/servers",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleServers(rr, req)
+			},
+			expectedStatus: http.StatusUnauthorized,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ws := NewWebServer(&mockRepo{}, &domain.ServerConfig{Name: "srv"})
+			ws.SetExposed(true)
+
+			req := httptest.NewRequest(tt.method, tt.url, nil)
+			req.RemoteAddr = "192.168.1.200:54321"
+
+			rr := httptest.NewRecorder()
+			tt.handler(ws, rr, req)
+
+			if rr.Code != tt.expectedStatus {
+				t.Errorf("[%s] expected status %d, got %d", tt.name, tt.expectedStatus, rr.Code)
+			}
+		})
+	}
+}
+
 
 
 

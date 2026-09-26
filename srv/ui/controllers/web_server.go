@@ -35,12 +35,13 @@ type cacheItem struct {
 }
 
 type WebServer struct {
-	mu      sync.RWMutex
-	repo    ports.ConfigRepository
-	config  *domain.ServerConfig
-	apiKey  string // Clave API opcional para proteger endpoints destructivos
-	cacheMu sync.RWMutex
-	cache   map[string]cacheItem
+	mu        sync.RWMutex
+	repo      ports.ConfigRepository
+	config    *domain.ServerConfig
+	apiKey    string // Clave API opcional para proteger endpoints destructivos
+	isExposed bool   // Indica si el servidor escucha en 0.0.0.0
+	cacheMu   sync.RWMutex
+	cache     map[string]cacheItem
 }
 
 func (w *WebServer) getConfig() *domain.ServerConfig {
@@ -53,6 +54,20 @@ func (w *WebServer) setConfig(cfg *domain.ServerConfig) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.config = cfg
+}
+
+// SetExposed define si el servidor opera en modo de red expuesto (0.0.0.0).
+func (w *WebServer) SetExposed(exposed bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.isExposed = exposed
+}
+
+// SetAPIKey permite configurar o actualizar la clave de API dinámicamente.
+func (w *WebServer) SetAPIKey(key string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.apiKey = key
 }
 
 func (w *WebServer) getCache(key string) (interface{}, bool) {
@@ -79,33 +94,71 @@ func (w *WebServer) setCache(key string, data interface{}, ttl time.Duration) {
 }
 
 func NewWebServer(repo ports.ConfigRepository, config *domain.ServerConfig) *WebServer {
-	// Usar variable de entorno TARHIATA_API_KEY si está configurada
 	apiKey := ""
 	if k, ok := os.LookupEnv("TARHIATA_API_KEY"); ok && k != "" {
 		apiKey = k
 	}
+	isExposed := os.Getenv("TARHIATA_EXPOSE") == "true" || os.Getenv("TARHIATA_HOST") == "0.0.0.0"
 	return &WebServer{
-		repo:   repo,
-		config: config,
-		apiKey: apiKey,
-		cache:  make(map[string]cacheItem),
+		repo:      repo,
+		config:    config,
+		apiKey:    apiKey,
+		isExposed: isExposed,
+		cache:     make(map[string]cacheItem),
 	}
 }
 
-// localAuthMiddleware verifica que las peticiones provengan de localhost
-// y opcionalmente valida un API key si está configurado.
+// isLoopback determina si una dirección IP o host remoto corresponde a localhost.
+func isLoopback(remoteAddr string) bool {
+	if remoteAddr == "" {
+		return true
+	}
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip != nil {
+		return ip.IsLoopback()
+	}
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+}
+
+// isAuthorized valida si la petición cuenta con credenciales o permisos para operar.
+func (w *WebServer) isAuthorized(req *http.Request) bool {
+	w.mu.RLock()
+	apiKey := w.apiKey
+	isExposed := w.isExposed
+	w.mu.RUnlock()
+
+	if apiKey != "" {
+		reqKey := req.Header.Get("X-API-Key")
+		if reqKey == "" {
+			reqKey = req.URL.Query().Get("api_key")
+		}
+		return reqKey == apiKey
+	}
+	if isExposed && !isLoopback(req.RemoteAddr) {
+		return false
+	}
+	return true
+}
+
+// localAuthMiddleware verifica que las peticiones a endpoints críticos provengan de localhost
+// o cuenten con una API key válida si el servidor está expuesto en la red.
 func (w *WebServer) localAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(rw http.ResponseWriter, req *http.Request) {
-		// Verificar API Key si está configurado
-		if w.apiKey != "" {
-			reqKey := req.Header.Get("X-API-Key")
-			if reqKey == "" {
-				reqKey = req.URL.Query().Get("api_key")
-			}
-			if reqKey != w.apiKey {
-				http.Error(rw, `{"error":"Unauthorized: API key requerida"}`, http.StatusUnauthorized)
+		if !w.isAuthorized(req) {
+			w.mu.RLock()
+			hasKey := w.apiKey != ""
+			w.mu.RUnlock()
+
+			if hasKey {
+				http.Error(rw, `{"error":"Unauthorized: API key requerida o inválida"}`, http.StatusUnauthorized)
 				return
 			}
+			http.Error(rw, `{"error":"Forbidden: Este endpoint crítico requiere TARHIATA_API_KEY cuando el servidor está expuesto en la red"}`, http.StatusForbidden)
+			return
 		}
 		next(rw, req)
 	}
@@ -130,9 +183,9 @@ func (w *WebServer) Start(port int) error {
 	mux.HandleFunc("/api/status", w.handleStatus)
 	mux.HandleFunc("/api/dashboard", w.handleStatus)
 	mux.HandleFunc("/api/services", w.handleServices)
-	mux.HandleFunc("/api/services/rollback", w.handleServiceRollback)
-	mux.HandleFunc("/api/services/restart", w.handleServiceRestart)
-	mux.HandleFunc("/api/databases/restart", w.handleServiceRestart)
+	mux.HandleFunc("/api/services/rollback", w.localAuthMiddleware(w.handleServiceRollback))
+	mux.HandleFunc("/api/services/restart", w.localAuthMiddleware(w.handleServiceRestart))
+	mux.HandleFunc("/api/databases/restart", w.localAuthMiddleware(w.handleServiceRestart))
 	mux.HandleFunc("/api/services/", w.handleServiceItem)
 	mux.HandleFunc("/api/deploy-service", w.handleServices)
 	mux.HandleFunc("/api/databases", w.handleDatabases)
@@ -144,9 +197,9 @@ func (w *WebServer) Start(port int) error {
 	mux.HandleFunc("/api/connect/all", w.handleConnectAll)
 	mux.HandleFunc("/api/servers", w.handleServers)
 	mux.HandleFunc("/api/servers/active", w.handleSetActiveServer)
-	mux.HandleFunc("/api/servers/provision", w.handleProvisionServer)
-	mux.HandleFunc("/api/servers/open-terminal", w.handleOpenTerminal)
-	mux.HandleFunc("/api/servers/terminal", w.handleTerminalExec)
+	mux.HandleFunc("/api/servers/provision", w.localAuthMiddleware(w.handleProvisionServer))
+	mux.HandleFunc("/api/servers/open-terminal", w.localAuthMiddleware(w.handleOpenTerminal))
+	mux.HandleFunc("/api/servers/terminal", w.localAuthMiddleware(w.handleTerminalExec))
 	mux.HandleFunc("/api/host/metrics", w.handleHostMetrics)
 	mux.HandleFunc("/api/host/services", w.handleHostServices)
 	mux.HandleFunc("/api/host/inspect", w.handleHostInspect)
@@ -206,9 +259,14 @@ func (w *WebServer) Start(port int) error {
 	bindHost := "127.0.0.1"
 	if os.Getenv("TARHIATA_EXPOSE") == "true" || os.Getenv("TARHIATA_HOST") == "0.0.0.0" {
 		bindHost = "0.0.0.0"
+		w.SetExposed(true)
 		fmt.Println("⚠️  [ADVERTENCIA DE SEGURIDAD] Modo de exposición a la red activo (0.0.0.0).")
 		fmt.Println("   Cualquier equipo con acceso a su red podrá acceder a este panel de administración.")
+		if w.apiKey == "" {
+			fmt.Println("   ℹ️  Recomendación: Configure TARHIATA_API_KEY para proteger endpoints de terminal y mutaciones.")
+		}
 	} else {
+		w.SetExposed(false)
 		fmt.Println("🔒 [SEGURIDAD] Servidor bloqueado para acceso local exclusivo (127.0.0.1).")
 		fmt.Println("   Para exponer el panel a la red, inicie con: tarhiata --expose o TARHIATA_EXPOSE=true")
 	}
@@ -459,6 +517,11 @@ func (w *WebServer) handleServers(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if !w.isAuthorized(req) {
+		jsonError(rw, "Operación no autorizada: API key requerida", http.StatusUnauthorized)
+		return
+	}
+
 	if req.Method == http.MethodPost {
 		body, err := io.ReadAll(req.Body)
 		if err != nil {
@@ -596,6 +659,11 @@ func (w *WebServer) handleOpenTerminal(rw http.ResponseWriter, req *http.Request
 		return
 	}
 
+	if w.isExposed && !isLoopback(req.RemoteAddr) {
+		jsonError(rw, "La terminal nativa del sistema solo puede abrirse desde la máquina anfitriona (localhost). Para acceso remoto, use SSH directo o la terminal integrada.", http.StatusForbidden)
+		return
+	}
+
 	var payload struct {
 		Name string `json:"name"`
 	}
@@ -619,18 +687,19 @@ func (w *WebServer) handleOpenTerminal(rw http.ResponseWriter, req *http.Request
 		return
 	}
 
-	var cmdStr string
+	cmdStr := osterminal.BuildSSHCommand(targetCfg.User, targetCfg.Host, targetCfg.Port, targetCfg.PrivateKey)
 	if targetCfg.IsLocal() {
 		shell := os.Getenv("SHELL")
 		if shell == "" {
 			shell = "/bin/sh"
 		}
 		cmdStr = shell
-	} else {
-		cmdStr = osterminal.BuildSSHCommand(targetCfg.User, targetCfg.Host, targetCfg.Port, targetCfg.PrivateKey)
 	}
 
 	launchErr := osterminal.OpenNativeTerminal(cmdStr)
+	if launchErr != nil {
+		slog.Warn("falló al abrir terminal nativa", "cmd", cmdStr, "error", launchErr)
+	}
 	jsonResponse(rw, map[string]interface{}{
 		"status":   "ok",
 		"name":     targetCfg.Name,
@@ -929,6 +998,10 @@ func (w *WebServer) handleServices(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 	if req.Method == http.MethodPost {
+		if !w.isAuthorized(req) {
+			jsonError(rw, "Operación no autorizada: API key requerida", http.StatusUnauthorized)
+			return
+		}
 		body, err := io.ReadAll(req.Body)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
@@ -1096,6 +1169,12 @@ func (w *WebServer) handleServiceItem(rw http.ResponseWriter, req *http.Request)
 		jsonResponse(rw, svc)
 		return
 	}
+
+	if !w.isAuthorized(req) {
+		jsonError(rw, "Operación no autorizada: API key requerida", http.StatusUnauthorized)
+		return
+	}
+
 	if req.Method == http.MethodPut || req.Method == http.MethodPost {
 		body, err := io.ReadAll(req.Body)
 		if err != nil {
@@ -1188,6 +1267,10 @@ func (w *WebServer) handleDatabases(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 	if req.Method == http.MethodPost {
+		if !w.isAuthorized(req) {
+			jsonError(rw, "Operación no autorizada: API key requerida", http.StatusUnauthorized)
+			return
+		}
 		body, err := io.ReadAll(req.Body)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
@@ -1357,6 +1440,12 @@ func (w *WebServer) handleDatabaseItem(rw http.ResponseWriter, req *http.Request
 		jsonResponse(rw, db)
 		return
 	}
+
+	if !w.isAuthorized(req) {
+		jsonError(rw, "Operación no autorizada: API key requerida", http.StatusUnauthorized)
+		return
+	}
+
 	if req.Method == http.MethodPut || req.Method == http.MethodPost {
 		body, err := io.ReadAll(req.Body)
 		if err != nil {
@@ -1377,6 +1466,10 @@ func (w *WebServer) handleDatabaseItem(rw http.ResponseWriter, req *http.Request
 		return
 	}
 	if req.Method == http.MethodDelete {
+		if !w.isAuthorized(req) {
+			jsonError(rw, "Operación no autorizada: API key requerida", http.StatusUnauthorized)
+			return
+		}
 		cfg := w.getConfig()
 		if cfg != nil && cfg.Host != "" {
 			sshExec := repositories.NewCryptoSSHExecutor()
@@ -2275,6 +2368,11 @@ func (w *WebServer) handleLinks(rw http.ResponseWriter, req *http.Request) {
 		}
 		if links == nil { links = []domain.ServiceLink{} }
 		jsonResponse(rw, links)
+		return
+	}
+
+	if !w.isAuthorized(req) {
+		jsonError(rw, "Operación no autorizada: API key requerida", http.StatusUnauthorized)
 		return
 	}
 
