@@ -268,7 +268,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (swarmNodesTableBody) {
-            swarmNodesTableBody.innerHTML = `<tr><td colspan="5" class="t-td-empty"><div class="skeleton-box" style="height:20px; width:60%; margin:auto;"></div></td></tr>`;
+            swarmNodesTableBody.innerHTML = `<tr><td colspan="6" class="t-td-empty"><div class="skeleton-box" style="height:20px; width:60%; margin:auto;"></div></td></tr>`;
         }
         if (linkPortainer) linkPortainer.href = '#';
         if (linkDozzle) linkDozzle.href = '#';
@@ -400,6 +400,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Worker Modal Elements
     const workerModal = document.getElementById('workerModal');
     const btnOpenWorkerModal = document.getElementById('btnOpenWorkerModal');
+    const btnCopyJoinToken = document.getElementById('btnCopyJoinToken');
     const btnCloseWorkerModal = document.getElementById('btnCloseWorkerModal');
     const btnCancelWorker = document.getElementById('btnCancelWorker');
     const formWorker = document.getElementById('formWorker');
@@ -787,7 +788,7 @@ document.addEventListener('DOMContentLoaded', () => {
             swarmDatabasesCardsGrid.innerHTML = '';
             swarmDatabasesEmpty.style.display = 'flex';
             if (swarmNodesTableBody) {
-                swarmNodesTableBody.innerHTML = `<tr><td colspan="5" class="t-td-empty">El Framework no está instalado o activo en este servidor. Haz clic en "Instalar Framework".</td></tr>`;
+                swarmNodesTableBody.innerHTML = `<tr><td colspan="6" class="t-td-empty">El Framework no está instalado o activo en este servidor. Haz clic en "Instalar Framework".</td></tr>`;
             }
 
             if (linkPortainer) linkPortainer.href = '#';
@@ -1159,7 +1160,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderNodesTable(nodes) {
         if (!swarmNodesTableBody) return;
         if (!nodes || nodes.length === 0) {
-            swarmNodesTableBody.innerHTML = `<tr><td colspan="5" class="t-td-empty">No se detectaron nodos adicionales.</td></tr>`;
+            swarmNodesTableBody.innerHTML = `<tr><td colspan="6" class="t-td-empty">No se detectaron nodos adicionales.</td></tr>`;
             return;
         }
 
@@ -1167,14 +1168,86 @@ document.addEventListener('DOMContentLoaded', () => {
         nodes.forEach(node => {
             const tr = document.createElement('tr');
             const isLeader = node.managerStatus && node.managerStatus.toLowerCase().includes('leader');
+            const avail = (node.availability || 'active').toLowerCase();
+            const isDrain = avail === 'drain';
+
+            let actionsHtml = '';
+            if (isLeader) {
+                actionsHtml = `<span style="color:var(--text-muted); font-size:0.75rem;">Líder de Clúster</span>`;
+            } else {
+                const availBtnHtml = isDrain
+                    ? `<button type="button" class="mini-btn btn-node-avail" data-id="${escapeHtml(node.id)}" data-avail="active" title="Activar nodo para recibir contenedores" style="color:var(--status-online);">▶️ Activar</button>`
+                    : `<button type="button" class="mini-btn btn-node-avail" data-id="${escapeHtml(node.id)}" data-avail="drain" title="Drenar nodo (desalojar tareas)" style="color:var(--accent-warning, #f59e0b);">⏸️ Drenar</button>`;
+
+                const deleteBtnHtml = `<button type="button" class="mini-btn btn-node-delete" data-id="${escapeHtml(node.id)}" data-hostname="${escapeHtml(node.hostname)}" title="Expulsar nodo del clúster" style="color:var(--status-offline);">🗑️ Expulsar</button>`;
+
+                actionsHtml = `<div style="display:flex; gap:6px; align-items:center;">${availBtnHtml}${deleteBtnHtml}</div>`;
+            }
+
             tr.innerHTML = `
                 <td style="font-weight:700; color:#fff;">${escapeHtml(node.hostname)}</td>
-                <td><span class="svc-pill svc-pill-active">${escapeHtml(node.status)}</span></td>
-                <td style="color:var(--text-muted);">${escapeHtml(node.availability)}</td>
+                <td><span class="svc-pill ${node.status && node.status.toLowerCase() === 'ready' ? 'svc-pill-active' : ''}">${escapeHtml(node.status)}</span></td>
+                <td style="color:${isDrain ? 'var(--accent-warning, #f59e0b)' : 'var(--text-muted)'};">${escapeHtml(node.availability)}</td>
                 <td><span class="t-badge ${isLeader ? 't-badge-active' : ''}">${escapeHtml(node.managerStatus || 'Worker')}</span></td>
                 <td style="color:var(--text-muted); font-family:var(--font-mono); font-size:0.75rem;">${escapeHtml(node.engineVersion || '—')}</td>
+                <td>${actionsHtml}</td>
             `;
             swarmNodesTableBody.appendChild(tr);
+        });
+
+        // Eventos para Drenar / Activar Nodos
+        document.querySelectorAll('.btn-node-avail').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const id = btn.getAttribute('data-id');
+                const targetAvail = btn.getAttribute('data-avail');
+                if (!id || !targetAvail) return;
+                btn.disabled = true;
+                try {
+                    const res = await fetch(`/api/nodes/update?server=${encodeURIComponent(selectedServerName || '')}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ id, availability: targetAvail })
+                    });
+                    if (res.ok) {
+                        showToast(`Disponibilidad de nodo actualizada a '${targetAvail}'`, 'success');
+                        if (selectedServerName) await loadSwarmStatus(selectedServerName);
+                    } else {
+                        const errText = await res.text();
+                        showToast(`Error actualizando nodo: ${errText}`, 'error');
+                    }
+                } catch (err) {
+                    showToast(`Error de red: ${err.message}`, 'error');
+                } finally {
+                    btn.disabled = false;
+                }
+            });
+        });
+
+        // Eventos para Expulsar Nodos del Clúster
+        document.querySelectorAll('.btn-node-delete').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const id = btn.getAttribute('data-id');
+                const hostname = btn.getAttribute('data-hostname') || id;
+                if (!id) return;
+                if (!confirm(`¿Estás seguro de expulsar el nodo '${hostname}' del clúster Swarm? Sus contenedores y tareas serán reubicados o desalojados.`)) return;
+                btn.disabled = true;
+                try {
+                    const res = await fetch(`/api/nodes?id=${encodeURIComponent(id)}&server=${encodeURIComponent(selectedServerName || '')}`, {
+                        method: 'DELETE'
+                    });
+                    if (res.ok) {
+                        showToast(`Nodo '${hostname}' expulsado exitosamente del clúster`, 'success');
+                        if (selectedServerName) await loadSwarmStatus(selectedServerName);
+                    } else {
+                        const errText = await res.text();
+                        showToast(`Error expulsando nodo: ${errText}`, 'error');
+                    }
+                } catch (err) {
+                    showToast(`Error de red: ${err.message}`, 'error');
+                } finally {
+                    btn.disabled = false;
+                }
+            });
         });
     }
 
@@ -2207,6 +2280,44 @@ document.addEventListener('DOMContentLoaded', () => {
             btnSubmitEditService.disabled = false;
         }
     });
+
+    // --- Swarm Join Token Action ---
+    if (btnCopyJoinToken) {
+        btnCopyJoinToken.addEventListener('click', async () => {
+            if (!selectedServerName) {
+                showToast('Selecciona primero un servidor activo.', 'info');
+                return;
+            }
+            btnCopyJoinToken.disabled = true;
+            const originalHtml = btnCopyJoinToken.innerHTML;
+            btnCopyJoinToken.innerHTML = '⏳ Obteniendo token...';
+            try {
+                const res = await fetch(`/api/nodes/join-token?role=worker&server=${encodeURIComponent(selectedServerName || '')}`);
+                if (!res.ok) {
+                    const errText = await res.text();
+                    showToast(`Error obteniendo token: ${errText}`, 'error');
+                    return;
+                }
+                const data = await res.json();
+                const cmd = data.worker_cmd || (data.worker_token ? `docker swarm join --token ${data.worker_token} ${data.host || '127.0.0.1'}:2377` : '');
+                if (!cmd) {
+                    showToast('No se encontró el comando de unión en la respuesta', 'error');
+                    return;
+                }
+                const copied = await copyToClipboard(cmd);
+                if (copied) {
+                    showToast('¡Comando "docker swarm join" copiado al portapapeles! Ejecútalo en el nuevo nodo worker.', 'success');
+                } else {
+                    prompt('Copia manualmente este comando en tu nuevo nodo worker:', cmd);
+                }
+            } catch (err) {
+                showToast(`Error de red: ${err.message}`, 'error');
+            } finally {
+                btnCopyJoinToken.disabled = false;
+                btnCopyJoinToken.innerHTML = originalHtml;
+            }
+        });
+    }
 
     // --- Modal: Cloud Worker ---
     if (btnOpenWorkerModal) {

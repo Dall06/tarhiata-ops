@@ -459,9 +459,14 @@
                         <h2 class="view-title">Nodos del Clúster Swarm</h2>
                         <p class="view-subtitle">Servidores físicos y VPSs interconectados ejecutando tareas del clúster.</p>
                     </div>
-                    <button type="button" class="action-btn action-btn-primary" id="btnOpenWorkerModal">
-                        ⚡ + Añadir Nodo Worker
-                    </button>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button type="button" class="action-btn action-btn-terminal" id="btnCopyJoinToken" title="Copiar comando docker swarm join para unir un nuevo servidor">
+                            📋 Copiar Token de Unión
+                        </button>
+                        <button type="button" class="action-btn action-btn-primary" id="btnOpenWorkerModal">
+                            ⚡ + Añadir Nodo Worker
+                        </button>
+                    </div>
                 </div>
 
                 <div class="tactical-table-wrap">
@@ -473,11 +478,12 @@
                                 <th>Disponibilidad</th>
                                 <th>Rol en Clúster</th>
                                 <th>Versión Docker</th>
+                                <th>Acciones</th>
                             </tr>
                         </thead>
                         <tbody id="swarmNodesTableBody">
                             <tr>
-                                <td colspan="5" class="t-td-empty">Consultando nodos del clúster...</td>
+                                <td colspan="6" class="t-td-empty">Consultando nodos del clúster...</td>
                             </tr>
                         </tbody>
                     </table>

@@ -1374,6 +1374,140 @@ func TestHandleDatabases_TargetServerAndStream_TableDriven(t *testing.T) {
 	}
 }
 
+func TestHandleNodes_TargetServer_TableDriven(t *testing.T) {
+	defaultCfg := &domain.ServerConfig{Name: "default-vps", Host: "10.0.0.1"}
+	vps2Cfg := &domain.ServerConfig{Name: "vps-secondary", Host: "10.0.0.2"}
+
+	repo := &targetMockRepo{
+		servers: map[string]*domain.ServerConfig{
+			"vps-secondary": vps2Cfg,
+		},
+	}
+
+	ws := NewWebServer(repo, defaultCfg)
+
+	tests := []struct {
+		name           string
+		handler        func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request)
+		method         string
+		url            string
+		body           string
+		expectedStatus int
+	}{
+		{
+			name: "handleNodes DELETE missing id returns 400",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleNodes(rr, req)
+			},
+			method:         http.MethodDelete,
+			url:            "/api/nodes",
+			body:           "",
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "handleNodes DELETE invalid id returns 400",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleNodes(rr, req)
+			},
+			method:         http.MethodDelete,
+			url:            "/api/nodes?id=invalid!id",
+			body:           "",
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "handleNodes DELETE unconfigured server returns 400",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				emptyWS := NewWebServer(repo, nil)
+				emptyWS.handleNodes(rr, req)
+			},
+			method:         http.MethodDelete,
+			url:            "/api/nodes?id=node-123&server=non-existent",
+			body:           "",
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "handleNodeJoinToken POST method not allowed returns 405",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleNodeJoinToken(rr, req)
+			},
+			method:         http.MethodPost,
+			url:            "/api/nodes/join-token",
+			body:           "",
+			expectedStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name: "handleNodeJoinToken unconfigured server returns 400",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				emptyWS := NewWebServer(repo, nil)
+				emptyWS.handleNodeJoinToken(rr, req)
+			},
+			method:         http.MethodGet,
+			url:            "/api/nodes/join-token?server=non-existent",
+			body:           "",
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "handleNodeUpdate GET method not allowed returns 405",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleNodeUpdate(rr, req)
+			},
+			method:         http.MethodGet,
+			url:            "/api/nodes/update",
+			body:           "",
+			expectedStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name: "handleNodeUpdate invalid json returns 400",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleNodeUpdate(rr, req)
+			},
+			method:         http.MethodPost,
+			url:            "/api/nodes/update",
+			body:           "{invalid json",
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "handleNodeUpdate invalid node id returns 400",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleNodeUpdate(rr, req)
+			},
+			method:         http.MethodPost,
+			url:            "/api/nodes/update",
+			body:           `{"id":"invalid!id","availability":"drain"}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "handleNodeUpdate unconfigured server returns 400",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				emptyWS := NewWebServer(repo, nil)
+				emptyWS.handleNodeUpdate(rr, req)
+			},
+			method:         http.MethodPost,
+			url:            "/api/nodes/update?server=non-existent",
+			body:           `{"id":"node-123","availability":"drain"}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var bodyReader io.Reader
+			if tt.body != "" {
+				bodyReader = strings.NewReader(tt.body)
+			}
+			req := httptest.NewRequest(tt.method, tt.url, bodyReader)
+			req.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+
+			tt.handler(ws, rr, req)
+
+			if rr.Code != tt.expectedStatus {
+				t.Errorf("expected status %d, got %d", tt.expectedStatus, rr.Code)
+			}
+		})
+	}
+}
+
 
 
 

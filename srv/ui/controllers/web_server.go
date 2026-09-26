@@ -2583,12 +2583,14 @@ func (w *WebServer) handleNodes(rw http.ResponseWriter, req *http.Request) {
 			jsonError(rw, "Parámetro 'id' inválido o no proporcionado", http.StatusBadRequest)
 			return
 		}
-		if w.config == nil || w.config.Host == "" {
+		serverTarget := req.URL.Query().Get("server")
+		targetCfg := w.resolveTargetServer(serverTarget)
+		if targetCfg == nil || (targetCfg.Host == "" && !targetCfg.IsLocal()) {
 			jsonError(rw, "VPS no configurado", http.StatusBadRequest)
 			return
 		}
 		sshExec := repositories.NewCryptoSSHExecutor()
-		if err := sshExec.Connect(*w.config); err != nil {
+		if err := sshExec.Connect(*targetCfg); err != nil {
 			jsonError(rw, fmt.Sprintf("Error SSH: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -2732,30 +2734,45 @@ func (w *WebServer) handleNodeJoinToken(rw http.ResponseWriter, req *http.Reques
 		jsonError(rw, "Método no permitido", http.StatusMethodNotAllowed)
 		return
 	}
-	if w.config == nil || w.config.Host == "" {
+	serverTarget := req.URL.Query().Get("server")
+	targetCfg := w.resolveTargetServer(serverTarget)
+	if targetCfg == nil || (targetCfg.Host == "" && !targetCfg.IsLocal()) {
 		jsonError(rw, "VPS no configurado", http.StatusBadRequest)
 		return
 	}
 	sshExec := repositories.NewCryptoSSHExecutor()
-	if err := sshExec.Connect(*w.config); err != nil {
+	if err := sshExec.Connect(*targetCfg); err != nil {
 		jsonError(rw, fmt.Sprintf("Error SSH: %v", err), http.StatusInternalServerError)
 		return
 	}
-	defer sshExec.Close()
+	defer func() {
+		if clErr := sshExec.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando sshExec en node join-token", "error", clErr)
+		}
+	}()
 
 	resWorker, errW := sshExec.RunCommand("docker swarm join-token worker -q")
+	if errW != nil {
+		slog.Warn("web_server: error obteniendo worker join-token", "error", errW)
+	}
 	resMgr, errM := sshExec.RunCommand("docker swarm join-token manager -q")
+	if errM != nil {
+		slog.Warn("web_server: error obteniendo manager join-token", "error", errM)
+	}
 
 	workerToken := ""
-	if errW == nil {
+	if resWorker != nil {
 		workerToken = strings.TrimSpace(resWorker.Output)
 	}
 	mgrToken := ""
-	if errM == nil {
+	if resMgr != nil {
 		mgrToken = strings.TrimSpace(resMgr.Output)
 	}
 
-	host := w.config.Host
+	host := targetCfg.Host
+	if targetCfg.IsLocal() {
+		host = "127.0.0.1"
+	}
 	workerCmd := fmt.Sprintf("docker swarm join --token %s %s:2377", workerToken, host)
 	mgrCmd := fmt.Sprintf("docker swarm join --token %s %s:2377", mgrToken, host)
 
@@ -2782,16 +2799,22 @@ func (w *WebServer) handleNodeUpdate(rw http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	if w.config == nil || w.config.Host == "" {
+	serverTarget := req.URL.Query().Get("server")
+	targetCfg := w.resolveTargetServer(serverTarget)
+	if targetCfg == nil || (targetCfg.Host == "" && !targetCfg.IsLocal()) {
 		jsonError(rw, "VPS no configurado", http.StatusBadRequest)
 		return
 	}
 	sshExec := repositories.NewCryptoSSHExecutor()
-	if err := sshExec.Connect(*w.config); err != nil {
+	if err := sshExec.Connect(*targetCfg); err != nil {
 		jsonError(rw, fmt.Sprintf("Error SSH: %v", err), http.StatusInternalServerError)
 		return
 	}
-	defer sshExec.Close()
+	defer func() {
+		if clErr := sshExec.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando sshExec en node update", "error", clErr)
+		}
+	}()
 
 	if input.Availability != "" {
 		avail := strings.ToLower(input.Availability)
