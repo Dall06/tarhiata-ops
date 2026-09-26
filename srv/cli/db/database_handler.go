@@ -219,27 +219,35 @@ func (h *databaseHandler) runManageDatabaseMenu(dbName string, config domain.Ser
 
 		if db.DeployType == "multi-node" {
 			var typedName string
-			huh.NewForm(
+			if errForm := huh.NewForm(
 				huh.NewGroup(
 					huh.NewInput().
 						Title("⚠️ PELIGRO: Esto DESTRUIRÁ el servidor dedicado y borrará TODOS los datos irreversiblemente. Si necesitas un respaldo (dump), cancélalo ahora.\nEscribe el nombre de la BD para confirmar:").
 						Value(&typedName),
 				),
-			).Run()
+			).Run(); errForm != nil {
+				slog.Error("error en formulario de confirmación multi-node", "error", errForm)
+				return
+			}
 			if typedName != db.Name {
 				fmt.Println("❌ Nombre incorrecto. Operación abortada.")
 				return
 			}
 			confirm = true
-		} else {
+		}
+		if db.DeployType != "multi-node" {
 			msg := "⚠️ ¿Seguro que quieres apagar y eliminar la BD? (Los datos en el servidor principal persistirán temporalmente)"
-			huh.NewForm(huh.NewGroup(huh.NewConfirm().Title(msg).Value(&confirm))).Run()
+			if errForm := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title(msg).Value(&confirm))).Run(); errForm != nil {
+				slog.Error("error en formulario de confirmación", "error", errForm)
+			}
 		}
 
 		if confirm {
 			var deleteVolume bool
 			if db.DeployType == "single-node" {
-				huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("🗑️ ¿Deseas eliminar permanentemente la carpeta de datos físicos (volumen)?").Value(&deleteVolume))).Run()
+				if errVol := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("🗑️ ¿Deseas eliminar permanentemente la carpeta de datos físicos (volumen)?").Value(&deleteVolume))).Run(); errVol != nil {
+					slog.Error("error en formulario de eliminación de volumen", "error", errVol)
+				}
 			}
 
 			if db.DeployType != "external" {

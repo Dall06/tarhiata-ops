@@ -99,7 +99,10 @@ func TestWebServer_HandleCustomDomainsPayload(t *testing.T) {
 		"certType":       "custom",
 		"forceHTTPS":     true,
 	}
-	body, _ := json.Marshal(payload)
+	body, errMarshal := json.Marshal(payload)
+	if errMarshal != nil {
+		t.Fatalf("falló json.Marshal: %v", errMarshal)
+	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/domains", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
@@ -1660,6 +1663,54 @@ func TestWebServer_SecurityAndAuth_TableDriven(t *testing.T) {
 
 			if rr.Code != tt.expectedStatus {
 				t.Errorf("expected status %d, got %d", tt.expectedStatus, rr.Code)
+			}
+		})
+	}
+}
+
+func TestWebServer_EchoEngineIntegration(t *testing.T) {
+	repo := &mockRepo{}
+	cfg := &domain.ServerConfig{Host: "127.0.0.1", User: "root"}
+	ws := NewWebServer(repo, cfg)
+
+	tests := []struct {
+		name           string
+		method         string
+		url            string
+		expectedStatus int
+	}{
+		{
+			name:           "Echo router dispatches status endpoint correctly",
+			method:         http.MethodGet,
+			url:            "/api/status",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "Echo router applies security headers",
+			method:         http.MethodGet,
+			url:            "/api/status",
+			expectedStatus: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.url, nil)
+			rr := httptest.NewRecorder()
+
+			// Test ServeHTTP delegation to Echo engine
+			ws.ServeHTTP(rr, req)
+
+			if rr.Code != tc.expectedStatus {
+				t.Fatalf("expected status %d, got %d", tc.expectedStatus, rr.Code)
+			}
+
+			// Validate Echo security headers middleware
+			if rr.Header().Get("X-Content-Type-Options") != "nosniff" {
+				t.Errorf("expected X-Content-Type-Options: nosniff, got: %s", rr.Header().Get("X-Content-Type-Options"))
+			}
+			if rr.Header().Get("X-Frame-Options") != "DENY" {
+				t.Errorf("expected X-Frame-Options: DENY, got: %s", rr.Header().Get("X-Frame-Options"))
 			}
 		})
 	}

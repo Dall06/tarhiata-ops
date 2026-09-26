@@ -23,16 +23,23 @@ func TestRenderDashboard_NilConfig(t *testing.T) {
 	handler := NewDashboardHandler(mockRepo)
 
 	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, errPipe := os.Pipe()
+	if errPipe != nil {
+		t.Fatalf("failed to create pipe: %v", errPipe)
+	}
 	os.Stdout = w
 
 	handler.RenderDashboard(nil)
 
-	w.Close()
+	if errClose := w.Close(); errClose != nil {
+		t.Fatalf("failed to close pipe writer: %v", errClose)
+	}
 	os.Stdout = oldStdout
 
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	if _, errCopy := io.Copy(&buf, r); errCopy != nil {
+		t.Fatalf("failed to copy buffer: %v", errCopy)
+	}
 	output := buf.String()
 
 	if output == "" {
@@ -58,16 +65,23 @@ func TestRenderDashboard_WithConfig(t *testing.T) {
 	}
 
 	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, errPipe := os.Pipe()
+	if errPipe != nil {
+		t.Fatalf("failed to create pipe: %v", errPipe)
+	}
 	os.Stdout = w
 
 	handler.RenderDashboard(config)
 
-	w.Close()
+	if errClose := w.Close(); errClose != nil {
+		t.Fatalf("failed to close pipe writer: %v", errClose)
+	}
 	os.Stdout = oldStdout
 
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	if _, errCopy := io.Copy(&buf, r); errCopy != nil {
+		t.Fatalf("failed to copy buffer: %v", errCopy)
+	}
 	output := buf.String()
 
 	if output == "" {

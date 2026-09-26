@@ -14,16 +14,23 @@ import (
 
 func captureOutput(fn func()) string {
 	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, errPipe := os.Pipe()
+	if errPipe != nil {
+		return ""
+	}
 	os.Stdout = w
 
 	fn()
 
-	w.Close()
+	if errClose := w.Close(); errClose != nil {
+		return ""
+	}
 	os.Stdout = oldStdout
 
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	if _, errCopy := io.Copy(&buf, r); errCopy != nil {
+		return ""
+	}
 	return buf.String()
 }
 
@@ -97,7 +104,10 @@ func TestHandleDeployServiceCommand_LocalSave(t *testing.T) {
 		t.Errorf("expected local catalog saved message, got: %s", out)
 	}
 
-	svcs, _ := repo.GetServices()
+	svcs, errSvcs := repo.GetServices()
+	if errSvcs != nil {
+		t.Fatalf("unexpected error getting services: %v", errSvcs)
+	}
 	if len(svcs) != 1 || svcs[0].Name != "my-app" {
 		t.Errorf("expected service 'my-app' in DB, got: %v", svcs)
 	}
@@ -114,7 +124,10 @@ func TestHandleDatabaseCommand_LocalSave(t *testing.T) {
 		t.Errorf("expected local catalog saved message, got: %s", out)
 	}
 
-	dbs, _ := repo.GetDatabases()
+	dbs, errDbs := repo.GetDatabases()
+	if errDbs != nil {
+		t.Fatalf("unexpected error getting databases: %v", errDbs)
+	}
 	if len(dbs) != 1 || dbs[0].Name != "my-db" {
 		t.Errorf("expected database 'my-db' in DB, got: %v", dbs)
 	}

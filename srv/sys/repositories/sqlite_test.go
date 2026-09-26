@@ -75,7 +75,10 @@ func TestSQLiteServiceCatalog(t *testing.T) {
 			t.Fatalf("Error eliminando servicio: %v", err)
 		}
 
-		saved, _ := repo.GetService("api")
+		saved, errGet := repo.GetService("api")
+		if errGet != nil {
+			t.Fatalf("Error consultando servicio eliminado: %v", errGet)
+		}
 		if saved != nil {
 			t.Errorf("El servicio api no se eliminó correctamente")
 		}
@@ -141,7 +144,10 @@ func TestSQLiteDatabaseCatalog(t *testing.T) {
 			t.Fatalf("Error eliminando BD: %v", err)
 		}
 
-		saved, _ := repo.GetDatabase("mi-postgres-ext")
+		saved, errGet := repo.GetDatabase("mi-postgres-ext")
+		if errGet != nil {
+			t.Fatalf("Error consultando BD eliminada: %v", errGet)
+		}
 		if saved != nil {
 			t.Errorf("La BD no se eliminó correctamente")
 		}

@@ -136,7 +136,10 @@ func TestManagePreviewEnv_CreateAndListAndDestroy(t *testing.T) {
 		t.Fatalf("Error destruyendo entorno preview: %v", err)
 	}
 
-	listAfter, _ := uc.List()
+	listAfter, errListAfter := uc.List()
+	if errListAfter != nil {
+		t.Fatalf("Error listando entornos preview tras destrucción: %v", errListAfter)
+	}
 	if len(listAfter) != 0 {
 		t.Errorf("Se esperaba lista vacía tras destrucción, obtenida: %d", len(listAfter))
 	}

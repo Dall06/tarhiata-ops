@@ -27,6 +27,8 @@ import (
 	"github.com/Dall06/tarhiata-ops/pkg/osterminal"
 	"github.com/Dall06/tarhiata-ops/srv/ui/dto"
 	"github.com/Dall06/tarhiata-ops/srv/ui/views/public"
+	"github.com/labstack/echo/v4"
+	echomw "github.com/labstack/echo/v4/middleware"
 )
 
 type cacheItem struct {
@@ -42,6 +44,7 @@ type WebServer struct {
 	isExposed bool   // Indica si el servidor escucha en 0.0.0.0
 	cacheMu   sync.RWMutex
 	cache     map[string]cacheItem
+	echo      *echo.Echo
 }
 
 func (w *WebServer) getConfig() *domain.ServerConfig {
@@ -190,98 +193,152 @@ func (w *WebServer) localAuthMiddleware(next http.HandlerFunc) http.HandlerFunc 
 	}
 }
 
-func (w *WebServer) Start(port int) error {
-	mux := http.NewServeMux()
+// Echo inicializa y retorna el motor de enrutamiento y middlewares de Echo v4.
+func (w *WebServer) Echo() *echo.Echo {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.echo != nil {
+		return w.echo
+	}
 
+	e := echo.New()
+	e.HideBanner = true
+	e.HidePort = true
+
+	// Middlewares globales de Echo
+	e.Use(echomw.Recover())
+	e.Use(echomw.CORSWithConfig(echomw.CORSConfig{
+		AllowOrigins: []string{"*"},
+		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions},
+		AllowHeaders: []string{"*"},
+	}))
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			res := c.Response()
+			res.Header().Set("X-Content-Type-Options", "nosniff")
+			res.Header().Set("X-Frame-Options", "DENY")
+			res.Header().Set("X-XSS-Protection", "1; mode=block")
+			res.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+			return next(c)
+		}
+	})
+
+	echoAuth := func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			if !w.isAuthorized(c.Request()) {
+				w.mu.RLock()
+				hasKey := w.apiKey != ""
+				w.mu.RUnlock()
+
+				if hasKey {
+					return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Unauthorized: API key requerida o inválida"})
+				}
+				return c.JSON(http.StatusForbidden, map[string]string{"error": "Forbidden: Este endpoint crítico requiere TARHIATA_API_KEY cuando el servidor está expuesto en la red"})
+			}
+			return next(c)
+		}
+	}
+
+	// Archivos estáticos y Single Page Application
 	var rootFS http.FileSystem = http.FS(public.FS)
 	if fi, err := os.Stat("srv/ui/views/public/index.html"); err == nil && !fi.IsDir() {
 		rootFS = http.Dir("srv/ui/views/public")
 	}
 	fileServer := http.FileServer(rootFS)
-	mux.HandleFunc("/", func(rw http.ResponseWriter, req *http.Request) {
-		rw.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		rw.Header().Set("Pragma", "no-cache")
-		rw.Header().Set("Expires", "0")
-		fileServer.ServeHTTP(rw, req)
+	e.GET("/*", func(c echo.Context) error {
+		c.Response().Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		c.Response().Header().Set("Pragma", "no-cache")
+		c.Response().Header().Set("Expires", "0")
+		fileServer.ServeHTTP(c.Response(), c.Request())
+		return nil
 	})
 
-	// Full REST API Controllers for ALL Use Cases
-	mux.HandleFunc("/api/status", w.handleStatus)
-	mux.HandleFunc("/api/dashboard", w.handleStatus)
-	mux.HandleFunc("/api/services", w.handleServices)
-	mux.HandleFunc("/api/services/rollback", w.localAuthMiddleware(w.handleServiceRollback))
-	mux.HandleFunc("/api/services/restart", w.localAuthMiddleware(w.handleServiceRestart))
-	mux.HandleFunc("/api/databases/restart", w.localAuthMiddleware(w.handleServiceRestart))
-	mux.HandleFunc("/api/services/", w.localAuthMiddleware(w.handleServiceItem))
-	mux.HandleFunc("/api/deploy-service", w.localAuthMiddleware(w.handleServices))
-	mux.HandleFunc("/api/databases", w.localAuthMiddleware(w.handleDatabases))
-	mux.HandleFunc("/api/databases/", w.localAuthMiddleware(w.handleDatabaseItem))
-	mux.HandleFunc("/api/deploy-db", w.localAuthMiddleware(w.handleDatabases))
-	mux.HandleFunc("/api/config", w.localAuthMiddleware(w.handleConfig))
-	mux.HandleFunc("/api/config/test", w.handleConnect)
-	mux.HandleFunc("/api/connect", w.handleConnect)
-	mux.HandleFunc("/api/connect/all", w.handleConnectAll)
-	mux.HandleFunc("/api/servers", w.handleServers)
-	mux.HandleFunc("/api/servers/active", w.handleSetActiveServer)
-	mux.HandleFunc("/api/servers/provision", w.localAuthMiddleware(w.handleProvisionServer))
-	mux.HandleFunc("/api/servers/open-terminal", w.localAuthMiddleware(w.handleOpenTerminal))
-	mux.HandleFunc("/api/servers/terminal", w.localAuthMiddleware(w.handleTerminalExec))
-	mux.HandleFunc("/api/host/metrics", w.handleHostMetrics)
-	mux.HandleFunc("/api/host/services", w.handleHostServices)
-	mux.HandleFunc("/api/host/inspect", w.handleHostInspect)
-	mux.HandleFunc("/api/swarm/status", w.handleSwarmStatus)
-	mux.HandleFunc("/api/bootstrap", w.localAuthMiddleware(w.handleBootstrap))
-	mux.HandleFunc("/api/create-vm-bootstrap", w.localAuthMiddleware(w.handleCreateVMBootstrap))
-	mux.HandleFunc("/api/workers", w.localAuthMiddleware(w.handleWorkerProvision))
-	mux.HandleFunc("/api/provision-worker", w.localAuthMiddleware(w.handleWorkerProvision))
-	mux.HandleFunc("/api/observability", w.handleObservability)
+	// API REST Controllers vía Echo
+	e.Any("/api/status", echo.WrapHandler(http.HandlerFunc(w.handleStatus)))
+	e.Any("/api/dashboard", echo.WrapHandler(http.HandlerFunc(w.handleStatus)))
+	e.Any("/api/services", echo.WrapHandler(http.HandlerFunc(w.handleServices)))
+	e.Any("/api/services/rollback", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServiceRollback))))
+	e.Any("/api/services/restart", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServiceRestart))))
+	e.Any("/api/databases/restart", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServiceRestart))))
+	e.Any("/api/services/*", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServiceItem))))
+	e.Any("/api/deploy-service", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServices))))
+	e.Any("/api/databases", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleDatabases))))
+	e.Any("/api/databases/*", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleDatabaseItem))))
+	e.Any("/api/deploy-db", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleDatabases))))
+	e.Any("/api/config", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleConfig))))
+	e.Any("/api/config/test", echo.WrapHandler(http.HandlerFunc(w.handleConnect)))
+	e.Any("/api/connect", echo.WrapHandler(http.HandlerFunc(w.handleConnect)))
+	e.Any("/api/connect/all", echo.WrapHandler(http.HandlerFunc(w.handleConnectAll)))
+	e.Any("/api/servers", echo.WrapHandler(http.HandlerFunc(w.handleServers)))
+	e.Any("/api/servers/active", echo.WrapHandler(http.HandlerFunc(w.handleSetActiveServer)))
+	e.Any("/api/servers/provision", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleProvisionServer))))
+	e.Any("/api/servers/open-terminal", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleOpenTerminal))))
+	e.Any("/api/servers/terminal", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleTerminalExec))))
+	e.Any("/api/host/metrics", echo.WrapHandler(http.HandlerFunc(w.handleHostMetrics)))
+	e.Any("/api/host/services", echo.WrapHandler(http.HandlerFunc(w.handleHostServices)))
+	e.Any("/api/host/inspect", echo.WrapHandler(http.HandlerFunc(w.handleHostInspect)))
+	e.Any("/api/swarm/status", echo.WrapHandler(http.HandlerFunc(w.handleSwarmStatus)))
+	e.Any("/api/bootstrap", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleBootstrap))))
+	e.Any("/api/create-vm-bootstrap", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleCreateVMBootstrap))))
+	e.Any("/api/workers", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleWorkerProvision))))
+	e.Any("/api/provision-worker", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleWorkerProvision))))
+	e.Any("/api/observability", echo.WrapHandler(http.HandlerFunc(w.handleObservability)))
+	e.Any("/api/update", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServerUpdate))))
+	e.Any("/api/bootstrap-master", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleBootstrapMaster))))
+	e.Any("/api/previews", echo.WrapHandler(http.HandlerFunc(w.handlePreviewEnvs)))
+	e.Any("/api/registries", echo.WrapHandler(http.HandlerFunc(w.handleRegistries)))
+	e.Any("/api/migrations", echo.WrapHandler(http.HandlerFunc(w.handleMigrations)))
+	e.Any("/api/migrations/file", echo.WrapHandler(http.HandlerFunc(w.handleMigrationFile)))
+	e.Any("/api/migrations/run", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleRunMigrations))))
+	e.Any("/api/observability/metrics", echo.WrapHandler(http.HandlerFunc(w.handleObservabilityMetrics)))
+	e.Any("/api/backups", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleBackups))))
+	e.Any("/api/databases/backup", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleBackups))))
+	e.Any("/api/backups/restore", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleRestoreBackup))))
+	e.Any("/api/backups/download", echo.WrapHandler(http.HandlerFunc(w.handleDownloadBackup)))
+	e.Any("/api/env", echo.WrapHandler(http.HandlerFunc(w.handleEnvVars)))
+	e.Any("/api/env/export", echo.WrapHandler(http.HandlerFunc(w.handleExportEnvVars)))
+	e.Any("/api/volumes", echo.WrapHandler(http.HandlerFunc(w.handleVolumes)))
+	e.Any("/api/volumes/files", echo.WrapHandler(http.HandlerFunc(w.handleVolumeFiles)))
+	e.Any("/api/volumes/read", echo.WrapHandler(http.HandlerFunc(w.handleVolumeRead)))
+	e.Any("/api/volumes/write", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleVolumeWrite))))
+	e.Any("/api/volumes/download", echo.WrapHandler(http.HandlerFunc(w.handleVolumeDownload)))
+	e.Any("/api/volumes/upload", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleVolumeUpload))))
+	e.Any("/api/volumes/delete", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleVolumeDelete))))
+	e.Any("/api/volumes/mkdir", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleVolumeMkdir))))
+	e.Any("/api/ssl/inspect", echo.WrapHandler(http.HandlerFunc(w.handleSSLInspect)))
+	e.Any("/api/ssl/reload", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleSSLReload))))
+	e.Any("/api/maintenance/toggle", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleMaintenanceToggle))))
+	e.Any("/api/domains", echo.WrapHandler(http.HandlerFunc(w.handleCustomDomains)))
+	e.Any("/api/dns/check", echo.WrapHandler(http.HandlerFunc(w.handleDNSCheck)))
+	e.Any("/api/prune", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handlePrune))))
+	e.Any("/api/tools/prune", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handlePrune))))
+	e.Any("/api/tools/restart-traefik", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleRestartTraefik))))
+	e.Any("/api/topology", echo.WrapHandler(http.HandlerFunc(w.handleTopology)))
+	e.Any("/api/links", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleLinks))))
+	e.Any("/api/nodes", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleNodes))))
+	e.Any("/api/nodes/join-token", echo.WrapHandler(http.HandlerFunc(w.handleNodeJoinToken)))
+	e.Any("/api/nodes/update", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleNodeUpdate))))
+	e.Any("/api/nodes/labels", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleNodeLabels))))
+	e.Any("/api/terminal/exec", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleTerminalExec))))
+	e.Any("/api/logs", echo.WrapHandler(http.HandlerFunc(w.handleLogs)))
+	e.Any("/api/audit-logs", echo.WrapHandler(http.HandlerFunc(w.handleAuditLogs)))
+	e.Any("/api/stats", echo.WrapHandler(http.HandlerFunc(w.handleContainerStats)))
+	e.Any("/api/databases/health", echo.WrapHandler(http.HandlerFunc(w.handleDBHealth)))
+	e.Any("/api/vultr/plans", echo.WrapHandler(http.HandlerFunc(w.handleVultrPlans)))
+	e.Any("/api/vultr/regions", echo.WrapHandler(http.HandlerFunc(w.handleVultrRegions)))
+	e.Any("/api/sync", echo.WrapHandler(http.HandlerFunc(w.handleSyncState)))
+	e.Any("/api/ssh-keys", echo.WrapHandler(http.HandlerFunc(w.handleSSHKeys)))
 
-	mux.HandleFunc("/api/update", w.localAuthMiddleware(w.handleServerUpdate))
-	mux.HandleFunc("/api/bootstrap-master", w.localAuthMiddleware(w.handleBootstrapMaster))
-	mux.HandleFunc("/api/previews", w.handlePreviewEnvs)
-	mux.HandleFunc("/api/registries", w.handleRegistries)
-	mux.HandleFunc("/api/migrations", w.handleMigrations)
-	mux.HandleFunc("/api/migrations/file", w.handleMigrationFile)
-	mux.HandleFunc("/api/migrations/run", w.localAuthMiddleware(w.handleRunMigrations))
-	mux.HandleFunc("/api/observability/metrics", w.handleObservabilityMetrics)
-	mux.HandleFunc("/api/backups", w.localAuthMiddleware(w.handleBackups))
-	mux.HandleFunc("/api/databases/backup", w.localAuthMiddleware(w.handleBackups))
-	mux.HandleFunc("/api/backups/restore", w.localAuthMiddleware(w.handleRestoreBackup))
-	mux.HandleFunc("/api/backups/download", w.handleDownloadBackup)
-	mux.HandleFunc("/api/env", w.handleEnvVars)
-	mux.HandleFunc("/api/env/export", w.handleExportEnvVars)
-	mux.HandleFunc("/api/volumes", w.handleVolumes)
-	mux.HandleFunc("/api/volumes/files", w.handleVolumeFiles)
-	mux.HandleFunc("/api/volumes/read", w.handleVolumeRead)
-	mux.HandleFunc("/api/volumes/write", w.localAuthMiddleware(w.handleVolumeWrite))
-	mux.HandleFunc("/api/volumes/download", w.handleVolumeDownload)
-	mux.HandleFunc("/api/volumes/upload", w.localAuthMiddleware(w.handleVolumeUpload))
-	mux.HandleFunc("/api/volumes/delete", w.localAuthMiddleware(w.handleVolumeDelete))
-	mux.HandleFunc("/api/volumes/mkdir", w.localAuthMiddleware(w.handleVolumeMkdir))
-	mux.HandleFunc("/api/ssl/inspect", w.handleSSLInspect)
-	mux.HandleFunc("/api/ssl/reload", w.localAuthMiddleware(w.handleSSLReload))
-	mux.HandleFunc("/api/maintenance/toggle", w.localAuthMiddleware(w.handleMaintenanceToggle))
-	mux.HandleFunc("/api/domains", w.handleCustomDomains)
-	mux.HandleFunc("/api/dns/check", w.handleDNSCheck)
-	mux.HandleFunc("/api/prune", w.localAuthMiddleware(w.handlePrune))
-	mux.HandleFunc("/api/tools/prune", w.localAuthMiddleware(w.handlePrune))
-	mux.HandleFunc("/api/tools/restart-traefik", w.localAuthMiddleware(w.handleRestartTraefik))
-	mux.HandleFunc("/api/topology", w.handleTopology)
-	mux.HandleFunc("/api/links", w.localAuthMiddleware(w.handleLinks))
-	mux.HandleFunc("/api/nodes", w.localAuthMiddleware(w.handleNodes))
-	mux.HandleFunc("/api/nodes/join-token", w.handleNodeJoinToken)
-	mux.HandleFunc("/api/nodes/update", w.localAuthMiddleware(w.handleNodeUpdate))
-	mux.HandleFunc("/api/nodes/labels", w.localAuthMiddleware(w.handleNodeLabels))
-	mux.HandleFunc("/api/terminal/exec", w.localAuthMiddleware(w.handleTerminalExec))
-	mux.HandleFunc("/api/logs", w.handleLogs)
-	mux.HandleFunc("/api/audit-logs", w.handleAuditLogs)
-	mux.HandleFunc("/api/stats", w.handleContainerStats)
-	mux.HandleFunc("/api/databases/health", w.handleDBHealth)
-	mux.HandleFunc("/api/vultr/plans", w.handleVultrPlans)
-	mux.HandleFunc("/api/vultr/regions", w.handleVultrRegions)
-	mux.HandleFunc("/api/sync", w.handleSyncState)
-	mux.HandleFunc("/api/ssh-keys", w.handleSSHKeys)
+	w.echo = e
+	return e
+}
 
+// ServeHTTP implementa http.Handler enlazándolo directamente al enrutador de Echo.
+func (w *WebServer) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	w.Echo().ServeHTTP(rw, req)
+}
+
+func (w *WebServer) Start(port int) error {
 	bindHost := "127.0.0.1"
 	if os.Getenv("TARHIATA_EXPOSE") == "true" || os.Getenv("TARHIATA_HOST") == "0.0.0.0" {
 		bindHost = "0.0.0.0"
@@ -291,7 +348,8 @@ func (w *WebServer) Start(port int) error {
 		if w.apiKey == "" {
 			fmt.Println("   ℹ️  Recomendación: Configure TARHIATA_API_KEY para proteger endpoints de terminal y mutaciones.")
 		}
-	} else {
+	}
+	if bindHost == "127.0.0.1" {
 		w.SetExposed(false)
 		fmt.Println("🔒 [SEGURIDAD] Servidor bloqueado para acceso local exclusivo (127.0.0.1).")
 		fmt.Println("   Para exponer el panel a la red, inicie con: tarhiata --expose o TARHIATA_EXPOSE=true")
@@ -301,15 +359,7 @@ func (w *WebServer) Start(port int) error {
 	banner.PrintServerBanner(port)
 	go openBrowser(url)
 
-	handler := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		rw.Header().Set("X-Content-Type-Options", "nosniff")
-		rw.Header().Set("X-Frame-Options", "DENY")
-		rw.Header().Set("X-XSS-Protection", "1; mode=block")
-		rw.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		mux.ServeHTTP(rw, req)
-	})
-
-	return http.ListenAndServe(fmt.Sprintf("%s:%d", bindHost, port), handler)
+	return w.Echo().Start(fmt.Sprintf("%s:%d", bindHost, port))
 }
 
 func isDockerServiceMatch(targetName string, liveMap map[string]bool) bool {
@@ -2878,7 +2928,8 @@ func (w *WebServer) handleNodeUpdate(rw http.ResponseWriter, req *http.Request) 
 			jsonError(rw, fmt.Sprintf("Error al promover nodo a manager: %s", out), http.StatusInternalServerError)
 			return
 		}
-	} else if input.Role == "worker" {
+	}
+	if input.Role == "worker" {
 		res, err := sshExec.RunCommand(fmt.Sprintf("docker node demote %s", input.ID))
 		if err != nil || res == nil || res.ExitCode != 0 {
 			out := ""
@@ -2924,11 +2975,13 @@ func (w *WebServer) handleNodeLabels(rw http.ResponseWriter, req *http.Request) 
 			jsonError(rw, err.Error(), http.StatusInternalServerError)
 			return
 		}
-	} else {
-		if err := uc.AddNodeLabel(input.NodeID, input.Key, input.Value, cfg); err != nil {
-			jsonError(rw, err.Error(), http.StatusInternalServerError)
-			return
-		}
+		jsonResponse(rw, map[string]string{"status": "success"})
+		return
+	}
+
+	if err := uc.AddNodeLabel(input.NodeID, input.Key, input.Value, cfg); err != nil {
+		jsonError(rw, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	jsonResponse(rw, map[string]string{"status": "success"})
 }

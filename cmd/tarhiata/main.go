@@ -514,9 +514,10 @@ func handleConnectCommand(repo *repositories.SQLiteRepository, config *domain.Se
 func handleSSHCommand(repo *repositories.SQLiteRepository, config *domain.ServerConfig, args []string) {
 	var targetCfg *domain.ServerConfig
 	var err error
+	targetName := ""
 
 	if len(args) > 0 && strings.TrimSpace(args[0]) != "" {
-		targetName := strings.TrimSpace(args[0])
+		targetName = strings.TrimSpace(args[0])
 		if repo != nil {
 			targetCfg, err = repo.GetServerConfigByName(targetName)
 		}
@@ -528,7 +529,8 @@ func handleSSHCommand(repo *repositories.SQLiteRepository, config *domain.Server
 			fmt.Println("👉 Consulta las conexiones disponibles con: tarhiata connect list")
 			return
 		}
-	} else {
+	}
+	if targetName == "" {
 		if repo != nil {
 			targetCfg, err = repo.GetServerConfig()
 		}
@@ -1959,9 +1961,9 @@ func handleMaintenanceCommand(repo *repositories.SQLiteRepository, config *domai
 	}
 	if enable {
 		fmt.Printf("🚧 Modo Mantenimiento (503 Drain) ACTIVADO para '%s'.\n", *svcName)
-	} else {
-		fmt.Printf("✅ Modo Mantenimiento DESACTIVADO para '%s'. Tráfico restaurado.\n", *svcName)
+		return
 	}
+	fmt.Printf("✅ Modo Mantenimiento DESACTIVADO para '%s'. Tráfico restaurado.\n", *svcName)
 }
 
 func handleDomainCommand(repo *repositories.SQLiteRepository, config *domain.ServerConfig, args []string) {

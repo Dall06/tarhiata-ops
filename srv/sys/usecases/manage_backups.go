@@ -230,20 +230,21 @@ func (uc *ManageBackupsUseCase) RestoreSnapshot(backupID int, config domain.Serv
 			}
 			return fmt.Errorf("falló la restauración de BD: %s", out)
 		}
-	} else {
-		// Volume restore
-		restoreCmd := fmt.Sprintf("tar -xzf %s -C /opt/data/", backup.FilePath)
-		res, err := uc.ssh.RunCommand(restoreCmd)
-		if err != nil || res == nil || res.ExitCode != 0 {
-			out := ""
-			if res != nil {
-				out = res.Output
-			}
-			if out == "" && err != nil {
-				out = err.Error()
-			}
-			return fmt.Errorf("falló la restauración del volumen: %s", out)
+		return nil
+	}
+
+	// Volume restore
+	restoreCmd := fmt.Sprintf("tar -xzf %s -C /opt/data/", backup.FilePath)
+	res, err := uc.ssh.RunCommand(restoreCmd)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		out := ""
+		if res != nil {
+			out = res.Output
 		}
+		if out == "" && err != nil {
+			out = err.Error()
+		}
+		return fmt.Errorf("falló la restauración del volumen: %s", out)
 	}
 
 	return nil
