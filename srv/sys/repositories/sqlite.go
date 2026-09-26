@@ -10,9 +10,34 @@ import (
 	"time"
 
 	"github.com/Dall06/tarhiata-ops/pkg/auditlog"
+	"github.com/Dall06/tarhiata-ops/pkg/secutil"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	_ "modernc.org/sqlite"
 )
+
+func encryptSecret(val string) string {
+	if val == "" {
+		return ""
+	}
+	enc, err := secutil.Encrypt(val)
+	if err != nil {
+		slog.Warn("error cifrando secreto en sqlite", "error", err)
+		return val
+	}
+	return enc
+}
+
+func decryptSecret(val string) string {
+	if val == "" {
+		return ""
+	}
+	dec, err := secutil.Decrypt(val)
+	if err != nil {
+		slog.Warn("error descifrando secreto en sqlite", "error", err)
+		return val
+	}
+	return dec
+}
 
 // SQLiteRepository implementa ConfigRepository usando SQLite local
 type SQLiteRepository struct {
@@ -323,7 +348,11 @@ func (r *SQLiteRepository) SaveServerConfig(config domain.ServerConfig) error {
 		cloud_provider=excluded.cloud_provider,
 		is_active=excluded.is_active;`
 
-	if _, err := r.db.Exec(query, config.Name, config.Host, config.Port, config.User, config.PrivateKey, config.VultrAPIToken, config.DOAPIToken, config.CloudProvider, config.IsActive); err != nil {
+	encKey := encryptSecret(config.PrivateKey)
+	encVultr := encryptSecret(config.VultrAPIToken)
+	encDO := encryptSecret(config.DOAPIToken)
+
+	if _, err := r.db.Exec(query, config.Name, config.Host, config.Port, config.User, encKey, encVultr, encDO, config.CloudProvider, config.IsActive); err != nil {
 		return fmt.Errorf("error guardando servidor en catálogo: %w", err)
 	}
 
@@ -340,7 +369,7 @@ func (r *SQLiteRepository) SaveServerConfig(config domain.ServerConfig) error {
 			vultr_api_token=excluded.vultr_api_token,
 			do_api_token=excluded.do_api_token,
 			cloud_provider=excluded.cloud_provider;`
-		if _, err := r.db.Exec(legacyQuery, config.Host, config.Port, config.User, config.PrivateKey, config.VultrAPIToken, config.DOAPIToken, config.CloudProvider); err != nil {
+		if _, err := r.db.Exec(legacyQuery, config.Host, config.Port, config.User, encKey, encVultr, encDO, config.CloudProvider); err != nil {
 			return fmt.Errorf("error sincronizando servidor activo: %w", err)
 		}
 	}
@@ -369,10 +398,16 @@ func (r *SQLiteRepository) GetServerConfig() (*domain.ServerConfig, error) {
 			}
 			config.Name = "default"
 			config.IsActive = true
+			config.PrivateKey = decryptSecret(config.PrivateKey)
+			config.VultrAPIToken = decryptSecret(config.VultrAPIToken)
+			config.DOAPIToken = decryptSecret(config.DOAPIToken)
 			return &config, nil
 		}
 		return nil, err
 	}
+	config.PrivateKey = decryptSecret(config.PrivateKey)
+	config.VultrAPIToken = decryptSecret(config.VultrAPIToken)
+	config.DOAPIToken = decryptSecret(config.DOAPIToken)
 	return &config, nil
 }
 
@@ -391,6 +426,9 @@ func (r *SQLiteRepository) GetAllServerConfigs() ([]domain.ServerConfig, error) 
 		if err := rows.Scan(&c.ID, &c.Name, &c.Host, &c.Port, &c.User, &c.PrivateKey, &c.VultrAPIToken, &c.DOAPIToken, &c.CloudProvider, &c.IsActive); err != nil {
 			return nil, fmt.Errorf("error escaneando servidor: %w", err)
 		}
+		c.PrivateKey = decryptSecret(c.PrivateKey)
+		c.VultrAPIToken = decryptSecret(c.VultrAPIToken)
+		c.DOAPIToken = decryptSecret(c.DOAPIToken)
 		list = append(list, c)
 	}
 	if err := rows.Err(); err != nil {
@@ -412,6 +450,9 @@ func (r *SQLiteRepository) GetServerConfigByName(name string) (*domain.ServerCon
 		}
 		return nil, err
 	}
+	config.PrivateKey = decryptSecret(config.PrivateKey)
+	config.VultrAPIToken = decryptSecret(config.VultrAPIToken)
+	config.DOAPIToken = decryptSecret(config.DOAPIToken)
 	return &config, nil
 }
 
@@ -545,6 +586,7 @@ func (r *SQLiteRepository) DeleteService(name string) error {
 // --- Operaciones del Catálogo de Bases de Datos ---
 
 func (r *SQLiteRepository) SaveDatabase(db domain.SavedDatabase) error {
+	encPass := encryptSecret(db.Password)
 	query := `
 	INSERT INTO databases (name, engine, deploy_type, external_url, internal_port, volume_host_path, node_ip, password, target_node)
 	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -558,7 +600,7 @@ func (r *SQLiteRepository) SaveDatabase(db domain.SavedDatabase) error {
 		password=excluded.password,
 		target_node=excluded.target_node;`
 
-	_, err := r.db.Exec(query, db.Name, db.Engine, db.DeployType, db.ExternalURL, db.InternalPort, db.VolumeHostPath, db.NodeIP, db.Password, db.TargetNode)
+	_, err := r.db.Exec(query, db.Name, db.Engine, db.DeployType, db.ExternalURL, db.InternalPort, db.VolumeHostPath, db.NodeIP, encPass, db.TargetNode)
 	return err
 }
 
@@ -576,6 +618,7 @@ func (r *SQLiteRepository) GetDatabases() ([]domain.SavedDatabase, error) {
 		if err := rows.Scan(&d.ID, &d.Name, &d.Engine, &d.DeployType, &d.ExternalURL, &d.InternalPort, &d.VolumeHostPath, &d.NodeIP, &d.Password, &d.TargetNode); err != nil {
 			return nil, err
 		}
+		d.Password = decryptSecret(d.Password)
 		dbs = append(dbs, d)
 	}
 	return dbs, nil
@@ -593,6 +636,7 @@ func (r *SQLiteRepository) GetDatabase(name string) (*domain.SavedDatabase, erro
 		}
 		return nil, err
 	}
+	d.Password = decryptSecret(d.Password)
 	return &d, nil
 }
 
@@ -748,13 +792,14 @@ func (r *SQLiteRepository) DeletePreviewEnv(name string) error {
 // --- Operaciones de Docker Registry Credentials ---
 
 func (r *SQLiteRepository) SaveRegistryCredential(cred domain.SavedRegistryCredential) error {
+	encPass := encryptSecret(cred.Password)
 	query := `
 	INSERT INTO registry_credentials (server, username, password)
 	VALUES (?, ?, ?)
 	ON CONFLICT(server) DO UPDATE SET
 		username=excluded.username,
 		password=excluded.password;`
-	_, err := r.db.Exec(query, cred.Server, cred.Username, cred.Password)
+	_, err := r.db.Exec(query, cred.Server, cred.Username, encPass)
 	return err
 }
 
@@ -772,6 +817,7 @@ func (r *SQLiteRepository) GetRegistryCredentials() ([]domain.SavedRegistryCrede
 		if err := rows.Scan(&c.ID, &c.Server, &c.Username, &c.Password, &c.CreatedAt); err != nil {
 			return nil, err
 		}
+		c.Password = decryptSecret(c.Password)
 		creds = append(creds, c)
 	}
 	return creds, nil
@@ -788,6 +834,7 @@ func (r *SQLiteRepository) GetRegistryCredential(server string) (*domain.SavedRe
 		}
 		return nil, err
 	}
+	c.Password = decryptSecret(c.Password)
 	return &c, nil
 }
 

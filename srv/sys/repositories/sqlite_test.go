@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
@@ -237,5 +238,137 @@ func TestSQLiteMultiServerCatalog(t *testing.T) {
 	all, err = repo.GetAllServerConfigs()
 	if err != nil || len(all) != 2 {
 		t.Fatalf("expected 2 servers after deletion, got %d", len(all))
+	}
+}
+
+func TestSQLiteEncryptionAtRest(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "crypto_test.db")
+
+	repo, err := NewSQLiteRepository(dbPath)
+	if err != nil {
+		t.Fatalf("error initializing db: %v", err)
+	}
+	defer repo.Close()
+
+	// 1. Test ServerConfig encryption at rest
+	rawKey := "-----BEGIN OPENSSH PRIVATE KEY-----\nsecret_key_data\n-----END OPENSSH PRIVATE KEY-----"
+	rawVultrToken := "vultr_sec_tok_123456789"
+	rawDOToken := "do_sec_tok_987654321"
+
+	srv := domain.ServerConfig{
+		Name:          "prod-vps",
+		Host:          "192.168.1.50",
+		Port:          22,
+		User:          "root",
+		PrivateKey:    rawKey,
+		VultrAPIToken: rawVultrToken,
+		DOAPIToken:    rawDOToken,
+	}
+
+	if err := repo.SaveServerConfig(srv); err != nil {
+		t.Fatalf("error saving server config: %v", err)
+	}
+
+	// Verify raw SQLite storage is encrypted
+	var dbKey, dbVultr, dbDO string
+	query := "SELECT private_key, vultr_api_token, do_api_token FROM server_configs WHERE name = 'prod-vps'"
+	if err := repo.db.QueryRow(query).Scan(&dbKey, &dbVultr, &dbDO); err != nil {
+		t.Fatalf("error querying raw database: %v", err)
+	}
+
+	if dbKey == rawKey || !strings.HasPrefix(dbKey, "enc:v1:") {
+		t.Errorf("expected private_key to be encrypted in SQLite, got: %s", dbKey)
+	}
+	if dbVultr == rawVultrToken || !strings.HasPrefix(dbVultr, "enc:v1:") {
+		t.Errorf("expected vultr_api_token to be encrypted in SQLite, got: %s", dbVultr)
+	}
+	if dbDO == rawDOToken || !strings.HasPrefix(dbDO, "enc:v1:") {
+		t.Errorf("expected do_api_token to be encrypted in SQLite, got: %s", dbDO)
+	}
+
+	// Verify transparent decryption on read
+	retrievedSrv, err := repo.GetServerConfigByName("prod-vps")
+	if err != nil || retrievedSrv == nil {
+		t.Fatalf("error retrieving server: %v", err)
+	}
+	if retrievedSrv.PrivateKey != rawKey {
+		t.Errorf("expected decrypted private key %q, got %q", rawKey, retrievedSrv.PrivateKey)
+	}
+	if retrievedSrv.VultrAPIToken != rawVultrToken {
+		t.Errorf("expected decrypted vultr token %q, got %q", rawVultrToken, retrievedSrv.VultrAPIToken)
+	}
+	if retrievedSrv.DOAPIToken != rawDOToken {
+		t.Errorf("expected decrypted do token %q, got %q", rawDOToken, retrievedSrv.DOAPIToken)
+	}
+
+	// 2. Test Database password encryption at rest
+	rawDBPassword := "super_secret_db_pass_999!"
+	dbModel := domain.SavedDatabase{
+		Name:     "postgres-app",
+		Engine:   "postgres",
+		Password: rawDBPassword,
+	}
+	if err := repo.SaveDatabase(dbModel); err != nil {
+		t.Fatalf("error saving database: %v", err)
+	}
+
+	var rawStoredDBPass string
+	if err := repo.db.QueryRow("SELECT password FROM databases WHERE name = 'postgres-app'").Scan(&rawStoredDBPass); err != nil {
+		t.Fatalf("error querying raw db pass: %v", err)
+	}
+	if rawStoredDBPass == rawDBPassword || !strings.HasPrefix(rawStoredDBPass, "enc:v1:") {
+		t.Errorf("expected database password to be encrypted in SQLite, got: %s", rawStoredDBPass)
+	}
+
+	retrievedDB, err := repo.GetDatabase("postgres-app")
+	if err != nil || retrievedDB == nil {
+		t.Fatalf("error retrieving database: %v", err)
+	}
+	if retrievedDB.Password != rawDBPassword {
+		t.Errorf("expected decrypted password %q, got %q", rawDBPassword, retrievedDB.Password)
+	}
+
+	// 3. Test Registry credential encryption at rest
+	rawRegPassword := "docker_token_pat_112233"
+	reg := domain.SavedRegistryCredential{
+		Server:   "ghcr.io",
+		Username: "tarhiata",
+		Password: rawRegPassword,
+	}
+	if err := repo.SaveRegistryCredential(reg); err != nil {
+		t.Fatalf("error saving registry credential: %v", err)
+	}
+
+	var rawStoredRegPass string
+	if err := repo.db.QueryRow("SELECT password FROM registry_credentials WHERE server = 'ghcr.io'").Scan(&rawStoredRegPass); err != nil {
+		t.Fatalf("error querying raw registry password: %v", err)
+	}
+	if rawStoredRegPass == rawRegPassword || !strings.HasPrefix(rawStoredRegPass, "enc:v1:") {
+		t.Errorf("expected registry password to be encrypted in SQLite, got: %s", rawStoredRegPass)
+	}
+
+	retrievedReg, err := repo.GetRegistryCredential("ghcr.io")
+	if err != nil || retrievedReg == nil {
+		t.Fatalf("error retrieving registry credential: %v", err)
+	}
+	if retrievedReg.Password != rawRegPassword {
+		t.Errorf("expected decrypted registry password %q, got %q", rawRegPassword, retrievedReg.Password)
+	}
+
+	// 4. Test backward compatibility: Reading legacy unencrypted records
+	legacyKey := "~/.ssh/legacy_id_rsa"
+	_, err = repo.db.Exec(`INSERT INTO server_configs (name, host, port, user, private_key, cloud_provider, is_active)
+		VALUES ('legacy-server', '10.0.0.1', 22, 'ubuntu', ?, 'vps-direct', 0)`, legacyKey)
+	if err != nil {
+		t.Fatalf("error inserting legacy unencrypted server: %v", err)
+	}
+
+	legacySrv, err := repo.GetServerConfigByName("legacy-server")
+	if err != nil || legacySrv == nil {
+		t.Fatalf("error retrieving legacy server: %v", err)
+	}
+	if legacySrv.PrivateKey != legacyKey {
+		t.Errorf("expected legacy plaintext key %q to be preserved, got %q", legacyKey, legacySrv.PrivateKey)
 	}
 }
