@@ -2,6 +2,7 @@ package usecases
 
 import (
 	"fmt"
+	"log/slog"
 	"math"
 	"strconv"
 	"strings"
@@ -56,12 +57,15 @@ else
     DISK_LINE=$(df -m / 2>/dev/null | tail -n 1)
     DISK_USED_MB=$(echo "$DISK_LINE" | awk "{print \$3}")
     DISK_TOTAL_MB=$(echo "$DISK_LINE" | awk "{print \$2}")
-    CPU_PCT=$(top -bn1 2>/dev/null | grep "Cpu" | awk -F"," "{for(i=1;i<=NF;i++) if(\$i ~ /id/) {split(\$i,a,\" \"); print 100-a[1]}}")
+    CPU_PCT=$(awk -v FS=" " "/^cpu /{print 100-(\$5*100/(\$2+\$3+\$4+\$5+\$6+\$7+\$8))}" /proc/stat 2>/dev/null)
     if [ -z "$CPU_PCT" ]; then
-        CPU_PCT=$(awk -v FS=" " "/^cpu /{print 100-(\$5*100/(\$2+\$3+\$4+\$5+\$6+\$7+\$8))}" /proc/stat 2>/dev/null)
+        CPU_PCT=$(top -bn1 2>/dev/null | grep "Cpu" | awk -F"," "{for(i=1;i<=NF;i++) if(\$i ~ /id/) {split(\$i,a,\" \"); print 100-a[1]}}")
     fi
     if [ -z "$CPU_PCT" ]; then
-        CPU_PCT=$(vmstat 1 2 2>/dev/null | tail -1 | awk "{print 100-\$15}")
+        L1=$(echo "$LOAD" | awk "{print \$1}")
+        if [ -n "$L1" ] && [ -n "$CORES" ] && [ "$CORES" -gt 0 ] 2>/dev/null; then
+            CPU_PCT=$(awk -v l="$L1" -v c="$CORES" "BEGIN {pct=(l/c)*100; if(pct>100) pct=100; printf \"%.1f\", pct}")
+        fi
     fi
 fi
 
@@ -101,6 +105,11 @@ func (uc *InspectHostUseCase) Execute(config domain.ServerConfig) (*domain.HostI
 	if err := uc.executor.Connect(config); err != nil {
 		return nil, fmt.Errorf("error conectando a %s: %w", targetHost, err)
 	}
+	defer func() {
+		if clErr := uc.executor.Close(); clErr != nil {
+			slog.Warn("inspect_host: error cerrando conexión SSH", "host", targetHost, "error", clErr)
+		}
+	}()
 
 	inspection := &domain.HostInspection{
 		ServerName: serverName,
@@ -138,6 +147,11 @@ func (uc *InspectHostUseCase) ExecuteMetricsOnly(config domain.ServerConfig) (*d
 	if err := uc.executor.Connect(config); err != nil {
 		return nil, fmt.Errorf("error conectando a %s: %w", targetHost, err)
 	}
+	defer func() {
+		if clErr := uc.executor.Close(); clErr != nil {
+			slog.Warn("inspect_host: error cerrando conexión SSH", "host", targetHost, "error", clErr)
+		}
+	}()
 
 	resMetrics, err := uc.executor.RunCommand(hostMetricsCommand)
 	if err != nil {
@@ -161,6 +175,11 @@ func (uc *InspectHostUseCase) ExecuteServicesOnly(config domain.ServerConfig) ([
 	if err := uc.executor.Connect(config); err != nil {
 		return nil, fmt.Errorf("error conectando a %s: %w", targetHost, err)
 	}
+	defer func() {
+		if clErr := uc.executor.Close(); clErr != nil {
+			slog.Warn("inspect_host: error cerrando conexión SSH", "host", targetHost, "error", clErr)
+		}
+	}()
 
 	resServices, err := uc.executor.RunCommand(hostServicesCommand)
 	if err != nil {

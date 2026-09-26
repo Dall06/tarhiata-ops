@@ -657,7 +657,7 @@ func (w *WebServer) handleHostInspect(rw http.ResponseWriter, req *http.Request)
 	}
 
 	cacheKey := "inspect:" + cfg.Name
-	if req.URL.Query().Get("fresh") != "true" {
+	if req.URL.Query().Get("fresh") != "true" && req.URL.Query().Get("force") != "true" {
 		if cached, ok := w.getCache(cacheKey); ok {
 			jsonResponse(rw, cached)
 			return
@@ -665,7 +665,11 @@ func (w *WebServer) handleHostInspect(rw http.ResponseWriter, req *http.Request)
 	}
 
 	sshExec := repositories.NewCryptoSSHExecutor()
-	defer sshExec.Close()
+	defer func() {
+		if clErr := sshExec.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando sshExec en host inspect", "error", clErr)
+		}
+	}()
 
 	uc := usecases.NewInspectHostUseCase(sshExec)
 	inspection, err := uc.Execute(*cfg)
@@ -690,7 +694,7 @@ func (w *WebServer) handleHostMetrics(rw http.ResponseWriter, req *http.Request)
 	}
 
 	cacheKey := "metrics:" + cfg.Name
-	if req.URL.Query().Get("fresh") != "true" {
+	if req.URL.Query().Get("fresh") != "true" && req.URL.Query().Get("force") != "true" {
 		if cached, ok := w.getCache(cacheKey); ok {
 			jsonResponse(rw, cached)
 			return
@@ -698,7 +702,11 @@ func (w *WebServer) handleHostMetrics(rw http.ResponseWriter, req *http.Request)
 	}
 
 	sshExec := repositories.NewCryptoSSHExecutor()
-	defer sshExec.Close()
+	defer func() {
+		if clErr := sshExec.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando sshExec en host metrics", "error", clErr)
+		}
+	}()
 
 	uc := usecases.NewInspectHostUseCase(sshExec)
 	metrics, err := uc.ExecuteMetricsOnly(*cfg)
@@ -723,7 +731,7 @@ func (w *WebServer) handleHostServices(rw http.ResponseWriter, req *http.Request
 	}
 
 	cacheKey := "services:" + cfg.Name
-	if req.URL.Query().Get("fresh") != "true" {
+	if req.URL.Query().Get("fresh") != "true" && req.URL.Query().Get("force") != "true" {
 		if cached, ok := w.getCache(cacheKey); ok {
 			jsonResponse(rw, cached)
 			return
@@ -731,7 +739,11 @@ func (w *WebServer) handleHostServices(rw http.ResponseWriter, req *http.Request
 	}
 
 	sshExec := repositories.NewCryptoSSHExecutor()
-	defer sshExec.Close()
+	defer func() {
+		if clErr := sshExec.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando sshExec en host services", "error", clErr)
+		}
+	}()
 
 	uc := usecases.NewInspectHostUseCase(sshExec)
 	services, err := uc.ExecuteServicesOnly(*cfg)
@@ -756,7 +768,7 @@ func (w *WebServer) handleSwarmStatus(rw http.ResponseWriter, req *http.Request)
 	}
 
 	cacheKey := "swarm:" + cfg.Name
-	if req.URL.Query().Get("fresh") != "true" {
+	if req.URL.Query().Get("fresh") != "true" && req.URL.Query().Get("force") != "true" {
 		if cached, ok := w.getCache(cacheKey); ok {
 			jsonResponse(rw, cached)
 			return
@@ -764,7 +776,11 @@ func (w *WebServer) handleSwarmStatus(rw http.ResponseWriter, req *http.Request)
 	}
 
 	sshExec := repositories.NewCryptoSSHExecutor()
-	defer sshExec.Close()
+	defer func() {
+		if clErr := sshExec.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando sshExec en swarm status", "error", clErr)
+		}
+	}()
 
 	uc := usecases.NewGetSwarmStatusUseCase(sshExec)
 	status, err := uc.Execute(*cfg)
@@ -774,7 +790,11 @@ func (w *WebServer) handleSwarmStatus(rw http.ResponseWriter, req *http.Request)
 	}
 
 	// Incorporar información de bases de datos registradas
-	dbs, _ := w.repo.GetDatabases()
+	dbs, dbsErr := w.repo.GetDatabases()
+	if dbsErr != nil {
+		slog.Warn("web_server: error obteniendo databases para swarm status", "error", dbsErr)
+		dbs = []domain.SavedDatabase{}
+	}
 	liveServicesMap := make(map[string]bool)
 	for _, s := range status.Services {
 		liveServicesMap[s.Name] = true

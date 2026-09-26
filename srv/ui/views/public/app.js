@@ -603,9 +603,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Disparar inspección de host y estado de Swarm en paralelo para máxima velocidad y cero retardo
+            const freshParam = !isSilent ? '&fresh=true' : '';
             const [hostRes, swarmRes] = await Promise.all([
-                fetch(`/api/host/inspect?server=${encodeURIComponent(serverName)}`),
-                fetch(`/api/swarm/status?server=${encodeURIComponent(serverName)}`)
+                fetch(`/api/host/inspect?server=${encodeURIComponent(serverName)}${freshParam}`),
+                fetch(`/api/swarm/status?server=${encodeURIComponent(serverName)}${freshParam}`)
             ]);
             const latency = Math.round(performance.now() - tStart);
 
