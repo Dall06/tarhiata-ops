@@ -2,11 +2,67 @@ package usecases
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 )
+
+// SwarmBundleCommand es el script Bash empaquetado que ejecuta todas las consultas de Docker Swarm en un único viaje SSH.
+const SwarmBundleCommand = `echo "===TARHIATA_DOCKER_VER==="
+docker --version 2>/dev/null
+echo "===TARHIATA_SWARM_STATE==="
+docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null
+echo "===TARHIATA_SERVICES==="
+docker service ls --format '{{.ID}}\t{{.Name}}\t{{.Mode}}\t{{.Replicas}}\t{{.Image}}\t{{.Ports}}' 2>/dev/null
+echo "===TARHIATA_INSPECT==="
+svcs=$(docker service ls -q 2>/dev/null)
+if [ -n "$svcs" ]; then
+    docker service inspect $svcs --format '{{.Spec.Name}}\t{{index .Spec.Labels "traefik.enable"}}\t{{index .Spec.Labels (printf "traefik.http.routers.%s.rule" .Spec.Name)}}' 2>/dev/null
+fi
+echo "===TARHIATA_NODES==="
+docker node ls --format '{{.ID}}\t{{.Hostname}}\t{{.Status}}\t{{.Availability}}\t{{.ManagerStatus}}\t{{.EngineVersion}}' 2>/dev/null
+echo "===TARHIATA_END==="`
+
+// SwarmBundlePayload contiene las secciones parseadas del comando unificado de Swarm.
+type SwarmBundlePayload struct {
+	DockerVersion string
+	SwarmState    string
+	ServicesRaw   string
+	InspectRaw    string
+	NodesRaw      string
+}
+
+func extractSection(raw, startMarker, endMarker string) string {
+	startIdx := strings.Index(raw, startMarker)
+	if startIdx == -1 {
+		return ""
+	}
+	content := raw[startIdx+len(startMarker):]
+	endIdx := strings.Index(content, endMarker)
+	if endIdx == -1 {
+		return strings.TrimSpace(content)
+	}
+	return strings.TrimSpace(content[:endIdx])
+}
+
+// ParseSwarmBundle divide la salida delimitada en sus 5 secciones.
+func ParseSwarmBundle(raw string) (SwarmBundlePayload, error) {
+	if !strings.Contains(raw, "===TARHIATA_DOCKER_VER===") {
+		return SwarmBundlePayload{}, fmt.Errorf("salida no contiene delimitadores de Tarhiata Swarm")
+	}
+
+	payload := SwarmBundlePayload{
+		DockerVersion: extractSection(raw, "===TARHIATA_DOCKER_VER===", "===TARHIATA_SWARM_STATE==="),
+		SwarmState:    extractSection(raw, "===TARHIATA_SWARM_STATE===", "===TARHIATA_SERVICES==="),
+		ServicesRaw:   extractSection(raw, "===TARHIATA_SERVICES===", "===TARHIATA_INSPECT==="),
+		InspectRaw:    extractSection(raw, "===TARHIATA_INSPECT===", "===TARHIATA_NODES==="),
+		NodesRaw:      extractSection(raw, "===TARHIATA_NODES===", "===TARHIATA_END==="),
+	}
+
+	return payload, nil
+}
 
 // GetSwarmStatusUseCase consulta el estado en vivo de Docker Swarm, sus servicios y nodos.
 type GetSwarmStatusUseCase struct {
@@ -25,6 +81,11 @@ func (uc *GetSwarmStatusUseCase) Execute(config domain.ServerConfig) (*domain.Sw
 	if err := uc.executor.Connect(config); err != nil {
 		return nil, fmt.Errorf("error conectando a %s: %w", config.Host, err)
 	}
+	defer func() {
+		if clErr := uc.executor.Close(); clErr != nil {
+			slog.Warn("get_swarm_status: error cerrando conexión SSH", "host", config.Host, "error", clErr)
+		}
+	}()
 
 	status := &domain.SwarmStatus{
 		Services:   []domain.SwarmServiceInfo{},
@@ -32,7 +93,46 @@ func (uc *GetSwarmStatusUseCase) Execute(config domain.ServerConfig) (*domain.Sw
 		Dashboards: make(map[string]string),
 	}
 
-	// 1. Verificar versión de Docker
+	// Configurar URLs de Dashboards
+	targetHost := strings.TrimSpace(config.Host)
+	if config.IsLocal() || targetHost == "" {
+		targetHost = "localhost"
+	}
+	status.Dashboards["portainer"] = fmt.Sprintf("http://%s:9000", targetHost)
+	status.Dashboards["dozzle"] = fmt.Sprintf("http://%s:8888", targetHost)
+	status.Dashboards["traefik"] = fmt.Sprintf("http://%s:8080", targetHost)
+
+	// Intento 1: Ejecución Bundled en un único viaje SSH
+	resBundle, errBundle := uc.executor.RunCommand(SwarmBundleCommand)
+	if errBundle == nil && resBundle != nil && resBundle.ExitCode == 0 && strings.Contains(resBundle.Output, "===TARHIATA_DOCKER_VER===") {
+		payload, errParse := ParseSwarmBundle(resBundle.Output)
+		if errParse == nil {
+			status.DockerVersion = payload.DockerVersion
+			if strings.TrimSpace(payload.SwarmState) != "active" {
+				status.Active = false
+				status.NodeState = "inactive"
+				return status, nil
+			}
+
+			status.Active = true
+			status.NodeState = "active"
+
+			if payload.ServicesRaw != "" {
+				status.Services = ParseSwarmServices(payload.ServicesRaw)
+				if payload.InspectRaw != "" {
+					enrichSwarmServicesWithInspect(status.Services, payload.InspectRaw)
+				}
+			}
+
+			if payload.NodesRaw != "" {
+				status.Nodes = ParseSwarmNodes(payload.NodesRaw)
+			}
+
+			return status, nil
+		}
+	}
+
+	// Fallback de contingencia: Invocaciones individuales si el bundle no estuviera presente o soportado
 	resDocker, err := uc.executor.RunCommand("docker --version")
 	if err != nil || resDocker == nil || resDocker.ExitCode != 0 {
 		status.Active = false
@@ -41,7 +141,6 @@ func (uc *GetSwarmStatusUseCase) Execute(config domain.ServerConfig) (*domain.Sw
 	}
 	status.DockerVersion = strings.TrimSpace(resDocker.Output)
 
-	// 2. Verificar estado de Swarm
 	resSwarm, err := uc.executor.RunCommand("docker info --format '{{.Swarm.LocalNodeState}}'")
 	if err != nil || resSwarm == nil || strings.TrimSpace(resSwarm.Output) != "active" {
 		status.Active = false
@@ -51,31 +150,19 @@ func (uc *GetSwarmStatusUseCase) Execute(config domain.ServerConfig) (*domain.Sw
 	status.Active = true
 	status.NodeState = "active"
 
-	// 3. Listar servicios de Swarm
 	resServices, err := uc.executor.RunCommand("docker service ls --format '{{.ID}}\t{{.Name}}\t{{.Mode}}\t{{.Replicas}}\t{{.Image}}\t{{.Ports}}'")
 	if err == nil && resServices != nil && resServices.ExitCode == 0 {
 		status.Services = ParseSwarmServices(resServices.Output)
-		// Consultar etiquetas de Traefik para saber si son públicos/privados y su dominio
 		resInspect, errInsp := uc.executor.RunCommand("docker service inspect $(docker service ls -q) --format '{{.Spec.Name}}\t{{index .Spec.Labels \"traefik.enable\"}}\t{{index .Spec.Labels (printf \"traefik.http.routers.%s.rule\" .Spec.Name)}}' 2>/dev/null")
 		if errInsp == nil && resInspect != nil && resInspect.ExitCode == 0 {
 			enrichSwarmServicesWithInspect(status.Services, resInspect.Output)
 		}
 	}
 
-	// 4. Listar nodos de Swarm
 	resNodes, err := uc.executor.RunCommand("docker node ls --format '{{.ID}}\t{{.Hostname}}\t{{.Status}}\t{{.Availability}}\t{{.ManagerStatus}}\t{{.EngineVersion}}'")
 	if err == nil && resNodes != nil && resNodes.ExitCode == 0 {
 		status.Nodes = ParseSwarmNodes(resNodes.Output)
 	}
-
-	// 5. Configurar URLs de Dashboards
-	targetHost := strings.TrimSpace(config.Host)
-	if config.IsLocal() || targetHost == "" {
-		targetHost = "localhost"
-	}
-	status.Dashboards["portainer"] = fmt.Sprintf("http://%s:9000", targetHost)
-	status.Dashboards["dozzle"] = fmt.Sprintf("http://%s:8888", targetHost)
-	status.Dashboards["traefik"] = fmt.Sprintf("http://%s:8080", targetHost)
 
 	return status, nil
 }

@@ -212,3 +212,160 @@ func TestEnrichSwarmServicesWithInspect(t *testing.T) {
 	}
 }
 
+func TestParseSwarmBundle(t *testing.T) {
+	tests := []struct {
+		name          string
+		raw           string
+		expectErr     bool
+		expectedVer   string
+		expectedState string
+	}{
+		{
+			name: "parses complete valid bundle",
+			raw: `===TARHIATA_DOCKER_VER===
+Docker version 29.7.1
+===TARHIATA_SWARM_STATE===
+active
+===TARHIATA_SERVICES===
+svc-1	tarhiata-api	replicated	1/1	api:latest	*:80->80/tcp
+===TARHIATA_INSPECT===
+tarhiata-api	true	Host(` + "`" + `api.domain.com` + "`" + `)
+===TARHIATA_NODES===
+node-1	master	Ready	Active	Leader	29.7.1
+===TARHIATA_END===`,
+			expectErr:     false,
+			expectedVer:   "Docker version 29.7.1",
+			expectedState: "active",
+		},
+		{
+			name: "parses bundle with inactive state",
+			raw: `===TARHIATA_DOCKER_VER===
+Docker version 28.0.0
+===TARHIATA_SWARM_STATE===
+inactive
+===TARHIATA_SERVICES===
+===TARHIATA_INSPECT===
+===TARHIATA_NODES===
+===TARHIATA_END===`,
+			expectErr:     false,
+			expectedVer:   "Docker version 28.0.0",
+			expectedState: "inactive",
+		},
+		{
+			name:          "returns error when delimiters are missing",
+			raw:           "bash: docker: command not found",
+			expectErr:     true,
+			expectedVer:   "",
+			expectedState: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload, err := ParseSwarmBundle(tt.raw)
+			if tt.expectErr {
+				if err == nil {
+					t.Fatalf("expected error parsing bundle, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error parsing bundle: %v", err)
+			}
+			if payload.DockerVersion != tt.expectedVer {
+				t.Errorf("expected DockerVersion '%s', got '%s'", tt.expectedVer, payload.DockerVersion)
+			}
+			if payload.SwarmState != tt.expectedState {
+				t.Errorf("expected SwarmState '%s', got '%s'", tt.expectedState, payload.SwarmState)
+			}
+		})
+	}
+}
+
+func TestGetSwarmStatusUseCase_Execute_Bundled(t *testing.T) {
+	tests := []struct {
+		name           string
+		config         domain.ServerConfig
+		bundleOutput   string
+		expectedActive bool
+		expectedSvcs   int
+		expectedNodes  int
+	}{
+		{
+			name: "single trip active swarm bundled response",
+			config: domain.ServerConfig{
+				Host: "192.168.1.100",
+			},
+			bundleOutput: `===TARHIATA_DOCKER_VER===
+Docker version 29.7.1
+===TARHIATA_SWARM_STATE===
+active
+===TARHIATA_SERVICES===
+svc-1	web-frontend	replicated	2/2	nginx:alpine	*:80->80/tcp
+svc-2	tarhiata-db-postgres	replicated	1/1	postgres:16	
+===TARHIATA_INSPECT===
+web-frontend	true	Host(` + "`" + `web.mysite.com` + "`" + `)
+===TARHIATA_NODES===
+n1	node-manager	Ready	Active	Leader	29.7.1
+n2	node-worker	Ready	Active		29.7.1
+===TARHIATA_END===`,
+			expectedActive: true,
+			expectedSvcs:   2,
+			expectedNodes:  2,
+		},
+		{
+			name: "single trip inactive swarm bundled response",
+			config: domain.ServerConfig{
+				Host: "192.168.1.101",
+			},
+			bundleOutput: `===TARHIATA_DOCKER_VER===
+Docker version 29.7.1
+===TARHIATA_SWARM_STATE===
+inactive
+===TARHIATA_SERVICES===
+===TARHIATA_INSPECT===
+===TARHIATA_NODES===
+===TARHIATA_END===`,
+			expectedActive: false,
+			expectedSvcs:   0,
+			expectedNodes:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockExec := mocks.NewMockSSHExecutor()
+			mockExec.MockResponses = map[string]*domain.CommandResult{
+				"===TARHIATA_DOCKER_VER===": {
+					Output:   tt.bundleOutput,
+					ExitCode: 0,
+				},
+			}
+
+			uc := NewGetSwarmStatusUseCase(mockExec)
+			status, err := uc.Execute(tt.config)
+			if err != nil {
+				t.Fatalf("unexpected error executing bundled swarm status: %v", err)
+			}
+			if status.Active != tt.expectedActive {
+				t.Errorf("expected Active %v, got %v", tt.expectedActive, status.Active)
+			}
+			if len(status.Services) != tt.expectedSvcs {
+				t.Errorf("expected %d services, got %d", tt.expectedSvcs, len(status.Services))
+			}
+			if len(status.Nodes) != tt.expectedNodes {
+				t.Errorf("expected %d nodes, got %d", tt.expectedNodes, len(status.Nodes))
+			}
+			if tt.expectedActive && len(status.Services) > 0 {
+				if !status.Services[0].Expose {
+					t.Errorf("expected service 0 Expose to be true")
+				}
+				if status.Services[0].Domain != "web.mysite.com" {
+					t.Errorf("expected Domain 'web.mysite.com', got '%s'", status.Services[0].Domain)
+				}
+			}
+		})
+	}
+}
+
+
