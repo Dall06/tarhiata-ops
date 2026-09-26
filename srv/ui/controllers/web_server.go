@@ -280,6 +280,7 @@ func (w *WebServer) Echo() *echo.Echo {
 	e.Any("/api/host/metrics", echo.WrapHandler(http.HandlerFunc(w.handleHostMetrics)))
 	e.Any("/api/host/services", echo.WrapHandler(http.HandlerFunc(w.handleHostServices)))
 	e.Any("/api/host/inspect", echo.WrapHandler(http.HandlerFunc(w.handleHostInspect)))
+	e.Any("/api/host/devices", echo.WrapHandler(http.HandlerFunc(w.handleHostDevices)))
 	e.Any("/api/swarm/status", echo.WrapHandler(http.HandlerFunc(w.handleSwarmStatus)))
 	e.Any("/api/bootstrap", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleBootstrap))))
 	e.Any("/api/create-vm-bootstrap", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleCreateVMBootstrap))))
@@ -921,6 +922,43 @@ func (w *WebServer) handleHostServices(rw http.ResponseWriter, req *http.Request
 
 	w.setCache(cacheKey, services, 10*time.Second)
 	jsonResponse(rw, services)
+}
+
+func (w *WebServer) handleHostDevices(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(rw, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	cfg, err := w.getTargetServerConfig(req)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	cacheKey := "devices:" + cfg.Name
+	if req.URL.Query().Get("fresh") != "true" && req.URL.Query().Get("force") != "true" {
+		if cached, ok := w.getCache(cacheKey); ok {
+			jsonResponse(rw, cached)
+			return
+		}
+	}
+
+	sshExec := repositories.NewCryptoSSHExecutor()
+	defer func() {
+		if clErr := sshExec.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando sshExec en host devices", "error", clErr)
+		}
+	}()
+
+	uc := usecases.NewListDevicesUseCase(sshExec)
+	devices, err := uc.Execute(*cfg)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("Error obteniendo dispositivos del host: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.setCache(cacheKey, devices, 15*time.Second)
+	jsonResponse(rw, devices)
 }
 
 func (w *WebServer) handleSwarmStatus(rw http.ResponseWriter, req *http.Request) {
@@ -2564,13 +2602,17 @@ func (w *WebServer) handleLinks(rw http.ResponseWriter, req *http.Request) {
 
 func jsonResponse(rw http.ResponseWriter, data interface{}) {
 	rw.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(rw).Encode(data)
+	if err := json.NewEncoder(rw).Encode(data); err != nil {
+		slog.Error("web_server: error serializando jsonResponse", "error", err)
+	}
 }
 
 func jsonError(rw http.ResponseWriter, message string, statusCode int) {
 	rw.Header().Set("Content-Type", "application/json")
 	rw.WriteHeader(statusCode)
-	json.NewEncoder(rw).Encode(map[string]string{"error": message})
+	if err := json.NewEncoder(rw).Encode(map[string]string{"error": message}); err != nil {
+		slog.Error("web_server: error serializando jsonError", "error", err)
+	}
 }
 
 // streamJSON envía un evento de progreso al cliente en formato NDJSON.

@@ -130,3 +130,8 @@ type ManageSSHKeysUseCase interface {
 	AddKey(cfg domain.ServerConfig, publicKey string) error
 	DeleteKey(cfg domain.ServerConfig, targetIdentifier string) error
 }
+
+type ListDevicesUseCase interface {
+	Execute(config domain.ServerConfig) (*domain.HostDevices, error)
+}
+

@@ -254,6 +254,11 @@
                     <span>Servicios del VPS</span>
                     <span class="tab-counter-pill" id="tabHostCount">0</span>
                 </button>
+                <button type="button" class="tab-segment" id="tabHostDevices">
+                    <span class="tab-emoji">🔌</span>
+                    <span>Dispositivos &amp; Hardware</span>
+                    <span class="tab-counter-pill" id="tabDevicesCount">0</span>
+                </button>
                 <button type="button" class="tab-segment" id="tabSwarmTopology">
                     <span class="tab-emoji">🌐</span>
                     <span>Nodos &amp; Enlaces</span>
@@ -423,6 +428,151 @@
                                 </tr>
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: DISPOSITIVOS & HARDWARE (Storage, GPU, USB, Displays, PCI) -->
+            <div class="studio-view" id="viewHostDevices" style="display:none;">
+                <div class="view-header-strip">
+                    <div>
+                        <h2 class="view-title">Dispositivos y Periféricos Conectados</h2>
+                        <p class="view-subtitle">Hardware físico y virtual detectado en la máquina host: unidades de disco, aceleradores GPU, puertos USB, pantallas y buses PCI.</p>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <button type="button" class="action-btn action-btn-terminal" id="btnRefreshDevices">
+                            🔄 Actualizar Hardware
+                        </button>
+                        <span class="t-badge" id="devicesSummaryText">0 dispositivos detectados</span>
+                    </div>
+                </div>
+
+                <!-- Hardware Grid Summary -->
+                <div class="hw-summary-grid">
+                    <div class="hw-summary-card">
+                        <div class="hw-card-icon">💾</div>
+                        <div class="hw-card-info">
+                            <span class="hw-card-title">Almacenamiento</span>
+                            <span class="hw-card-val" id="hwStorageCount">0 unidades</span>
+                        </div>
+                    </div>
+                    <div class="hw-summary-card">
+                        <div class="hw-card-icon">🎮</div>
+                        <div class="hw-card-info">
+                            <span class="hw-card-title">Gráficos &amp; GPU</span>
+                            <span class="hw-card-val" id="hwGpuCount">0 detectadas</span>
+                        </div>
+                    </div>
+                    <div class="hw-summary-card">
+                        <div class="hw-card-icon">🔌</div>
+                        <div class="hw-card-info">
+                            <span class="hw-card-title">Puertos USB</span>
+                            <span class="hw-card-val" id="hwUsbCount">0 periféricos</span>
+                        </div>
+                    </div>
+                    <div class="hw-summary-card">
+                        <div class="hw-card-icon">🖥️</div>
+                        <div class="hw-card-info">
+                            <span class="hw-card-title">Pantallas / Video</span>
+                            <span class="hw-card-val" id="hwDisplaysCount">0 salidas</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hardware Sections -->
+                <div class="hw-sections-container">
+                    <!-- 1. Almacenamiento -->
+                    <div class="hw-section-block">
+                        <div class="hw-section-header">
+                            <h3 class="hw-section-title">💾 Unidades y Particiones de Disco</h3>
+                            <span class="t-badge" id="hwStorageBadge">0 unidades</span>
+                        </div>
+                        <div class="tactical-table-wrap">
+                            <table class="t-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 15%;">Dispositivo</th>
+                                        <th style="width: 12%;">Tamaño</th>
+                                        <th style="width: 12%;">Tipo</th>
+                                        <th style="width: 12%;">Tecnología</th>
+                                        <th style="width: 15%;">Formato (FS)</th>
+                                        <th style="width: 18%;">Punto de Montaje</th>
+                                        <th style="width: 16%;">Modelo</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="hwStorageTableBody">
+                                    <tr><td colspan="7" class="t-td-empty">Consultando unidades de disco...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- 2. GPUs & Video -->
+                    <div class="hw-section-block">
+                        <div class="hw-section-header">
+                            <h3 class="hw-section-title">🎮 Aceleradores Gráficos y GPUs</h3>
+                            <span class="t-badge" id="hwGpuBadge">0 GPUs</span>
+                        </div>
+                        <div id="hwGpuCardsContainer" class="hw-cards-grid">
+                            <div class="t-td-empty" style="padding: 24px; text-align: center; width: 100%;">Consultando tarjetas gráficas...</div>
+                        </div>
+                    </div>
+
+                    <!-- 3. USB Devices -->
+                    <div class="hw-section-block">
+                        <div class="hw-section-header">
+                            <h3 class="hw-section-title">🔌 Periféricos y Puertos USB</h3>
+                            <span class="t-badge" id="hwUsbBadge">0 dispositivos</span>
+                        </div>
+                        <div class="tactical-table-wrap">
+                            <table class="t-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 15%;">Bus / Puerto</th>
+                                        <th style="width: 15%;">Dispositivo</th>
+                                        <th style="width: 20%;">ID (Vendor:Product)</th>
+                                        <th style="width: 50%;">Descripción / Fabricante</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="hwUsbTableBody">
+                                    <tr><td colspan="4" class="t-td-empty">Consultando periféricos USB...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- 4. Displays -->
+                    <div class="hw-section-block">
+                        <div class="hw-section-header">
+                            <h3 class="hw-section-title">🖥️ Salidas de Video y Pantallas</h3>
+                            <span class="t-badge" id="hwDisplaysBadge">0 salidas</span>
+                        </div>
+                        <div id="hwDisplaysContainer" class="hw-cards-grid">
+                            <div class="t-td-empty" style="padding: 24px; text-align: center; width: 100%;">Consultando salidas de video...</div>
+                        </div>
+                    </div>
+
+                    <!-- 5. PCI Devices -->
+                    <div class="hw-section-block">
+                        <div class="hw-section-header">
+                            <h3 class="hw-section-title">🖧 Buses y Adaptadores PCI</h3>
+                            <span class="t-badge" id="hwPciBadge">0 adaptadores</span>
+                        </div>
+                        <div class="tactical-table-wrap">
+                            <table class="t-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 15%;">Dirección PCI</th>
+                                        <th style="width: 25%;">Clase / Tipo</th>
+                                        <th style="width: 25%;">Fabricante</th>
+                                        <th style="width: 35%;">Dispositivo</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="hwPciTableBody">
+                                    <tr><td colspan="4" class="t-td-empty">Consultando controladores PCI...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>

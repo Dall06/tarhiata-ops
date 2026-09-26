@@ -301,6 +301,19 @@ func TestWebServer_HandleHostEndpoints(t *testing.T) {
 		}
 	})
 
+	t.Run("Host devices on localhost", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/host/devices", nil)
+		rr := httptest.NewRecorder()
+		ws.handleHostDevices(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+		var res domain.HostDevices
+		if err := json.NewDecoder(rr.Body).Decode(&res); err != nil {
+			t.Fatalf("failed to decode HostDevices: %v", err)
+		}
+	})
+
 	t.Run("Swarm status on localhost", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/swarm/status", nil)
 		rr := httptest.NewRecorder()

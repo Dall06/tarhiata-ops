@@ -86,6 +86,9 @@ func main() {
 	case "host", "vps":
 		handleHostCommand(repo, subArgs)
 
+	case "devices", "hardware", "hw":
+		handleDevicesCommand(repo, subArgs)
+
 	case "init", "bootstrap":
 		handleInitCommand(repo, serverConfig, subArgs)
 
@@ -630,6 +633,10 @@ func handleHostCommand(repo ports.ConfigRepository, args []string) {
 		if err := handler.HandleServices(targetServer); err != nil {
 			fmt.Printf("❌ Error: %v\n", err)
 		}
+	case "devices", "hw", "hardware", "dispositivos":
+		if err := handler.HandleDevices(targetServer); err != nil {
+			fmt.Printf("❌ Error: %v\n", err)
+		}
 	case "inspect", "all", "todo":
 		if err := handler.HandleInspect(targetServer); err != nil {
 			fmt.Printf("❌ Error: %v\n", err)
@@ -639,6 +646,17 @@ func handleHostCommand(repo ports.ConfigRepository, args []string) {
 		if err := handler.HandleInspect(args[0]); err != nil {
 			fmt.Printf("❌ Error: %v\n", err)
 		}
+	}
+}
+
+func handleDevicesCommand(repo *repositories.SQLiteRepository, args []string) {
+	handler := sys.NewHostHandler(repo)
+	targetServer := ""
+	if len(args) > 0 {
+		targetServer = args[0]
+	}
+	if err := handler.HandleDevices(targetServer); err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
 	}
 }
 
@@ -2050,6 +2068,8 @@ Comandos disponibles:
   dashboard | ui     Inicia el Web Dashboard en http://localhost:8080
   config             Configura servidor remoto (SSH) o local (localhost)
   connect | test     Prueba y valida la conexión y telemetría (remota o local)
+  host               Inspecciona telemetría y servicios (metrics | services | devices)
+  devices            Lista dispositivos conectados (USB, GPU, discos, pantallas, PCI)
   init | bootstrap   Ejecuta InitServerUseCase (Docker Swarm + Traefik HTTPS + Fail2Ban)
   deploy             Despliega una app service en Swarm con SSL y Traefik
   preview            Gestiona entornos temporales efímeros (create/list/destroy)

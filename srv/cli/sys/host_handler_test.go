@@ -86,3 +86,14 @@ func TestRenderBar(t *testing.T) {
 		}
 	}
 }
+
+func TestHostHandler_HandleDevices_ServerNotFound(t *testing.T) {
+	mockRepo := &mocks.MockConfigRepository{}
+	handler := NewHostHandler(mockRepo)
+
+	err := handler.HandleDevices("non-existent-server")
+	if err == nil {
+		t.Fatal("expected error for non-existent server, got nil")
+	}
+}
+

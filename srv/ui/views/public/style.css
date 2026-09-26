@@ -2690,6 +2690,177 @@ body.is-server-loading .skeleton-hide {
     border-radius: 4px;
 }
 
+/* ==========================================================================
+   HARDWARE & DEVICES VIEW STYLES
+   ========================================================================== */
+.hw-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.hw-summary-card {
+    background: var(--surface-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: var(--ease-out);
+}
+
+.hw-summary-card:hover {
+    border-color: rgba(99, 102, 241, 0.3);
+    transform: translateY(-1px);
+}
+
+.hw-card-icon {
+    font-size: 1.6rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.03);
+    flex-shrink: 0;
+}
+
+.hw-card-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.hw-card-title {
+    font-size: 0.74rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+}
+
+.hw-card-val {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text-pure);
+}
+
+.hw-sections-container {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.hw-section-block {
+    background: var(--surface-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 18px 20px;
+}
+
+.hw-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+}
+
+.hw-section-title {
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: var(--text-pure);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+}
+
+.hw-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+}
+
+.hw-device-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: var(--ease-out);
+}
+
+.hw-device-card:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(99, 102, 241, 0.3);
+}
+
+.hw-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.hw-device-name {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text-pure);
+}
+
+.hw-device-detail {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    display: flex;
+    justify-content: space-between;
+    line-height: 1.4;
+}
+
+.hw-tag-ssd {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.68rem;
+    font-weight: 700;
+}
+
+.hw-tag-hdd {
+    background: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.68rem;
+    font-weight: 700;
+}
+
+.hw-tag-connected {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.68rem;
+    font-weight: 700;
+}
+
+.hw-tag-disconnected {
+    background: rgba(100, 116, 139, 0.2);
+    color: #94a3b8;
+    border: 1px solid rgba(100, 116, 139, 0.3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.68rem;
+    font-weight: 700;
+}
+
 @media (max-width: 768px) {
     .studio-navbar { height: auto; padding: 10px 16px; flex-wrap: wrap; gap: 10px; }
     .nav-right { width: 100%; justify-content: flex-end; gap: 6px; }
