@@ -797,6 +797,96 @@ func TestWebServer_HandleTerminal_TableDriven(t *testing.T) {
 	}
 }
 
+func TestWebServer_HandleSSLAndMaintenance_TableDriven(t *testing.T) {
+	tests := []struct {
+		name           string
+		handler        func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request)
+		method         string
+		url            string
+		body           string
+		expectedStatus int
+	}{
+		{
+			name: "SSL inspect wrong method returns 405",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleSSLInspect(rr, req)
+			},
+			method:         http.MethodPost,
+			url:            "/api/ssl/inspect",
+			expectedStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name: "SSL inspect GET returns 200",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleSSLInspect(rr, req)
+			},
+			method:         http.MethodGet,
+			url:            "/api/ssl/inspect",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "Maintenance toggle wrong method returns 405",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleMaintenanceToggle(rr, req)
+			},
+			method:         http.MethodGet,
+			url:            "/api/maintenance/toggle",
+			expectedStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name: "Maintenance toggle invalid json returns 400",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleMaintenanceToggle(rr, req)
+			},
+			method:         http.MethodPost,
+			url:            "/api/maintenance/toggle",
+			body:           `{invalid-json}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "Maintenance toggle empty service name returns 400",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleMaintenanceToggle(rr, req)
+			},
+			method:         http.MethodPost,
+			url:            "/api/maintenance/toggle",
+			body:           `{"serviceName":""}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "SSL reload wrong method returns 405",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleSSLReload(rr, req)
+			},
+			method:         http.MethodGet,
+			url:            "/api/ssl/reload",
+			expectedStatus: http.StatusMethodNotAllowed,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &mockRepo{}
+			cfg := &domain.ServerConfig{Name: "local", Host: "localhost", CloudProvider: "local"}
+			ws := NewWebServer(repo, cfg)
+
+			var req *http.Request
+			if tc.body != "" {
+				req = httptest.NewRequest(tc.method, tc.url, strings.NewReader(tc.body))
+			} else {
+				req = httptest.NewRequest(tc.method, tc.url, nil)
+			}
+
+			rr := httptest.NewRecorder()
+			tc.handler(ws, rr, req)
+
+			if rr.Code != tc.expectedStatus {
+				t.Errorf("[%s] expected status %d, got %d (body: %s)", tc.name, tc.expectedStatus, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
 
 
 

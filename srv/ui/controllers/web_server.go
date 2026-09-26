@@ -180,6 +180,7 @@ func (w *WebServer) Start(port int) error {
 	mux.HandleFunc("/api/volumes/delete", w.localAuthMiddleware(w.handleVolumeDelete))
 	mux.HandleFunc("/api/volumes/mkdir", w.localAuthMiddleware(w.handleVolumeMkdir))
 	mux.HandleFunc("/api/ssl/inspect", w.handleSSLInspect)
+	mux.HandleFunc("/api/ssl/reload", w.localAuthMiddleware(w.handleSSLReload))
 	mux.HandleFunc("/api/maintenance/toggle", w.localAuthMiddleware(w.handleMaintenanceToggle))
 	mux.HandleFunc("/api/domains", w.handleCustomDomains)
 	mux.HandleFunc("/api/dns/check", w.handleDNSCheck)
@@ -3485,6 +3486,10 @@ func (w *WebServer) handleVolumeMkdir(rw http.ResponseWriter, req *http.Request)
 
 
 func (w *WebServer) handleSSLInspect(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(rw, "Método no permitido", http.StatusMethodNotAllowed)
+		return
+	}
 	sshExec := repositories.NewCryptoSSHExecutor()
 	uc := usecases.NewManageSSLMaintenanceUseCase(w.repo, sshExec)
 	items, err := uc.InspectSSL()
@@ -3496,6 +3501,10 @@ func (w *WebServer) handleSSLInspect(rw http.ResponseWriter, req *http.Request) 
 }
 
 func (w *WebServer) handleMaintenanceToggle(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(rw, "Método no permitido", http.StatusMethodNotAllowed)
+		return
+	}
 	var body struct {
 		ServiceName string `json:"serviceName"`
 		Enable      bool   `json:"enable"`
@@ -3509,17 +3518,40 @@ func (w *WebServer) handleMaintenanceToggle(rw http.ResponseWriter, req *http.Re
 		return
 	}
 
-	cfg := domain.ServerConfig{}
-	if w.config != nil {
-		cfg = *w.config
-	}
+	cfg := w.resolveVolumeConfig(req)
 	sshExec := repositories.NewCryptoSSHExecutor()
 	uc := usecases.NewManageSSLMaintenanceUseCase(w.repo, sshExec)
 	if err := uc.ToggleMaintenanceMode(body.ServiceName, body.Enable, cfg); err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	jsonResponse(rw, map[string]string{"status": "success"})
+	statusMsg := "disabled"
+	if body.Enable {
+		statusMsg = "enabled"
+	}
+	jsonResponse(rw, map[string]interface{}{
+		"status":      "success",
+		"mode":        statusMsg,
+		"serviceName": body.ServiceName,
+	})
+}
+
+func (w *WebServer) handleSSLReload(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(rw, "Método no permitido", http.StatusMethodNotAllowed)
+		return
+	}
+	cfg := w.resolveVolumeConfig(req)
+	sshExec := repositories.NewCryptoSSHExecutor()
+	uc := usecases.NewManageSSLMaintenanceUseCase(w.repo, sshExec)
+	if err := uc.ReloadTraefik(cfg); err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(rw, map[string]string{
+		"status":  "success",
+		"message": "Traefik recargado correctamente",
+	})
 }
 
 func (w *WebServer) handleCustomDomains(rw http.ResponseWriter, req *http.Request) {

@@ -3,6 +3,7 @@ package usecases
 import (
 	"crypto/tls"
 	"fmt"
+	"log/slog"
 	"net"
 	"time"
 
@@ -11,13 +12,13 @@ import (
 )
 
 type SSLStatusItem struct {
-	Domain       string `json:"domain"`
-	ServiceName  string `json:"serviceName"`
-	IsSSL        bool   `json:"isSSL"`
-	Status       string `json:"status"` // "active", "expiring_soon", "expired", "http_only"
-	DaysRemaining int   `json:"daysRemaining"`
-	Issuer       string `json:"issuer"`
-	ExpiryDate   string `json:"expiryDate"`
+	Domain        string `json:"domain"`
+	ServiceName   string `json:"serviceName"`
+	IsSSL         bool   `json:"isSSL"`
+	Status        string `json:"status"` // "active", "expiring_soon", "expired", "http_only"
+	DaysRemaining int    `json:"daysRemaining"`
+	Issuer        string `json:"issuer"`
+	ExpiryDate    string `json:"expiryDate"`
 }
 
 type ManageSSLMaintenanceUseCase struct {
@@ -64,7 +65,9 @@ func (uc *ManageSSLMaintenanceUseCase) InspectSSL() ([]SSLStatusItem, error) {
 		}
 
 		state := conn.ConnectionState()
-		conn.Close()
+		if closeErr := conn.Close(); closeErr != nil {
+			slog.Warn("manage_ssl: error cerrando conexión TLS", "domain", s.Domain, "error", closeErr)
+		}
 
 		if len(state.PeerCertificates) > 0 {
 			cert := state.PeerCertificates[0]
@@ -106,7 +109,11 @@ func (uc *ManageSSLMaintenanceUseCase) ToggleMaintenanceMode(serviceName string,
 	if err := uc.ssh.Connect(config); err != nil {
 		return fmt.Errorf("error de conexión SSH: %w", err)
 	}
-	defer uc.ssh.Close()
+	defer func() {
+		if closeErr := uc.ssh.Close(); closeErr != nil {
+			slog.Warn("manage_ssl: error cerrando conexión SSH", "error", closeErr)
+		}
+	}()
 
 	containerName := fmt.Sprintf("tarhiata-app-%s", svc.Name)
 
@@ -116,17 +123,67 @@ func (uc *ManageSSLMaintenanceUseCase) ToggleMaintenanceMode(serviceName string,
 			--label-add "traefik.http.middlewares.maint-%s.replacepathregex.regex=.*" \
 			--label-add "traefik.http.middlewares.maint-%s.replacepathregex.replacement=/" \
 			--label-add "traefik.http.routers.%s.middlewares=maint-%s" \
-			%s`, svc.Name, svc.Name, svc.Name, svc.Name, containerName)
-		uc.ssh.RunCommand(cmd)
-	} else {
-		// Remover modo mantenimiento
-		cmd := fmt.Sprintf(`docker service update \
-			--label-rm "traefik.http.middlewares.maint-%s.replacepathregex.regex" \
-			--label-rm "traefik.http.middlewares.maint-%s.replacepathregex.replacement" \
-			--label-rm "traefik.http.routers.%s.middlewares" \
-			%s`, svc.Name, svc.Name, svc.Name, containerName)
-		uc.ssh.RunCommand(cmd)
+			%s 2>&1`, svc.Name, svc.Name, svc.Name, svc.Name, containerName)
+		out, err := uc.ssh.RunCommand(cmd)
+		if err != nil {
+			outMsg := ""
+			if out != nil {
+				outMsg = out.Output
+			}
+			slog.Warn("manage_ssl: docker service update fallo al activar mantenimiento, probando fallback", "error", err, "out", outMsg)
+			fallbackCmd := fmt.Sprintf(`docker update --restart=no %s 2>&1`, containerName)
+			fOut, fErr := uc.ssh.RunCommand(fallbackCmd)
+			if fErr != nil {
+				fMsg := ""
+				if fOut != nil {
+					fMsg = fOut.Output
+				}
+				return fmt.Errorf("fallo al activar modo mantenimiento en '%s': %w (%s)", svc.Name, err, outMsg+fMsg)
+			}
+		}
+		return nil
 	}
 
+	// Remover modo mantenimiento
+	cmd := fmt.Sprintf(`docker service update \
+		--label-rm "traefik.http.middlewares.maint-%s.replacepathregex.regex" \
+		--label-rm "traefik.http.middlewares.maint-%s.replacepathregex.replacement" \
+		--label-rm "traefik.http.routers.%s.middlewares" \
+		%s 2>&1`, svc.Name, svc.Name, svc.Name, containerName)
+	out, err := uc.ssh.RunCommand(cmd)
+	if err != nil {
+		outMsg := ""
+		if out != nil {
+			outMsg = out.Output
+		}
+		slog.Warn("manage_ssl: docker service update fallo al desactivar mantenimiento", "error", err, "out", outMsg)
+	}
+	return nil
+}
+
+// ReloadTraefik fuerza el reinicio o recarga de la configuración de Traefik para renovar certificados
+func (uc *ManageSSLMaintenanceUseCase) ReloadTraefik(config domain.ServerConfig) error {
+	if uc.ssh == nil {
+		return fmt.Errorf("ejecutor SSH no configurado")
+	}
+	if err := uc.ssh.Connect(config); err != nil {
+		return fmt.Errorf("error de conexión SSH: %w", err)
+	}
+	defer func() {
+		if closeErr := uc.ssh.Close(); closeErr != nil {
+			slog.Warn("manage_ssl: error cerrando conexión SSH", "error", closeErr)
+		}
+	}()
+
+	cmd := `docker service update --force tarhiata-traefik 2>/dev/null || docker restart tarhiata-traefik 2>&1`
+	out, err := uc.ssh.RunCommand(cmd)
+	if err != nil {
+		outMsg := ""
+		if out != nil {
+			outMsg = out.Output
+		}
+		slog.Warn("manage_ssl: fallo reiniciando traefik", "error", err, "out", outMsg)
+		return fmt.Errorf("error recargando Traefik: %w", err)
+	}
 	return nil
 }
