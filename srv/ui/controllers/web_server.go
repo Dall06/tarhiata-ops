@@ -24,6 +24,7 @@ import (
 	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
 	"github.com/Dall06/tarhiata-ops/srv/sys/usecases"
 	"github.com/Dall06/tarhiata-ops/opt/banner"
+	"github.com/Dall06/tarhiata-ops/opt/server"
 	"github.com/Dall06/tarhiata-ops/pkg/exs"
 	"github.com/Dall06/tarhiata-ops/pkg/osterminal"
 	"github.com/Dall06/tarhiata-ops/srv/ui/dto"
@@ -361,7 +362,7 @@ func (w *WebServer) Start(port int) error {
 	banner.PrintServerBanner(port)
 	go openBrowser(url)
 
-	return w.Echo().Start(fmt.Sprintf("%s:%d", bindHost, port))
+	return server.StartGraceful(w.Echo(), fmt.Sprintf("%s:%d", bindHost, port), server.DefaultShutdownTimeout)
 }
 
 func isDockerServiceMatch(targetName string, liveMap map[string]bool) bool {
