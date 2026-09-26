@@ -3,6 +3,7 @@ package usecases
 import (
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,7 +100,9 @@ func (uc *DeployServiceUseCase) Execute(service domain.CustomService, config dom
 
 	// 6. Exportar estado de referencias al VPS Host para sincronización multi-PC
 	syncUC := NewSyncClusterStateUseCase(nil, uc.ssh)
-	_ = syncUC.ExportStateToRemote()
+	if errSync := syncUC.ExportStateToRemote(); errSync != nil {
+		slog.Warn("Fallo al exportar estado de sincronización al VPS", "error", errSync)
+	}
 
 	return nil
 }

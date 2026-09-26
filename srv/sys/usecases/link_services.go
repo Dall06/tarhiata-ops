@@ -2,6 +2,7 @@ package usecases
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
@@ -80,9 +81,14 @@ func (u *linkServicesUseCase) Execute(sourceSvc string, targetSvc string, envVar
 			envVarName, targetURL, sourceSvc,
 			envVarName, targetURL, sourceSvc, sourceSvc,
 			envVarName, targetURL, sourceSvc)
-		_, _ = u.sshExec.RunCommand(cmd)
+		resCmd, errCmd := u.sshExec.RunCommand(cmd)
+		if errCmd != nil || (resCmd != nil && resCmd.ExitCode != 0) {
+			slog.Warn("Fallo al inyectar variable de entorno vía SSH", "error", errCmd)
+		}
 		syncUC := NewSyncClusterStateUseCase(u.repo, u.sshExec)
-		_ = syncUC.ExportStateToRemote()
+		if errSync := syncUC.ExportStateToRemote(); errSync != nil {
+			slog.Warn("Fallo al exportar estado de enlaces al VPS", "error", errSync)
+		}
 	}
 
 	return link, nil

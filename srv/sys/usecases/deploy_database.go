@@ -2,6 +2,7 @@ package usecases
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
@@ -212,7 +213,9 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 	fmt.Printf("🔌 URI Interna (Oculta): %s\n", safeUri)
 
 	syncUC := NewSyncClusterStateUseCase(nil, uc.ssh)
-	_ = syncUC.ExportStateToRemote()
+	if errSync := syncUC.ExportStateToRemote(); errSync != nil {
+		slog.Warn("Fallo al exportar estado de sincronización al VPS", "error", errSync)
+	}
 
 	return nil
 }

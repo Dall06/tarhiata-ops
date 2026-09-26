@@ -1,16 +1,49 @@
 package domain
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // ServerConfig contiene los datos necesarios para establecer la conexión.
 type ServerConfig struct {
+	ID            int    `json:"id,omitempty"`
+	Name          string `json:"name"`          // Alias identificador (ej: "local", "vps-prod")
 	Host          string `json:"host"`
 	Port          int    `json:"port"`
 	User          string `json:"user"`
 	PrivateKey    string `json:"privateKey"`    // Ruta a la llave SSH (ej: ~/.ssh/id_rsa)
 	DOAPIToken    string `json:"doApiToken"`   // Token de API Vultr/Cloud (Para Terraform)
 	VultrAPIToken string `json:"vultrApiToken"` // Vultr API Key (Para Terraform)
-	CloudProvider string `json:"cloudProvider"` // "vultr" o "custom"
+	CloudProvider string `json:"cloudProvider"` // "vultr", "custom" o "local"
+	IsActive      bool   `json:"isActive"`      // Indica si es la conexión predeterminada/activa
+}
+
+// IsLocal determina si la configuración apunta al equipo local donde corre Tarhiata.
+func (c ServerConfig) IsLocal() bool {
+	if c.CloudProvider == "local" {
+		return true
+	}
+	h := strings.ToLower(strings.TrimSpace(c.Host))
+	if h == "local" || h == "localhost" || h == "127.0.0.1" || h == "::1" {
+		return true
+	}
+	return false
+}
+
+// ConnectionResult contiene el diagnóstico completo de conectividad y salud del host.
+type ConnectionResult struct {
+	Name          string   `json:"name"`
+	Connected     bool     `json:"connected"`
+	IsLocal       bool     `json:"isLocal"`
+	TargetHost    string   `json:"targetHost"`
+	OS            string   `json:"os"`
+	DockerActive  bool     `json:"dockerActive"`
+	DockerVersion string   `json:"dockerVersion"`
+	SwarmActive   bool     `json:"swarmActive"`
+	LatencyMs     int64    `json:"latencyMs"`
+	Message       string   `json:"message"`
+	Errors        []string `json:"errors,omitempty"`
 }
 
 // CommandResult encapsula la respuesta del servidor tras ejecutar un comando.
@@ -168,6 +201,7 @@ type SavedBackup struct {
 type BackupRequest struct {
 	TargetName  string `json:"targetName"`  // BD o App
 	TargetType  string `json:"targetType"`  // "database" o "volume"
+	Engine      string `json:"engine,omitempty"` // "postgres", "mysql", "mongo", "redis"
 	TargetNode  string `json:"targetNode"`  // Afinidad de nodo ("manager", "worker-1", etc.)
 	BackupID    int    `json:"backupId"`    // Para restauración
 	S3Target    string `json:"s3Target,omitempty"`    // Nombre de la instancia MinIO/S3 o "custom"

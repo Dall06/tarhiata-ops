@@ -14,6 +14,10 @@ type mockRepoForBackups struct {
 
 func (m *mockRepoForBackups) SaveServerConfig(config domain.ServerConfig) error { return nil }
 func (m *mockRepoForBackups) GetServerConfig() (*domain.ServerConfig, error)    { return nil, nil }
+func (m *mockRepoForBackups) GetAllServerConfigs() ([]domain.ServerConfig, error) { return nil, nil }
+func (m *mockRepoForBackups) GetServerConfigByName(name string) (*domain.ServerConfig, error) { return nil, nil }
+func (m *mockRepoForBackups) SetActiveServerConfig(name string) error           { return nil }
+func (m *mockRepoForBackups) DeleteServerConfig(name string) error              { return nil }
 func (m *mockRepoForBackups) SaveService(service domain.SavedService) error     { return nil }
 func (m *mockRepoForBackups) GetServices() ([]domain.SavedService, error)        { return nil, nil }
 func (m *mockRepoForBackups) GetService(name string) (*domain.SavedService, error) {

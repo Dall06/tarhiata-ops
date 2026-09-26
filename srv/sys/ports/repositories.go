@@ -4,11 +4,17 @@ import "github.com/Dall06/tarhiata-ops/srv/sys/domain"
 
 // ConfigRepository define los métodos para persistir configuraciones locales del CLI.
 type ConfigRepository interface {
-	// SaveServerConfig guarda la configuración principal del servidor activo.
+	// SaveServerConfig guarda o actualiza la configuración de un servidor en el catálogo.
 	SaveServerConfig(config domain.ServerConfig) error
 
-	// GetServerConfig obtiene la configuración del servidor activo. Retorna nil si no existe.
+	// GetServerConfig obtiene la configuración del servidor activo actualmente. Retorna nil si no existe.
 	GetServerConfig() (*domain.ServerConfig, error)
+
+	// --- Catálogo de Conexiones / Servidores Multi-Host ---
+	GetAllServerConfigs() ([]domain.ServerConfig, error)
+	GetServerConfigByName(name string) (*domain.ServerConfig, error)
+	SetActiveServerConfig(name string) error
+	DeleteServerConfig(name string) error
 
 	// --- Catálogo de Servicios ---
 	SaveService(svc domain.SavedService) error

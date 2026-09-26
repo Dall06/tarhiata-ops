@@ -27,6 +27,10 @@ func (m *mockRepoForBootstrap) SaveServerConfig(config domain.ServerConfig) erro
 func (m *mockRepoForBootstrap) GetServerConfig() (*domain.ServerConfig, error) {
 	return &domain.ServerConfig{Host: "127.0.0.1"}, nil
 }
+func (m *mockRepoForBootstrap) GetAllServerConfigs() ([]domain.ServerConfig, error) { return nil, nil }
+func (m *mockRepoForBootstrap) GetServerConfigByName(name string) (*domain.ServerConfig, error) { return nil, nil }
+func (m *mockRepoForBootstrap) SetActiveServerConfig(name string) error { return nil }
+func (m *mockRepoForBootstrap) DeleteServerConfig(name string) error { return nil }
 func (m *mockRepoForBootstrap) Close() error { return nil }
 
 func (m *mockRepoForBootstrap) SaveService(service domain.SavedService) error {

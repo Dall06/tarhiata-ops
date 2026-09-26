@@ -16,6 +16,10 @@ type mockRepo struct{}
 
 func (m *mockRepo) SaveServerConfig(config domain.ServerConfig) error         { return nil }
 func (m *mockRepo) GetServerConfig() (*domain.ServerConfig, error)            { return nil, nil }
+func (m *mockRepo) GetAllServerConfigs() ([]domain.ServerConfig, error)       { return nil, nil }
+func (m *mockRepo) GetServerConfigByName(name string) (*domain.ServerConfig, error) { return nil, nil }
+func (m *mockRepo) SetActiveServerConfig(name string) error                   { return nil }
+func (m *mockRepo) DeleteServerConfig(name string) error                      { return nil }
 func (m *mockRepo) SaveService(service domain.SavedService) error             { return nil }
 func (m *mockRepo) GetServices() ([]domain.SavedService, error)                { return nil, nil }
 func (m *mockRepo) GetService(name string) (*domain.SavedService, error)        { return nil, nil }
@@ -111,10 +115,19 @@ func TestWebServer_HandleVolumeUploadTargeting(t *testing.T) {
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	_ = writer.WriteField("targetPath", "/opt/data/traefik/certs/ssl_test.crt")
-	part, _ := writer.CreateFormFile("file", "ssl_test.crt")
-	part.Write([]byte("---BEGIN CERTIFICATE---"))
-	writer.Close()
+	if err := writer.WriteField("targetPath", "/opt/data/traefik/certs/ssl_test.crt"); err != nil {
+		t.Fatalf("failed to write field: %v", err)
+	}
+	part, errPart := writer.CreateFormFile("file", "ssl_test.crt")
+	if errPart != nil {
+		t.Fatalf("failed to create form file: %v", errPart)
+	}
+	if _, err := part.Write([]byte("---BEGIN CERTIFICATE---")); err != nil {
+		t.Fatalf("failed to write part: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("failed to close writer: %v", err)
+	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/volumes/upload", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
@@ -131,3 +144,665 @@ func TestWebServer_HandleVolumeUploadTargeting(t *testing.T) {
 		t.Errorf("expected response to reference target or error, got: %s", rr.Body.String())
 	}
 }
+
+func TestWebServer_HandleConnect(t *testing.T) {
+	repo := &mockRepo{}
+	cfg := &domain.ServerConfig{
+		Host: "localhost",
+	}
+	ws := NewWebServer(repo, cfg)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/connect", strings.NewReader(`{"host":"localhost"}`))
+	rr := httptest.NewRecorder()
+
+	ws.handleConnect(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got: %d", rr.Code)
+	}
+
+	var result domain.ConnectionResult
+	if err := json.NewDecoder(rr.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if !result.Connected {
+		t.Errorf("expected Connected to be true for localhost, got false: %s", result.Message)
+	}
+	if !result.IsLocal {
+		t.Errorf("expected IsLocal to be true")
+	}
+}
+
+func TestWebServer_HandleProvisionServer(t *testing.T) {
+	repo := &mockRepo{}
+	cfg := &domain.ServerConfig{
+		Host: "localhost",
+	}
+	ws := NewWebServer(repo, cfg)
+
+	t.Run("Method not allowed", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/servers/provision", nil)
+		rr := httptest.NewRecorder()
+		ws.handleProvisionServer(rr, req)
+		if rr.Code != http.StatusMethodNotAllowed {
+			t.Errorf("expected status 405, got %d", rr.Code)
+		}
+	})
+
+	t.Run("Missing token returns bad request", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/servers/provision", strings.NewReader(`{"name":"test-srv","apiToken":""}`))
+		rr := httptest.NewRecorder()
+		ws.handleProvisionServer(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("expected status 400, got %d", rr.Code)
+		}
+	})
+}
+
+func TestWebServer_HandleTerminalExec(t *testing.T) {
+	repo := &mockRepo{}
+	cfg := &domain.ServerConfig{
+		Name:          "local",
+		Host:          "localhost",
+		CloudProvider: "local",
+	}
+	ws := NewWebServer(repo, cfg)
+
+	t.Run("Executes safe command on localhost", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/servers/terminal", strings.NewReader(`{"command":"echo 'hello tarhiata'"}`))
+		rr := httptest.NewRecorder()
+		ws.handleTerminalExec(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", rr.Code)
+		}
+
+		var res map[string]interface{}
+		if err := json.NewDecoder(rr.Body).Decode(&res); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		out, ok := res["output"].(string)
+		if !ok || !strings.Contains(out, "hello tarhiata") {
+			t.Errorf("unexpected output: %v", res)
+		}
+	})
+
+	t.Run("Blocks dangerous commands", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/servers/terminal", strings.NewReader(`{"command":"rm -rf /"}`))
+		rr := httptest.NewRecorder()
+		ws.handleTerminalExec(rr, req)
+		if rr.Code != http.StatusForbidden {
+			t.Errorf("expected status 403 Forbidden, got %d", rr.Code)
+		}
+	})
+}
+
+func TestWebServer_HandleHostEndpoints(t *testing.T) {
+	repo := &mockRepo{}
+	cfg := &domain.ServerConfig{
+		Name:          "local",
+		Host:          "localhost",
+		CloudProvider: "local",
+	}
+	ws := NewWebServer(repo, cfg)
+
+	t.Run("Host inspect on localhost", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/host/inspect", nil)
+		rr := httptest.NewRecorder()
+		ws.handleHostInspect(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+		var res domain.HostInspection
+		if err := json.NewDecoder(rr.Body).Decode(&res); err != nil {
+			t.Fatalf("failed to decode HostInspection: %v", err)
+		}
+		if res.ServerName != "local" {
+			t.Errorf("expected serverName 'local', got '%s'", res.ServerName)
+		}
+	})
+
+	t.Run("Host metrics on localhost", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/host/metrics", nil)
+		rr := httptest.NewRecorder()
+		ws.handleHostMetrics(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+		bodyStr := rr.Body.String()
+		var res domain.HostMetrics
+		if err := json.Unmarshal([]byte(bodyStr), &res); err != nil {
+			t.Fatalf("failed to decode HostMetrics: %v", err)
+		}
+		if res.CPUCores <= 0 {
+			t.Errorf("expected CPUCores > 0, got %d", res.CPUCores)
+		}
+	})
+
+	t.Run("Host services on localhost", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/host/services", nil)
+		rr := httptest.NewRecorder()
+		ws.handleHostServices(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+		var res []domain.HostSystemService
+		if err := json.NewDecoder(rr.Body).Decode(&res); err != nil {
+			t.Fatalf("failed to decode HostSystemService list: %v", err)
+		}
+		if len(res) == 0 {
+			t.Logf("no services found or non-fatal empty list on test host")
+		}
+	})
+
+	t.Run("Swarm status on localhost", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/swarm/status", nil)
+		rr := httptest.NewRecorder()
+		ws.handleSwarmStatus(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+		var res domain.SwarmStatus
+		if err := json.NewDecoder(rr.Body).Decode(&res); err != nil {
+			t.Fatalf("failed to decode SwarmStatus: %v", err)
+		}
+	})
+}
+
+func TestWebServer_HandleServiceRestart(t *testing.T) {
+	tests := []struct {
+		name           string
+		method         string
+		url            string
+		body           string
+		cfg            *domain.ServerConfig
+		expectedStatus int
+	}{
+		{
+			name:           "Method Not Allowed (GET)",
+			method:         http.MethodGet,
+			url:            "/api/services/restart?name=my-app",
+			body:           "",
+			cfg:            &domain.ServerConfig{Host: "1.2.3.4"},
+			expectedStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:           "Missing Name Parameter",
+			method:         http.MethodPost,
+			url:            "/api/services/restart",
+			body:           `{}`,
+			cfg:            &domain.ServerConfig{Host: "1.2.3.4"},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Invalid Service Name Characters",
+			method:         http.MethodPost,
+			url:            "/api/services/restart",
+			body:           `{"name":"app; rm -rf /"}`,
+			cfg:            &domain.ServerConfig{Host: "1.2.3.4"},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Missing VPS Configuration",
+			method:         http.MethodPost,
+			url:            "/api/services/restart",
+			body:           `{"name":"valid-app"}`,
+			cfg:            nil,
+			expectedStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &mockRepo{}
+			ws := NewWebServer(repo, tc.cfg)
+
+			var req *http.Request
+			if tc.body != "" {
+				req = httptest.NewRequest(tc.method, tc.url, strings.NewReader(tc.body))
+			} else {
+				req = httptest.NewRequest(tc.method, tc.url, nil)
+			}
+
+			rr := httptest.NewRecorder()
+			ws.handleServiceRestart(rr, req)
+
+			if rr.Code != tc.expectedStatus {
+				t.Errorf("[%s] expected status %d, got %d (body: %s)", tc.name, tc.expectedStatus, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestWebServer_HandleDatabasesBackup(t *testing.T) {
+	tests := []struct {
+		name           string
+		method         string
+		url            string
+		body           string
+		cfg            *domain.ServerConfig
+		expectedStatus int
+	}{
+		{
+			name:           "List Backups (GET)",
+			method:         http.MethodGet,
+			url:            "/api/databases/backup",
+			body:           "",
+			cfg:            &domain.ServerConfig{Host: "1.2.3.4"},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "Create Backup Missing Target Name (POST)",
+			method:         http.MethodPost,
+			url:            "/api/databases/backup",
+			body:           `{"engine":"postgres"}`,
+			cfg:            &domain.ServerConfig{Host: "1.2.3.4"},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Create Backup Missing VPS Config (POST)",
+			method:         http.MethodPost,
+			url:            "/api/databases/backup",
+			body:           `{"targetName":"db-main","engine":"postgres"}`,
+			cfg:            nil,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Delete Backup Invalid ID (DELETE)",
+			method:         http.MethodDelete,
+			url:            "/api/databases/backup?id=invalid",
+			body:           "",
+			cfg:            &domain.ServerConfig{Host: "1.2.3.4"},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Download Backup Invalid ID (GET)",
+			method:         http.MethodGet,
+			url:            "/api/backups/download?id=invalid",
+			body:           "",
+			cfg:            &domain.ServerConfig{Host: "1.2.3.4"},
+			expectedStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &mockRepo{}
+			ws := NewWebServer(repo, tc.cfg)
+
+			var req *http.Request
+			if tc.body != "" {
+				req = httptest.NewRequest(tc.method, tc.url, strings.NewReader(tc.body))
+			} else {
+				req = httptest.NewRequest(tc.method, tc.url, nil)
+			}
+
+			rr := httptest.NewRecorder()
+			if strings.HasPrefix(tc.url, "/api/backups/download") {
+				ws.handleDownloadBackup(rr, req)
+			} else {
+				ws.handleBackups(rr, req)
+			}
+
+			if rr.Code != tc.expectedStatus {
+				t.Errorf("[%s] expected status %d, got %d (body: %s)", tc.name, tc.expectedStatus, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestWebServer_HandleDNSCheck(t *testing.T) {
+	tests := []struct {
+		name           string
+		method         string
+		url            string
+		cfg            *domain.ServerConfig
+		expectedStatus int
+	}{
+		{
+			name:           "Method Not Allowed (POST)",
+			method:         http.MethodPost,
+			url:            "/api/dns/check?domain=example.com",
+			cfg:            &domain.ServerConfig{Host: "93.184.216.34"},
+			expectedStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:           "Missing Domain Parameter",
+			method:         http.MethodGet,
+			url:            "/api/dns/check",
+			cfg:            &domain.ServerConfig{Host: "1.2.3.4"},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Invalid Domain Format",
+			method:         http.MethodGet,
+			url:            "/api/dns/check?domain=bad_domain;rm",
+			cfg:            &domain.ServerConfig{Host: "1.2.3.4"},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Valid Domain Query (Non-existent)",
+			method:         http.MethodGet,
+			url:            "/api/dns/check?domain=tarhiata-non-existent-test-domain-999.xyz",
+			cfg:            &domain.ServerConfig{Host: "1.2.3.4"},
+			expectedStatus: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &mockRepo{}
+			ws := NewWebServer(repo, tc.cfg)
+
+			req := httptest.NewRequest(tc.method, tc.url, nil)
+			rr := httptest.NewRecorder()
+			ws.handleDNSCheck(rr, req)
+
+			if rr.Code != tc.expectedStatus {
+				t.Errorf("[%s] expected status %d, got %d (body: %s)", tc.name, tc.expectedStatus, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestWebServer_HandleEnvVars(t *testing.T) {
+	tests := []struct {
+		name           string
+		method         string
+		url            string
+		body           string
+		cfg            *domain.ServerConfig
+		expectedStatus int
+	}{
+		{
+			name:           "GET Missing Service Parameter",
+			method:         http.MethodGet,
+			url:            "/api/env",
+			body:           "",
+			cfg:            &domain.ServerConfig{Host: "1.2.3.4"},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "GET Valid Service Parameter",
+			method:         http.MethodGet,
+			url:            "/api/env?service=api-gateway",
+			body:           "",
+			cfg:            &domain.ServerConfig{Host: "1.2.3.4"},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "POST Missing ServiceName In Body",
+			method:         http.MethodPost,
+			url:            "/api/env",
+			body:           `{"rawContent":"KEY=VALUE"}`,
+			cfg:            &domain.ServerConfig{Host: "1.2.3.4"},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "POST Valid Env Update",
+			method:         http.MethodPost,
+			url:            "/api/env",
+			body:           `{"serviceName":"api-gateway","rawContent":"PORT=8080\nDEBUG=true"}`,
+			cfg:            &domain.ServerConfig{Host: "1.2.3.4"},
+			expectedStatus: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &mockRepo{}
+			ws := NewWebServer(repo, tc.cfg)
+
+			var req *http.Request
+			if tc.body != "" {
+				req = httptest.NewRequest(tc.method, tc.url, strings.NewReader(tc.body))
+			} else {
+				req = httptest.NewRequest(tc.method, tc.url, nil)
+			}
+
+			rr := httptest.NewRecorder()
+			ws.handleEnvVars(rr, req)
+
+			if rr.Code != tc.expectedStatus {
+				t.Errorf("[%s] expected status %d, got %d (body: %s)", tc.name, tc.expectedStatus, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestWebServer_HandleVolumes_TableDriven(t *testing.T) {
+	tests := []struct {
+		name           string
+		handler        func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request)
+		method         string
+		url            string
+		body           string
+		expectedStatus []int
+	}{
+		{
+			name: "ListVolumes returns empty array or vols without config",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleVolumes(rr, req)
+			},
+			method:         http.MethodGet,
+			url:            "/api/volumes",
+			expectedStatus: []int{http.StatusOK, http.StatusInternalServerError},
+		},
+		{
+			name: "ListVolumeFiles returns bad request or 500 when unconfigured",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleVolumeFiles(rr, req)
+			},
+			method:         http.MethodGet,
+			url:            "/api/volumes/files?path=/opt/data",
+			expectedStatus: []int{http.StatusOK, http.StatusBadRequest, http.StatusInternalServerError},
+		},
+		{
+			name: "VolumeRead missing path returns 400",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleVolumeRead(rr, req)
+			},
+			method:         http.MethodGet,
+			url:            "/api/volumes/read",
+			expectedStatus: []int{http.StatusBadRequest},
+		},
+		{
+			name: "VolumeWrite missing path returns 400",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleVolumeWrite(rr, req)
+			},
+			method:         http.MethodPost,
+			url:            "/api/volumes/write",
+			body:           `{"content":"hello"}`,
+			expectedStatus: []int{http.StatusBadRequest},
+		},
+		{
+			name: "VolumeDownload missing path returns 400",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleVolumeDownload(rr, req)
+			},
+			method:         http.MethodGet,
+			url:            "/api/volumes/download",
+			expectedStatus: []int{http.StatusBadRequest},
+		},
+		{
+			name: "VolumeDelete missing path returns 400",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleVolumeDelete(rr, req)
+			},
+			method:         http.MethodDelete,
+			url:            "/api/volumes/delete",
+			expectedStatus: []int{http.StatusBadRequest},
+		},
+		{
+			name: "VolumeMkdir missing path returns 400",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleVolumeMkdir(rr, req)
+			},
+			method:         http.MethodPost,
+			url:            "/api/volumes/mkdir",
+			body:           `{}`,
+			expectedStatus: []int{http.StatusBadRequest},
+		},
+		{
+			name: "VolumeMkdir wrong method returns 405",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleVolumeMkdir(rr, req)
+			},
+			method:         http.MethodGet,
+			url:            "/api/volumes/mkdir",
+			expectedStatus: []int{http.StatusMethodNotAllowed},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &mockRepo{}
+			cfg := &domain.ServerConfig{Host: "127.0.0.1", User: "root"}
+			ws := NewWebServer(repo, cfg)
+
+			var req *http.Request
+			if tc.body != "" {
+				req = httptest.NewRequest(tc.method, tc.url, strings.NewReader(tc.body))
+			} else {
+				req = httptest.NewRequest(tc.method, tc.url, nil)
+			}
+
+			rr := httptest.NewRecorder()
+			tc.handler(ws, rr, req)
+
+			matched := false
+			for _, exp := range tc.expectedStatus {
+				if rr.Code == exp {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				t.Errorf("[%s] unexpected status %d, allowed: %v (body: %s)", tc.name, rr.Code, tc.expectedStatus, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestWebServer_HandleTerminal_TableDriven(t *testing.T) {
+	tests := []struct {
+		name           string
+		handler        func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request)
+		method         string
+		url            string
+		body           string
+		expectedStatus int
+	}{
+		{
+			name: "TerminalExec wrong method returns 405",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleTerminalExec(rr, req)
+			},
+			method:         http.MethodGet,
+			url:            "/api/terminal/exec",
+			expectedStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name: "TerminalExec invalid json returns 400",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleTerminalExec(rr, req)
+			},
+			method:         http.MethodPost,
+			url:            "/api/terminal/exec",
+			body:           `{invalid}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "TerminalExec invalid node id returns 400",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleTerminalExec(rr, req)
+			},
+			method:         http.MethodPost,
+			url:            "/api/terminal/exec",
+			body:           `{"nodeId":"node!@#$invalid"}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "TerminalExec dangerous command returns 403",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleTerminalExec(rr, req)
+			},
+			method:         http.MethodPost,
+			url:            "/api/terminal/exec",
+			body:           `{"command":"rm -rf /"}`,
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name: "TerminalExec empty command returns 200 with empty output",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleTerminalExec(rr, req)
+			},
+			method:         http.MethodPost,
+			url:            "/api/terminal/exec",
+			body:           `{"command":""}`,
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "OpenTerminal wrong method returns 405",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleOpenTerminal(rr, req)
+			},
+			method:         http.MethodGet,
+			url:            "/api/servers/open-terminal",
+			expectedStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name: "OpenTerminal invalid json returns 400",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleOpenTerminal(rr, req)
+			},
+			method:         http.MethodPost,
+			url:            "/api/servers/open-terminal",
+			body:           `{bad_json`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "OpenTerminal missing server returns 404",
+			handler: func(ws *WebServer, rr *httptest.ResponseRecorder, req *http.Request) {
+				ws.handleOpenTerminal(rr, req)
+			},
+			method:         http.MethodPost,
+			url:            "/api/servers/open-terminal",
+			body:           `{"name":"non-existent-server-xyz"}`,
+			expectedStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &mockRepo{}
+			cfg := &domain.ServerConfig{Name: "local", Host: "localhost", CloudProvider: "local"}
+			ws := NewWebServer(repo, cfg)
+
+			var req *http.Request
+			if tc.body != "" {
+				req = httptest.NewRequest(tc.method, tc.url, strings.NewReader(tc.body))
+			} else {
+				req = httptest.NewRequest(tc.method, tc.url, nil)
+			}
+
+			rr := httptest.NewRecorder()
+			tc.handler(ws, rr, req)
+
+			if rr.Code != tc.expectedStatus {
+				t.Errorf("[%s] expected status %d, got %d (body: %s)", tc.name, tc.expectedStatus, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+
+
+
+
+
+
+
+
+

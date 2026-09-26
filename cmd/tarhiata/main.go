@@ -3,10 +3,13 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/Dall06/tarhiata-ops/srv/cli/sys"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
@@ -52,6 +55,15 @@ func main() {
 
 	case "config":
 		handleConfigCommand(repo, subArgs)
+
+	case "test", "test-connection", "ping", "connect":
+		handleConnectCommand(repo, serverConfig, subArgs)
+
+	case "ssh", "terminal", "shell":
+		handleSSHCommand(repo, serverConfig, subArgs)
+
+	case "host", "vps":
+		handleHostCommand(repo, subArgs)
 
 	case "init", "bootstrap":
 		handleInitCommand(repo, serverConfig, subArgs)
@@ -146,35 +158,60 @@ func runDashboard(repo *repositories.SQLiteRepository, config *domain.ServerConf
 
 func handleConfigCommand(repo *repositories.SQLiteRepository, args []string) {
 	fs := flag.NewFlagSet("config", flag.ExitOnError)
-	host := fs.String("host", "", "IP o Host del servidor VPS")
+	host := fs.String("host", "", "IP o Host del servidor VPS (o 'localhost')")
 	port := fs.Int("port", 22, "Puerto SSH")
 	user := fs.String("user", "root", "Usuario SSH")
 	key := fs.String("key", "~/.ssh/id_rsa", "Ruta a llave privada SSH")
 	doToken := fs.String("do-token", "", "Token de API de DigitalOcean")
+	isLocal := fs.Bool("local", false, "Configurar este equipo local (localhost)")
+	testConn := fs.Bool("test", true, "Probar conexión tras guardar configuración")
 	fs.Parse(args)
 
-	if *host == "" {
+	if !*isLocal && *host == "" {
 		if repo == nil {
-			fmt.Println("❌ No hay servidor configurado. Usa: tarhiata config set --host <IP>")
+			fmt.Println("❌ No hay servidor configurado. Usa: tarhiata config --local o tarhiata config --host <IP>")
 			return
 		}
 		cfg, err := repo.GetServerConfig()
 		if err != nil || cfg == nil || cfg.Host == "" {
-			fmt.Println("❌ No hay servidor configurado. Usa: tarhiata config set --host <IP>")
+			fmt.Println("❌ No hay servidor configurado. Usa: tarhiata config --local o tarhiata config --host <IP>")
 			return
 		}
-		fmt.Printf("⚙️  Configuración Actual:\n • Host: %s\n • Puerto: %d\n • User: %s\n • Key: %s\n • DO Token: %s\n",
-			cfg.Host, cfg.Port, cfg.User, cfg.PrivateKey, cfg.DOAPIToken)
+		mode := "Remoto (SSH)"
+		if cfg.IsLocal() {
+			mode = "Local (Máquina actual)"
+		}
+		fmt.Printf("⚙️  Configuración Actual [%s]:\n • Host: %s\n • Puerto: %d\n • User: %s\n • Key: %s\n • DO Token: %s\n",
+			mode, cfg.Host, cfg.Port, cfg.User, cfg.PrivateKey, cfg.DOAPIToken)
 		return
 	}
 
+	cloudProvider := "vps-direct"
+	finalHost := strings.TrimSpace(*host)
+	finalPort := *port
+	finalUser := strings.TrimSpace(*user)
+	finalKey := strings.TrimSpace(*key)
+
+	if *isLocal || finalHost == "local" || finalHost == "localhost" || finalHost == "127.0.0.1" {
+		cloudProvider = "local"
+		finalHost = "localhost"
+		finalPort = 0
+		if finalUser == "" || finalUser == "root" {
+			finalUser = os.Getenv("USER")
+			if finalUser == "" {
+				finalUser = "local"
+			}
+		}
+		finalKey = ""
+	}
+
 	newCfg := domain.ServerConfig{
-		Host:          strings.TrimSpace(*host),
-		Port:          *port,
-		User:          strings.TrimSpace(*user),
-		PrivateKey:    strings.TrimSpace(*key),
+		Host:          finalHost,
+		Port:          finalPort,
+		User:          finalUser,
+		PrivateKey:    finalKey,
 		DOAPIToken:    strings.TrimSpace(*doToken),
-		CloudProvider: "vps-direct",
+		CloudProvider: cloudProvider,
 	}
 
 	if err := repo.SaveServerConfig(newCfg); err != nil {
@@ -182,6 +219,398 @@ func handleConfigCommand(repo *repositories.SQLiteRepository, args []string) {
 		return
 	}
 	fmt.Println("✅ Configuración de servidor guardada exitosamente en SQLite!")
+
+	if *testConn {
+		fmt.Printf("\n🔍 Validando conexión con %s...\n", newCfg.Host)
+		exec := repositories.NewCryptoSSHExecutor()
+		uc := usecases.NewConnectServerUseCase(exec)
+		res, err := uc.Execute(newCfg)
+		if err != nil {
+			fmt.Printf("⚠️  Error ejecutando prueba de conexión: %v\n", err)
+			return
+		}
+		printConnectionReport(res)
+	}
+}
+
+func handleConnectCommand(repo *repositories.SQLiteRepository, config *domain.ServerConfig, args []string) {
+	if len(args) > 0 {
+		subcmd := strings.ToLower(args[0])
+		switch subcmd {
+		case "ssh", "terminal", "shell":
+			handleSSHCommand(repo, config, args[1:])
+			return
+
+		case "list", "ls":
+			if repo == nil {
+				fmt.Println("❌ Base de datos no disponible.")
+				return
+			}
+			servers, err := repo.GetAllServerConfigs()
+			if err != nil {
+				fmt.Printf("❌ Error al listar servidores: %v\n", err)
+				return
+			}
+			if len(servers) == 0 {
+				fmt.Println("ℹ️  No hay servidores guardados en el catálogo.")
+				fmt.Println("👉 Agrega uno con: tarhiata connect add --name <alias> --host <IP>")
+				return
+			}
+			fmt.Println("📋 Catálogo de Servidores Configurados:")
+			fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			for _, s := range servers {
+				activeBadge := "  "
+				if s.IsActive {
+					activeBadge = "★ ACTIVO"
+				}
+				mode := "Remoto (SSH)"
+				if s.IsLocal() {
+					mode = "Local"
+				}
+				fmt.Printf(" • %-16s [%-8s] %-20s %s\n", s.Name, mode, fmt.Sprintf("%s:%d", s.Host, s.Port), activeBadge)
+			}
+			fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			fmt.Println("👉 Cambiar de servidor activo: tarhiata connect switch <nombre>")
+			return
+
+		case "switch", "use":
+			if len(args) < 2 {
+				fmt.Println("❌ Especifica el nombre del servidor: tarhiata connect switch <nombre>")
+				return
+			}
+			targetName := args[1]
+			if err := repo.SetActiveServerConfig(targetName); err != nil {
+				fmt.Printf("❌ Error al activar servidor: %v\n", err)
+				return
+			}
+			fmt.Printf("✅ Servidor activo cambiado a '%s'.\n", targetName)
+			activeCfg, err := repo.GetServerConfig()
+			if err == nil && activeCfg != nil {
+				fmt.Printf("🔍 Probando conexión inmediata con '%s' (%s)...\n", activeCfg.Name, activeCfg.Host)
+				exec := repositories.NewCryptoSSHExecutor()
+				uc := usecases.NewConnectServerUseCase(exec)
+				res, _ := uc.Execute(*activeCfg)
+				if res != nil {
+					printConnectionReport(res)
+				}
+			}
+			return
+
+		case "rm", "delete", "remove":
+			if len(args) < 2 {
+				fmt.Println("❌ Especifica el nombre del servidor a eliminar: tarhiata connect rm <nombre>")
+				return
+			}
+			targetName := args[1]
+			if err := repo.DeleteServerConfig(targetName); err != nil {
+				fmt.Printf("❌ Error al eliminar servidor: %v\n", err)
+				return
+			}
+			fmt.Printf("✅ Servidor '%s' eliminado del catálogo.\n", targetName)
+			return
+
+		case "add":
+			fsAdd := flag.NewFlagSet("connect add", flag.ExitOnError)
+			name := fsAdd.String("name", "", "Nombre / Alias único del servidor")
+			host := fsAdd.String("host", "", "IP o Host")
+			port := fsAdd.Int("port", 22, "Puerto SSH")
+			user := fsAdd.String("user", "root", "Usuario SSH")
+			key := fsAdd.String("key", "~/.ssh/id_rsa", "Ruta de llave privada")
+			isLocal := fsAdd.Bool("local", false, "Es la máquina local")
+			active := fsAdd.Bool("active", true, "Establecer como servidor activo")
+			fsAdd.Parse(args[1:])
+
+			if *name == "" {
+				if *isLocal {
+					*name = "local"
+				}
+				if !*isLocal && *host != "" {
+					*name = *host
+				}
+			}
+			if *isLocal {
+				*host = "localhost"
+				*port = 0
+				if *user == "" || *user == "root" {
+					*user = "local"
+				}
+			}
+			if *host == "" {
+				fmt.Println("❌ Especifica un Host o usa --local")
+				return
+			}
+
+			provider := "vps-direct"
+			if *isLocal {
+				provider = "local"
+			}
+
+			newServer := domain.ServerConfig{
+				Name:          strings.TrimSpace(*name),
+				Host:          strings.TrimSpace(*host),
+				Port:          *port,
+				User:          strings.TrimSpace(*user),
+				PrivateKey:    strings.TrimSpace(*key),
+				CloudProvider: provider,
+				IsActive:      *active,
+			}
+			if err := repo.SaveServerConfig(newServer); err != nil {
+				fmt.Printf("❌ Error guardando servidor: %v\n", err)
+				return
+			}
+			fmt.Printf("✅ Servidor '%s' agregado exitosamente al catálogo!\n", newServer.Name)
+			return
+
+		case "cloud", "provision":
+			fsCloud := flag.NewFlagSet("connect cloud", flag.ExitOnError)
+			cProvider := fsCloud.String("provider", "vultr", "Proveedor cloud: vultr o digitalocean")
+			cToken := fsCloud.String("token", "", "API Token de Vultr o DigitalOcean")
+			cName := fsCloud.String("name", "", "Nombre / Alias único de la nueva instancia")
+			cRegion := fsCloud.String("region", "", "Región (ej. mex, ewr, nyc1)")
+			cPlan := fsCloud.String("plan", "", "Plan de máquina (opcional)")
+			cActive := fsCloud.Bool("active", true, "Establecer como servidor activo tras aprovisionar")
+			fsCloud.Parse(args[1:])
+
+			if *cToken == "" {
+				fmt.Println("❌ Se requiere el flag --token con tu API Key del proveedor")
+				return
+			}
+			if *cName == "" {
+				*cName = fmt.Sprintf("%s-node-%d", *cProvider, time.Now().Unix())
+			}
+
+			fmt.Printf("🚀 Aprovisionando instancia '%s' en %s (OpenTofu / Terraform)...\n", *cName, strings.ToUpper(*cProvider))
+			sshExec := repositories.NewCryptoSSHExecutor()
+			connectUC := usecases.NewConnectServerUseCase(sshExec)
+			provisionUC := usecases.NewProvisionCloudServerUseCase(repo, connectUC)
+
+			res, err := provisionUC.Execute(ports.ProvisionCloudRequest{
+				Name:        *cName,
+				Provider:    *cProvider,
+				APIToken:    *cToken,
+				Region:      *cRegion,
+				Plan:        *cPlan,
+				SetAsActive: *cActive,
+			})
+			if err != nil {
+				fmt.Printf("❌ Error en aprovisionamiento: %v\n", err)
+				return
+			}
+			fmt.Printf("✅ Instancia aprovisionada y guardada en el catálogo!\n")
+			if res != nil {
+				printConnectionReport(res)
+			}
+			return
+
+		case "all":
+			servers, err := repo.GetAllServerConfigs()
+			if err != nil {
+				fmt.Printf("❌ Error al obtener servidores: %v\n", err)
+				return
+			}
+			if len(servers) == 0 {
+				fmt.Println("ℹ️  No hay servidores en el catálogo.")
+				return
+			}
+			fmt.Printf("🔄 Probando %d servidores en paralelo...\n\n", len(servers))
+			for _, s := range servers {
+				exec := repositories.NewCryptoSSHExecutor()
+				uc := usecases.NewConnectServerUseCase(exec)
+				res, _ := uc.Execute(s)
+				if res != nil {
+					printConnectionReport(res)
+				}
+			}
+			return
+		}
+	}
+
+	fs := flag.NewFlagSet("connect", flag.ExitOnError)
+	host := fs.String("host", "", "IP o Host del servidor (o 'localhost')")
+	port := fs.Int("port", 22, "Puerto SSH")
+	user := fs.String("user", "root", "Usuario SSH")
+	key := fs.String("key", "~/.ssh/id_rsa", "Ruta a llave privada SSH")
+	isLocal := fs.Bool("local", false, "Probar conexión a la máquina local actual")
+	fs.Parse(args)
+
+	cfg := domain.ServerConfig{}
+	if config != nil {
+		cfg = *config
+	}
+
+	if *isLocal {
+		cfg.Host = "localhost"
+		cfg.Port = 0
+		cfg.CloudProvider = "local"
+	}
+	if *host != "" {
+		cfg.Host = strings.TrimSpace(*host)
+		cfg.Port = *port
+		cfg.User = strings.TrimSpace(*user)
+		cfg.PrivateKey = strings.TrimSpace(*key)
+		if cfg.IsLocal() {
+			cfg.CloudProvider = "local"
+		}
+		if !cfg.IsLocal() {
+			cfg.CloudProvider = "vps-direct"
+		}
+	}
+
+	if cfg.Host == "" && !cfg.IsLocal() {
+		fmt.Println("❌ No hay servidor configurado ni especificado.")
+		fmt.Println("👉 Usa: tarhiata connect --local")
+		fmt.Println("👉 O usa: tarhiata connect --host <IP> [--user root] [--key ~/.ssh/id_rsa]")
+		fmt.Println("👉 O lista los guardados: tarhiata connect list")
+		return
+	}
+
+	targetName := cfg.Host
+	if cfg.IsLocal() {
+		targetName = "localhost (Máquina local)"
+	}
+	if cfg.Name != "" {
+		targetName = fmt.Sprintf("%s (%s)", cfg.Name, targetName)
+	}
+	fmt.Printf("🔍 Probando conexión con %s...\n", targetName)
+
+	exec := repositories.NewCryptoSSHExecutor()
+	uc := usecases.NewConnectServerUseCase(exec)
+	res, err := uc.Execute(cfg)
+	if err != nil {
+		fmt.Printf("❌ Error inesperado al validar conexión: %v\n", err)
+		return
+	}
+
+	printConnectionReport(res)
+}
+
+func handleSSHCommand(repo *repositories.SQLiteRepository, config *domain.ServerConfig, args []string) {
+	var targetCfg *domain.ServerConfig
+	var err error
+
+	if len(args) > 0 && strings.TrimSpace(args[0]) != "" {
+		targetName := strings.TrimSpace(args[0])
+		if repo != nil {
+			targetCfg, err = repo.GetServerConfigByName(targetName)
+		}
+		if (targetCfg == nil || err != nil) && config != nil && (config.Name == targetName || config.Host == targetName) {
+			targetCfg = config
+		}
+		if targetCfg == nil {
+			fmt.Printf("❌ Servidor '%s' no encontrado en el catálogo.\n", targetName)
+			fmt.Println("👉 Consulta las conexiones disponibles con: tarhiata connect list")
+			return
+		}
+	} else {
+		if repo != nil {
+			targetCfg, err = repo.GetServerConfig()
+		}
+		if targetCfg == nil || err != nil {
+			targetCfg = config
+		}
+	}
+
+	if targetCfg == nil || targetCfg.Host == "" {
+		fmt.Println("❌ No hay ningún servidor configurado o activo.")
+		fmt.Println("👉 Usa: tarhiata ssh <nombre> o tarhiata connect list")
+		return
+	}
+
+	if targetCfg.IsLocal() {
+		fmt.Printf("💻 [Tarhiata] Conectando a terminal local (%s)...\n", targetCfg.Name)
+		exec := repositories.NewCryptoSSHExecutor()
+		if err := exec.Connect(*targetCfg); err != nil {
+			fmt.Printf("❌ Error inicializando entorno local: %v\n", err)
+			return
+		}
+		if err := exec.InteractiveShell(); err != nil {
+			fmt.Printf("❌ Sesión local finalizada: %v\n", err)
+		}
+		return
+	}
+
+	fmt.Printf("🔌 [Tarhiata] Conectando por SSH a '%s' (%s@%s:%d)...\n", targetCfg.Name, targetCfg.User, targetCfg.Host, targetCfg.Port)
+	exec := repositories.NewCryptoSSHExecutor()
+	if err := exec.Connect(*targetCfg); err != nil {
+		fmt.Printf("❌ Error al conectar por SSH a %s: %v\n", targetCfg.Host, err)
+		return
+	}
+	defer exec.Close()
+
+	if err := exec.InteractiveShell(); err != nil {
+		fmt.Printf("❌ Sesión SSH terminada con error: %v\n", err)
+		return
+	}
+	fmt.Println("🔌 Sesión SSH cerrada.")
+}
+
+func printConnectionReport(res *domain.ConnectionResult) {
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	if res.Connected {
+		mode := "Remoto (SSH)"
+		if res.IsLocal {
+			mode = "Local (Máquina actual)"
+		}
+		fmt.Printf("✅ CONEXIÓN EXITOSA [%s] → %s (%d ms)\n", mode, res.TargetHost, res.LatencyMs)
+		fmt.Printf(" • Sistema Operativo: %s\n", res.OS)
+		if res.DockerActive {
+			fmt.Printf(" • Docker Daemon:    ✅ %s\n", res.DockerVersion)
+		}
+		if !res.DockerActive {
+			fmt.Println(" • Docker Daemon:    ❌ No detectado o apagado")
+		}
+		if res.SwarmActive {
+			fmt.Println(" • Docker Swarm:     ✅ Clúster activo")
+		}
+		if !res.SwarmActive {
+			fmt.Println(" • Docker Swarm:     ⏳ Inactivo (usa 'tarhiata init' para inicializarlo)")
+		}
+		fmt.Printf("\nℹ️  %s\n", res.Message)
+	}
+	if !res.Connected {
+		fmt.Printf("❌ CONEXIÓN FALLIDA → %s\n", res.TargetHost)
+		fmt.Printf(" • Detalle: %s\n", res.Message)
+		for _, e := range res.Errors {
+			fmt.Printf("   - %s\n", e)
+		}
+	}
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+}
+
+func handleHostCommand(repo ports.ConfigRepository, args []string) {
+	handler := sys.NewHostHandler(repo)
+	if len(args) == 0 {
+		if err := handler.HandleInspect(""); err != nil {
+			fmt.Printf("❌ Error: %v\n", err)
+		}
+		return
+	}
+
+	subCmd := strings.ToLower(args[0])
+	targetServer := ""
+	if len(args) > 1 {
+		targetServer = args[1]
+	}
+
+	switch subCmd {
+	case "metrics", "stats", "telemetry", "metricas":
+		if err := handler.HandleMetrics(targetServer); err != nil {
+			fmt.Printf("❌ Error: %v\n", err)
+		}
+	case "services", "svc", "systemd", "servicios":
+		if err := handler.HandleServices(targetServer); err != nil {
+			fmt.Printf("❌ Error: %v\n", err)
+		}
+	case "inspect", "all", "todo":
+		if err := handler.HandleInspect(targetServer); err != nil {
+			fmt.Printf("❌ Error: %v\n", err)
+		}
+	default:
+		// Si el primer argumento es el nombre o alias de un servidor
+		if err := handler.HandleInspect(args[0]); err != nil {
+			fmt.Printf("❌ Error: %v\n", err)
+		}
+	}
 }
 
 func handleInitCommand(repo *repositories.SQLiteRepository, config *domain.ServerConfig, args []string) {
@@ -316,10 +745,15 @@ func handleDatabaseCommand(repo *repositories.SQLiteRepository, config *domain.S
 
 		if config != nil && config.Host != "" {
 			sshExec := repositories.NewCryptoSSHExecutor()
-			if err := sshExec.Connect(*config); err == nil {
+			if err := sshExec.Connect(*config); err != nil {
+				fmt.Printf("⚠️ No se pudo conectar al servidor para desplegar la BD: %v\n", err)
+			} else {
 				defer sshExec.Close()
 				deployer := usecases.NewDeployDatabaseUseCase(sshExec)
-				_ = deployer.Execute(db, *config)
+				if errDeploy := deployer.Execute(db, *config); errDeploy != nil {
+					fmt.Printf("❌ Error al desplegar BD '%s': %v\n", db.Name, errDeploy)
+					return
+				}
 				fmt.Printf("🗄️ ¡Base de Datos '%s' (%s) desplegada correctamente!\n", db.Name, db.Engine)
 				return
 			}
@@ -507,7 +941,9 @@ func handleNodeCommand(repo *repositories.SQLiteRepository, config *domain.Serve
 		}
 		defer sshExec.Close()
 		fmt.Printf("⏳ Drenando servicios del nodo '%s'...\n", nodeID)
-		_, _ = sshExec.RunCommand(fmt.Sprintf("docker node update --availability drain %s", nodeID))
+		if drainRes, errDrain := sshExec.RunCommand(fmt.Sprintf("docker node update --availability drain %s", nodeID)); errDrain != nil || (drainRes != nil && drainRes.ExitCode != 0) {
+			fmt.Printf("⚠️ Advertencia al drenar nodo: %v\n", errDrain)
+		}
 		res, err := sshExec.RunCommand(fmt.Sprintf("docker node rm --force %s", nodeID))
 		if err != nil || res.ExitCode != 0 {
 			fmt.Printf("❌ Error al remover nodo: %s\n", res.Output)
@@ -1225,7 +1661,7 @@ func handleEnvCommand(repo *repositories.SQLiteRepository, config *domain.Server
 			fmt.Println("❌ Especifica el servicio con --service <nombre>")
 			return
 		}
-		raw, envMap, err := uc.GetEnvVars(*svcName)
+		_, envMap, err := uc.GetEnvVars(*svcName)
 		if err != nil {
 			fmt.Printf("❌ Error: %v\n", err)
 			return
@@ -1238,7 +1674,6 @@ func handleEnvCommand(repo *repositories.SQLiteRepository, config *domain.Server
 		for k, v := range envMap {
 			fmt.Printf("  • %s = %s\n", k, v)
 		}
-		_ = raw
 
 	case "import":
 		fs := flag.NewFlagSet("env import", flag.ExitOnError)
@@ -1289,7 +1724,10 @@ func handleEnvCommand(repo *repositories.SQLiteRepository, config *domain.Server
 			return
 		}
 		kv := fs.Args()[0]
-		raw, envMap, _ := uc.GetEnvVars(*svcName)
+		_, envMap, err := uc.GetEnvVars(*svcName)
+		if err != nil {
+			slog.Warn("error al obtener variables previas", "service", *svcName, "error", err)
+		}
 		parts := strings.SplitN(kv, "=", 2)
 		if len(parts) != 2 {
 			fmt.Println("❌ Formato inválido. Usa KEY=VALUE")
@@ -1305,7 +1743,6 @@ func handleEnvCommand(repo *repositories.SQLiteRepository, config *domain.Server
 			return
 		}
 		fmt.Printf("✅ Variable '%s' actualizada en '%s'.\n", parts[0], *svcName)
-		_ = raw
 	}
 }
 
@@ -1519,7 +1956,8 @@ Uso:
 Comandos disponibles:
   (sin comando)      Inicia el Web Dashboard en http://localhost:8080 (Spotlight Cmd+K)
   dashboard | ui     Inicia el Web Dashboard en http://localhost:8080
-  config set         Configura credenciales SSH y Token de Vultr API Key
+  config             Configura servidor remoto (SSH) o local (localhost)
+  connect | test     Prueba y valida la conexión y telemetría (remota o local)
   init | bootstrap   Ejecuta InitServerUseCase (Docker Swarm + Traefik HTTPS + Fail2Ban)
   deploy             Despliega una app service en Swarm con SSL y Traefik
   preview            Gestiona entornos temporales efímeros (create/list/destroy)

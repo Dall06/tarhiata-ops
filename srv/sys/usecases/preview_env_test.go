@@ -25,6 +25,10 @@ func (m *mockRepoForPreview) SaveServerConfig(config domain.ServerConfig) error 
 func (m *mockRepoForPreview) GetServerConfig() (*domain.ServerConfig, error) {
 	return &domain.ServerConfig{Host: "127.0.0.1"}, nil
 }
+func (m *mockRepoForPreview) GetAllServerConfigs() ([]domain.ServerConfig, error) { return nil, nil }
+func (m *mockRepoForPreview) GetServerConfigByName(name string) (*domain.ServerConfig, error) { return nil, nil }
+func (m *mockRepoForPreview) SetActiveServerConfig(name string) error { return nil }
+func (m *mockRepoForPreview) DeleteServerConfig(name string) error { return nil }
 func (m *mockRepoForPreview) SaveService(svc domain.SavedService) error            { return nil }
 func (m *mockRepoForPreview) GetServices() ([]domain.SavedService, error)          { return nil, nil }
 func (m *mockRepoForPreview) GetService(name string) (*domain.SavedService, error) { return nil, nil }

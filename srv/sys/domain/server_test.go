@@ -24,3 +24,61 @@ func TestDomainStructs(t *testing.T) {
 		t.Errorf("expected Engine 'postgres', got '%s'", db.Engine)
 	}
 }
+
+func TestServerConfig_IsLocal(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      ServerConfig
+		expected bool
+	}{
+		{
+			name:     "localhost host",
+			cfg:      ServerConfig{Host: "localhost"},
+			expected: true,
+		},
+		{
+			name:     "127.0.0.1 host",
+			cfg:      ServerConfig{Host: "127.0.0.1"},
+			expected: true,
+		},
+		{
+			name:     "::1 host",
+			cfg:      ServerConfig{Host: "::1"},
+			expected: true,
+		},
+		{
+			name:     "local string host",
+			cfg:      ServerConfig{Host: "local"},
+			expected: true,
+		},
+		{
+			name:     "cloudProvider local",
+			cfg:      ServerConfig{Host: "my-vps", CloudProvider: "local"},
+			expected: true,
+		},
+		{
+			name:     "remote host ip",
+			cfg:      ServerConfig{Host: "192.168.1.50", CloudProvider: "custom"},
+			expected: false,
+		},
+		{
+			name:     "remote vps hostname",
+			cfg:      ServerConfig{Host: "vps.example.com", CloudProvider: "vultr"},
+			expected: false,
+		},
+		{
+			name:     "empty host and custom provider",
+			cfg:      ServerConfig{Host: "", CloudProvider: "custom"},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.cfg.IsLocal()
+			if got != tt.expected {
+				t.Errorf("IsLocal() = %v, expected %v", got, tt.expected)
+			}
+		})
+	}
+}

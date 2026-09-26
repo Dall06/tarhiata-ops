@@ -3,6 +3,7 @@ package usecases
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
@@ -39,10 +40,23 @@ func (uc *SyncClusterStateUseCase) ExportStateToRemote() error {
 	var obs *domain.SavedObservability
 
 	if uc.repo != nil {
-		svcs, _ = uc.repo.GetServices()
-		dbs, _ = uc.repo.GetDatabases()
-		links, _ = uc.repo.GetServiceLinks()
-		obs, _ = uc.repo.GetObservability()
+		var err error
+		svcs, err = uc.repo.GetServices()
+		if err != nil {
+			slog.Warn("Error obteniendo servicios para exportar", "error", err)
+		}
+		dbs, err = uc.repo.GetDatabases()
+		if err != nil {
+			slog.Warn("Error obteniendo bases de datos para exportar", "error", err)
+		}
+		links, err = uc.repo.GetServiceLinks()
+		if err != nil {
+			slog.Warn("Error obteniendo enlaces para exportar", "error", err)
+		}
+		obs, err = uc.repo.GetObservability()
+		if err != nil {
+			slog.Warn("Error obteniendo observabilidad para exportar", "error", err)
+		}
 	}
 
 	dump := ClusterStateDump{
@@ -57,7 +71,9 @@ func (uc *SyncClusterStateUseCase) ExportStateToRemote() error {
 		return err
 	}
 
-	_, _ = uc.sshExec.RunCommand("mkdir -p /opt/tarhiata")
+	if resMkdir, errMkdir := uc.sshExec.RunCommand("mkdir -p /opt/tarhiata"); errMkdir != nil || (resMkdir != nil && resMkdir.ExitCode != 0) {
+		return fmt.Errorf("error creando directorio /opt/tarhiata: %w", errMkdir)
+	}
 	return uc.sshExec.WriteRemoteFile("/opt/tarhiata/state.json", string(data))
 }
 
@@ -80,16 +96,24 @@ func (uc *SyncClusterStateUseCase) ImportStateFromRemote() (*ClusterStateDump, e
 	// Sincronizar Servicios y Datos en repositorio local si está disponible
 	if uc.repo != nil {
 		for _, s := range dump.Services {
-			_ = uc.repo.SaveService(s)
+			if errSave := uc.repo.SaveService(s); errSave != nil {
+				slog.Warn("Fallo al guardar servicio sincronizado", "service", s.Name, "error", errSave)
+			}
 		}
 		for _, d := range dump.Databases {
-			_ = uc.repo.SaveDatabase(d)
+			if errSave := uc.repo.SaveDatabase(d); errSave != nil {
+				slog.Warn("Fallo al guardar base de datos sincronizada", "database", d.Name, "error", errSave)
+			}
 		}
 		for _, l := range dump.ServiceLinks {
-			_ = uc.repo.SaveServiceLink(l)
+			if errSave := uc.repo.SaveServiceLink(l); errSave != nil {
+				slog.Warn("Fallo al guardar enlace sincronizado", "source", l.SourceSvc, "target", l.TargetSvc, "error", errSave)
+			}
 		}
 		if dump.Observability != nil {
-			_ = uc.repo.SaveObservability(*dump.Observability)
+			if errSave := uc.repo.SaveObservability(*dump.Observability); errSave != nil {
+				slog.Warn("Fallo al guardar observabilidad sincronizada", "error", errSave)
+			}
 		}
 	}
 

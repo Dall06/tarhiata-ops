@@ -26,6 +26,34 @@ func (m *MockConfigRepository) GetServerConfig() (*domain.ServerConfig, error) {
 	return m.Config, nil
 }
 
+func (m *MockConfigRepository) GetAllServerConfigs() ([]domain.ServerConfig, error) {
+	if m.Config != nil {
+		return []domain.ServerConfig{*m.Config}, nil
+	}
+	return []domain.ServerConfig{}, nil
+}
+
+func (m *MockConfigRepository) GetServerConfigByName(name string) (*domain.ServerConfig, error) {
+	if m.Config != nil && m.Config.Name == name {
+		return m.Config, nil
+	}
+	return nil, nil
+}
+
+func (m *MockConfigRepository) SetActiveServerConfig(name string) error {
+	if m.Config != nil && m.Config.Name == name {
+		m.Config.IsActive = true
+	}
+	return nil
+}
+
+func (m *MockConfigRepository) DeleteServerConfig(name string) error {
+	if m.Config != nil && m.Config.Name == name {
+		m.Config = nil
+	}
+	return nil
+}
+
 func (m *MockConfigRepository) SaveService(svc domain.SavedService) error {
 	m.Services = append(m.Services, svc)
 	return nil

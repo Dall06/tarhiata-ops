@@ -3,6 +3,7 @@ package repositories
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,6 +71,43 @@ func (r *SQLiteRepository) migrate() error {
 	r.addColumnIfMissing("server_config", "vultr_api_token", "TEXT NOT NULL DEFAULT ''")
 	r.addColumnIfMissing("server_config", "do_api_token", "TEXT NOT NULL DEFAULT ''")
 	r.addColumnIfMissing("server_config", "cloud_provider", "TEXT NOT NULL DEFAULT 'vultr'")
+
+	// Tabla multi-host de catálogo de servidores
+	queryConfigs := `
+	CREATE TABLE IF NOT EXISTS server_configs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT UNIQUE NOT NULL,
+		host TEXT NOT NULL,
+		port INTEGER NOT NULL,
+		user TEXT NOT NULL,
+		private_key TEXT NOT NULL DEFAULT '',
+		vultr_api_token TEXT NOT NULL DEFAULT '',
+		do_api_token TEXT NOT NULL DEFAULT '',
+		cloud_provider TEXT NOT NULL DEFAULT 'vps-direct',
+		is_active BOOLEAN NOT NULL DEFAULT 0
+	);`
+	if _, err := r.db.Exec(queryConfigs); err != nil {
+		return err
+	}
+
+	// Migrar configuración inicial existente a server_configs si está vacía
+	var countConfigs int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM server_configs").Scan(&countConfigs); err == nil && countConfigs == 0 {
+		var oldHost, oldUser, oldKey, oldVultr, oldDO, oldProvider string
+		var oldPort int
+		err := r.db.QueryRow("SELECT host, port, user, private_key, vultr_api_token, do_api_token, cloud_provider FROM server_config WHERE id = 1").
+			Scan(&oldHost, &oldPort, &oldUser, &oldKey, &oldVultr, &oldDO, &oldProvider)
+		if err == nil && strings.TrimSpace(oldHost) != "" {
+			name := oldHost
+			if oldHost == "localhost" || oldHost == "127.0.0.1" || oldProvider == "local" {
+				name = "local"
+			}
+			if _, errExec := r.db.Exec(`INSERT INTO server_configs (name, host, port, user, private_key, vultr_api_token, do_api_token, cloud_provider, is_active)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`, name, oldHost, oldPort, oldUser, oldKey, oldVultr, oldDO, oldProvider); errExec != nil {
+				slog.Warn("Fallo migrando server_config antiguo", "error", errExec)
+			}
+		}
+	}
 
 	// Tabla del catálogo de servicios
 	queryServices := `
@@ -233,45 +271,196 @@ func (r *SQLiteRepository) migrate() error {
 // Esto evita depender de strings de error frágiles que podrían cambiar entre versiones del driver SQLite.
 func (r *SQLiteRepository) addColumnIfMissing(table, column, colDef string) {
 	var count int
-	_ = r.db.QueryRow(
+	if errScan := r.db.QueryRow(
 		fmt.Sprintf("SELECT COUNT(*) FROM pragma_table_info('%s') WHERE name='%s'", table, column),
-	).Scan(&count)
+	).Scan(&count); errScan != nil {
+		slog.Warn("Error verificando columna en tabla", "table", table, "column", column, "error", errScan)
+	}
 	if count == 0 {
-		r.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s;", table, column, colDef))
+		if _, errAlter := r.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s;", table, column, colDef)); errAlter != nil {
+			slog.Warn("Fallo agregando columna a tabla", "table", table, "column", column, "error", errAlter)
+		}
 	}
 }
 
 func (r *SQLiteRepository) SaveServerConfig(config domain.ServerConfig) error {
-	// Usamos UPSERT: Inserta si no existe, si existe lo actualiza.
+	name := strings.TrimSpace(config.Name)
+	if name == "" {
+		if config.IsLocal() {
+			name = "local"
+		}
+		if !config.IsLocal() {
+			name = strings.TrimSpace(config.Host)
+			if name == "" {
+				name = "default"
+			}
+		}
+	}
+	config.Name = name
+
+	// Si no hay servidores guardados aún, marcarlo como activo por defecto
+	var totalConfigs int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM server_configs").Scan(&totalConfigs); err == nil && totalConfigs == 0 {
+		config.IsActive = true
+	}
+
+	if config.IsActive {
+		if _, err := r.db.Exec("UPDATE server_configs SET is_active = 0"); err != nil {
+			return fmt.Errorf("error al desmarcar servidores activos: %w", err)
+		}
+	}
+
 	query := `
-	INSERT INTO server_config (id, host, port, user, private_key, vultr_api_token, do_api_token, cloud_provider) 
-	VALUES (1, ?, ?, ?, ?, ?, ?, ?)
-	ON CONFLICT(id) DO UPDATE SET 
-		host=excluded.host, 
-		port=excluded.port, 
-		user=excluded.user, 
+	INSERT INTO server_configs (name, host, port, user, private_key, vultr_api_token, do_api_token, cloud_provider, is_active)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(name) DO UPDATE SET
+		host=excluded.host,
+		port=excluded.port,
+		user=excluded.user,
 		private_key=excluded.private_key,
 		vultr_api_token=excluded.vultr_api_token,
 		do_api_token=excluded.do_api_token,
-		cloud_provider=excluded.cloud_provider;`
+		cloud_provider=excluded.cloud_provider,
+		is_active=excluded.is_active;`
 
-	_, err := r.db.Exec(query, config.Host, config.Port, config.User, config.PrivateKey, config.VultrAPIToken, config.DOAPIToken, config.CloudProvider)
-	return err
+	if _, err := r.db.Exec(query, config.Name, config.Host, config.Port, config.User, config.PrivateKey, config.VultrAPIToken, config.DOAPIToken, config.CloudProvider, config.IsActive); err != nil {
+		return fmt.Errorf("error guardando servidor en catálogo: %w", err)
+	}
+
+	// Mantener sincronizada la tabla legacy server_config (id = 1) con la conexión activa
+	if config.IsActive {
+		legacyQuery := `
+		INSERT INTO server_config (id, host, port, user, private_key, vultr_api_token, do_api_token, cloud_provider)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			host=excluded.host,
+			port=excluded.port,
+			user=excluded.user,
+			private_key=excluded.private_key,
+			vultr_api_token=excluded.vultr_api_token,
+			do_api_token=excluded.do_api_token,
+			cloud_provider=excluded.cloud_provider;`
+		if _, err := r.db.Exec(legacyQuery, config.Host, config.Port, config.User, config.PrivateKey, config.VultrAPIToken, config.DOAPIToken, config.CloudProvider); err != nil {
+			return fmt.Errorf("error sincronizando servidor activo: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (r *SQLiteRepository) GetServerConfig() (*domain.ServerConfig, error) {
-	query := `SELECT host, port, user, private_key, vultr_api_token, do_api_token, cloud_provider FROM server_config WHERE id = 1;`
+	query := `SELECT id, name, host, port, user, private_key, vultr_api_token, do_api_token, cloud_provider, is_active 
+	          FROM server_configs WHERE is_active = 1 LIMIT 1;`
 	row := r.db.QueryRow(query)
 
 	var config domain.ServerConfig
-	err := row.Scan(&config.Host, &config.Port, &config.User, &config.PrivateKey, &config.VultrAPIToken, &config.DOAPIToken, &config.CloudProvider)
+	err := row.Scan(&config.ID, &config.Name, &config.Host, &config.Port, &config.User, &config.PrivateKey, &config.VultrAPIToken, &config.DOAPIToken, &config.CloudProvider, &config.IsActive)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil // No hay error, simplemente no hay configuración guardada aún
+			// Fallback a tabla legacy server_config si aún no se ha poblado server_configs
+			legacyQuery := `SELECT host, port, user, private_key, vultr_api_token, do_api_token, cloud_provider FROM server_config WHERE id = 1;`
+			legRow := r.db.QueryRow(legacyQuery)
+			errLeg := legRow.Scan(&config.Host, &config.Port, &config.User, &config.PrivateKey, &config.VultrAPIToken, &config.DOAPIToken, &config.CloudProvider)
+			if errLeg != nil {
+				if errLeg == sql.ErrNoRows {
+					return nil, nil
+				}
+				return nil, errLeg
+			}
+			config.Name = "default"
+			config.IsActive = true
+			return &config, nil
 		}
 		return nil, err
 	}
 	return &config, nil
+}
+
+func (r *SQLiteRepository) GetAllServerConfigs() ([]domain.ServerConfig, error) {
+	query := `SELECT id, name, host, port, user, private_key, vultr_api_token, do_api_token, cloud_provider, is_active 
+	          FROM server_configs ORDER BY is_active DESC, id ASC;`
+	rows, err := r.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("error al listar servidores: %w", err)
+	}
+	defer rows.Close()
+
+	var list []domain.ServerConfig
+	for rows.Next() {
+		var c domain.ServerConfig
+		if err := rows.Scan(&c.ID, &c.Name, &c.Host, &c.Port, &c.User, &c.PrivateKey, &c.VultrAPIToken, &c.DOAPIToken, &c.CloudProvider, &c.IsActive); err != nil {
+			return nil, fmt.Errorf("error escaneando servidor: %w", err)
+		}
+		list = append(list, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterando servidores: %w", err)
+	}
+	return list, nil
+}
+
+func (r *SQLiteRepository) GetServerConfigByName(name string) (*domain.ServerConfig, error) {
+	query := `SELECT id, name, host, port, user, private_key, vultr_api_token, do_api_token, cloud_provider, is_active 
+	          FROM server_configs WHERE name = ? LIMIT 1;`
+	row := r.db.QueryRow(query, name)
+
+	var config domain.ServerConfig
+	err := row.Scan(&config.ID, &config.Name, &config.Host, &config.Port, &config.User, &config.PrivateKey, &config.VultrAPIToken, &config.DOAPIToken, &config.CloudProvider, &config.IsActive)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &config, nil
+}
+
+func (r *SQLiteRepository) SetActiveServerConfig(name string) error {
+	cfg, err := r.GetServerConfigByName(name)
+	if err != nil {
+		return err
+	}
+	if cfg == nil {
+		return fmt.Errorf("servidor '%s' no encontrado", name)
+	}
+
+	if _, err := r.db.Exec("UPDATE server_configs SET is_active = 0"); err != nil {
+		return fmt.Errorf("error desactivando servidores: %w", err)
+	}
+
+	if _, err := r.db.Exec("UPDATE server_configs SET is_active = 1 WHERE name = ?", name); err != nil {
+		return fmt.Errorf("error activando servidor '%s': %w", name, err)
+	}
+
+	// Sincronizar tabla legacy
+	legacyQuery := `
+	INSERT INTO server_config (id, host, port, user, private_key, vultr_api_token, do_api_token, cloud_provider)
+	VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET
+		host=excluded.host,
+		port=excluded.port,
+		user=excluded.user,
+		private_key=excluded.private_key,
+		vultr_api_token=excluded.vultr_api_token,
+		do_api_token=excluded.do_api_token,
+		cloud_provider=excluded.cloud_provider;`
+	if _, err := r.db.Exec(legacyQuery, cfg.Host, cfg.Port, cfg.User, cfg.PrivateKey, cfg.VultrAPIToken, cfg.DOAPIToken, cfg.CloudProvider); err != nil {
+		return fmt.Errorf("error sincronizando tabla legacy: %w", err)
+	}
+
+	return nil
+}
+
+func (r *SQLiteRepository) DeleteServerConfig(name string) error {
+	res, err := r.db.Exec("DELETE FROM server_configs WHERE name = ?", name)
+	if err != nil {
+		return fmt.Errorf("error eliminando servidor '%s': %w", name, err)
+	}
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		return fmt.Errorf("servidor '%s' no encontrado", name)
+	}
+	return nil
 }
 
 func (r *SQLiteRepository) Close() error {

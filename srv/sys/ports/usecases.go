@@ -2,6 +2,31 @@ package ports
 
 import "github.com/Dall06/tarhiata-ops/srv/sys/domain"
 
+type ConnectServerUseCase interface {
+	Execute(config domain.ServerConfig) (*domain.ConnectionResult, error)
+}
+
+type InspectHostUseCase interface {
+	Execute(config domain.ServerConfig) (*domain.HostInspection, error)
+	ExecuteMetricsOnly(config domain.ServerConfig) (*domain.HostMetrics, error)
+	ExecuteServicesOnly(config domain.ServerConfig) ([]domain.HostSystemService, error)
+}
+
+
+// ProvisionCloudRequest encapsula los parámetros para aprovisionar un servidor en la nube vía IaC
+type ProvisionCloudRequest struct {
+	Name        string `json:"name"`
+	Provider    string `json:"provider"` // "vultr" | "digitalocean"
+	APIToken    string `json:"apiToken"`
+	Region      string `json:"region"`
+	Plan        string `json:"plan"`
+	SetAsActive bool   `json:"isActive"`
+}
+
+type ProvisionCloudServerUseCase interface {
+	Execute(req ProvisionCloudRequest) (*domain.ConnectionResult, error)
+}
+
 type InitServerUseCase interface {
 	Execute(acmeEmail string) error
 }

@@ -32,7 +32,9 @@ func (uc *ManageDomainsUseCase) GetServiceDomains(serviceName string) (string, [
 
 	var rules []DomainRule
 	if svc.CustomDomains != "" {
-		_ = json.Unmarshal([]byte(svc.CustomDomains), &rules)
+		if err := json.Unmarshal([]byte(svc.CustomDomains), &rules); err != nil {
+			return "", nil, fmt.Errorf("error parseando dominios personalizados: %w", err)
+		}
 	}
 	return svc.Domain, rules, nil
 }
@@ -52,7 +54,9 @@ func (uc *ManageDomainsUseCase) AddCustomDomain(serviceName, customDomain, redir
 
 	var rules []DomainRule
 	if svc.CustomDomains != "" {
-		_ = json.Unmarshal([]byte(svc.CustomDomains), &rules)
+		if err := json.Unmarshal([]byte(svc.CustomDomains), &rules); err != nil {
+			return fmt.Errorf("error parseando dominios personalizados: %w", err)
+		}
 	}
 
 	// Verificar si ya existe
@@ -67,7 +71,10 @@ func (uc *ManageDomainsUseCase) AddCustomDomain(serviceName, customDomain, redir
 		RedirectTarget: redirectTarget,
 	})
 
-	bytes, _ := json.Marshal(rules)
+	bytes, err := json.Marshal(rules)
+	if err != nil {
+		return fmt.Errorf("error serializando reglas de dominio: %w", err)
+	}
 	svc.CustomDomains = string(bytes)
 	if err := uc.repo.SaveService(*svc); err != nil {
 		return fmt.Errorf("error al guardar dominio en BD: %w", err)
@@ -87,7 +94,9 @@ func (uc *ManageDomainsUseCase) RemoveCustomDomain(serviceName, customDomain str
 	customDomain = strings.TrimSpace(strings.ToLower(customDomain))
 	var rules []DomainRule
 	if svc.CustomDomains != "" {
-		_ = json.Unmarshal([]byte(svc.CustomDomains), &rules)
+		if err := json.Unmarshal([]byte(svc.CustomDomains), &rules); err != nil {
+			return fmt.Errorf("error parseando dominios personalizados: %w", err)
+		}
 	}
 
 	var filtered []DomainRule
@@ -104,7 +113,10 @@ func (uc *ManageDomainsUseCase) RemoveCustomDomain(serviceName, customDomain str
 		return fmt.Errorf("el dominio '%s' no pertenece al servicio '%s'", customDomain, serviceName)
 	}
 
-	bytes, _ := json.Marshal(filtered)
+	bytes, err := json.Marshal(filtered)
+	if err != nil {
+		return fmt.Errorf("error serializando reglas de dominio: %w", err)
+	}
 	svc.CustomDomains = string(bytes)
 	if err := uc.repo.SaveService(*svc); err != nil {
 		return fmt.Errorf("error al actualizar BD: %w", err)

@@ -2,6 +2,7 @@ package usecases
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -98,7 +99,9 @@ func (uc *ManagePreviewEnvUseCaseImpl) Create(input ports.CreatePreviewEnvInput,
 
 		if _, err := uc.sshExec.RunCommand(cmd); err != nil {
 			if uc.repo != nil {
-				_ = uc.repo.DeletePreviewEnv(input.Name)
+				if errDel := uc.repo.DeletePreviewEnv(input.Name); errDel != nil {
+					slog.Warn("Fallo al revertir entorno preview en base de datos", "error", errDel)
+				}
 			}
 			return nil, fmt.Errorf("falló el despliegue del entorno preview en Swarm: %w", err)
 		}
@@ -131,7 +134,9 @@ func (uc *ManagePreviewEnvUseCaseImpl) Destroy(name string, config domain.Server
 
 	// 1. Si hay ejecutor SSH, remover servicio de Docker Swarm
 	if uc.sshExec != nil {
-		_, _ = uc.sshExec.RunCommand(fmt.Sprintf("docker service rm %s", serviceName))
+		if res, errRm := uc.sshExec.RunCommand(fmt.Sprintf("docker service rm %s", serviceName)); errRm != nil || (res != nil && res.ExitCode != 0) {
+			slog.Warn("Fallo al remover servicio preview de Docker", "service", serviceName, "error", errRm)
+		}
 	}
 
 	// 2. Eliminar registro de SQLite

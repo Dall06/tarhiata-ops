@@ -1,4895 +1,3505 @@
-// Tarhiata-Ops Vercel Terminal Aesthetic Logic (Real API & Custom Toast System)
-let globalServices = [];
-let globalDatabases = [];
-let globalLinks = [];
-let autoScrollLogs = true;
-
-// Alpine.js 3.x Reactive Store (Zero Build / CDN Reactivity)
-document.addEventListener('alpine:init', () => {
-    Alpine.store('app', {
-        services: [],
-        databases: [],
-        isOnline: true,
-        catalogSearch: '',
-
-        get filteredServices() {
-            const q = this.catalogSearch.toLowerCase().trim();
-            if (!q) return this.services;
-            return this.services.filter(s =>
-                s.name.toLowerCase().includes(q) ||
-                (s.imageSource && s.imageSource.toLowerCase().includes(q)) ||
-                (s.domain && s.domain.toLowerCase().includes(q))
-            );
-        },
-
-        get filteredDatabases() {
-            const q = this.catalogSearch.toLowerCase().trim();
-            if (!q) return this.databases;
-            return this.databases.filter(d =>
-                d.name.toLowerCase().includes(q) ||
-                (d.engine && d.engine.toLowerCase().includes(q))
-            );
-        }
-    });
-});
-
-let currentLang = localStorage.getItem('tarhiata_lang') || 'es';
-
-const i18n = {
-    es: {
-        refresh: "Refrescar",
-        terminal: "Node Terminal",
-        palette: "Command Palette",
-        catalogTitle: "Catálogo de Servicios & Bases de Datos",
-        deployServiceBtn: "+ Desplegar Servicio",
-        createDbBtn: "+ Crear BD",
-        searchPlaceholder: "🔍 Filtrar servicios y BDs en vivo por nombre o motor... (ej. api, postgres, redis)",
-        loadingCatalog: "Cargando catálogo desde SQLite...",
-        topologyTitle: "Diagrama de Flujo & Red",
-        viewTopologyTitle: "Ver topología de red escrita",
-        linkBtn: "+ Enlazar A ➔ B",
-        loadingTopology: "Cargando diagrama de flujo de red...",
-        vpsMetricsTitle: "Métrica General del VPS",
-        vpsStatusConnected: "CONECTADO",
-        vpsHostLabel: "Host:",
-        swarmRoleMaster: "Master",
-        statActiveApps: "Apps Activas",
-        subSwarmContainers: "Contenedores Swarm",
-        statActiveDbs: "BDs Activas",
-        subOverlayIsolated: "Aisladas en Red Overlay",
-        statSwarmNodes: "Nodos Swarm",
-        subMasterVps: "VPS Principal",
-        statDiskStorage: "Almacenamiento en Disco",
-        cloudBillingTitle: "Facturación Cloud & Plan",
-        planName: "Plan Pro VPS (Self-Hosted)",
-        swarmNodesTitle: "Nodos Swarm",
-        tokenBtn: "📋 Token",
-        workerBtn: "+ Worker",
-        loadingNodes: "Cargando nodos del clúster Swarm...",
-        backupsTitle: "Respaldos & Snapshots",
-        snapshotBtn: "+ Snapshot",
-        loadingBackups: "Cargando snapshots...",
-        previewTitle: "Entornos Preview",
-        previewBtn: "+ Preview",
-        loadingPreviews: "Cargando entornos de prueba...",
-
-        // Inspector Modal
-        inspectorOpenUrl: "🌐 Abrir URL",
-        inspectorDelete: "🗑️ Eliminar Recurso",
-        tabMetrics: "📊 Métricas",
-        tabLogs: "📜 Logs",
-        tabEnvs: "🔑 Variables (.env)",
-        tabRollback: "⏪ Rollback",
-        tabBackups: "💾 Snapshots / Respaldos",
-        tabConfig: "⚙️ Configuración",
-        autoValidateText: "⏱️ Auto-validación de estado de red cada 15 segundos",
-        btnValidateNow: "🔄 Validar Conexión Ahora",
-        statReplicasLabel: "Estado de Réplicas",
-        statRamLabel: "Uso de Memoria (RAM)",
-        statPortLabel: "Puerto Interno / Exposición",
-        realtimeStatsTitle: "⚡ Métricas en Tiempo Real (cgroups / Docker Stats)",
-        cpuUsageLabel: "Uso de CPU",
-        ramUsageLabel: "Uso de RAM",
-        netIoLabel: "I/O de Red",
-        diskIoLabel: "I/O Bloque Disco",
-        telemetryChartTitle: "Telemetría CPU & RAM en Tiempo Real",
-
-        logGrepPlaceholder: "🔍 Buscar en logs (grep)...",
-        logLevelAll: "Todos los Niveles",
-        logLevelError: "Solo Error / Fatal",
-        logLevelWarn: "Solo Warn / Warning",
-        logLevelInfo: "Solo Info",
-        btnDownloadLogs: "📥 Descargar (.txt)",
-        loadingLogs: "Cargando logs del servicio...",
-
-        envTitle: "Variables de Ambiente (.env) Inyectadas",
-        btnHideSecrets: "👁️ Ocultar Secretos",
-        btnShowSecrets: "👁️ Mostrar Secretos",
-        btnTableMode: "⇄ Modo Tabla",
-        btnRawMode: "⇄ Modo Raw",
-        btnImportEnv: "📤 Importar .env",
-        envKeyHeader: "Variable (Key)",
-        envValueHeader: "Valor (Value)",
-        btnSaveEnvs: "💾 Guardar & Inyectar en Swarm",
-
-        rollbackWarningTitle: "⚠️ Reversión de Versión en Docker Swarm",
-        rollbackWarningText: "Esta operación ejecuta docker service rollback en el servidor remoto para este servicio. Se restaurará inmediatamente la imagen de contenedor y configuración previa registrada por Docker Swarm.",
-        btnTriggerRollback: "⚠️ Ejecutar Rollback a Revisión Previa",
-
-        backupSectionTitle: "Respaldos de Base de Datos y Snapshots",
-        btnCreateSnapshot: "+ Crear Snapshot 1-Click",
-        loadingBackupsList: "Cargando lista de respaldos...",
-
-        cfgNameLabel: "Nombre del Recurso",
-        cfgImageLabel: "Imagen / Motor",
-        cfgPortLabel: "Puerto Interno",
-        cfgDomainLabel: "Dominio / Subdominio HTTPS",
-        cfgHealthLabel: "Comando de Healthcheck (Opcional)",
-        cfgExposeLabel: "🌐 Exponer servicio públicamente a Internet (Vía Traefik Reverse Proxy)",
-        cfgSSLLabel: "🔒 Habilitar HTTPS / SSL Automático (Certificado Let's Encrypt)",
-        btnSaveConfig: "💾 Guardar Cambios de Configuración",
-
-        // Palette Search & Items
-        paletteSearchPlaceholder: "Filtrar herramientas del sistema... (ej. ssl, env, link, rollback, tailscale)",
-        pItemCreateVmLabel: "Crear VM en la Nube & Instalar Framework",
-        pItemCreateVmSub: "Aprovisionar una nueva VM en DigitalOcean/Vultr e instalar Docker, Swarm, Traefik y Observabilidad.",
-        pItemByoLabel: "Instalar Framework en VM Conectada (BYO)",
-        pItemByoSub: "Conectar a un servidor existente vía SSH e inicializar Docker, Swarm, Traefik SSL y Observabilidad.",
-        pItemMasterLabel: "Master 1-Click Setup (Inicializar VPS & Swarm Cluster)",
-        pItemMasterSub: "Configuración automatizada 1-Click de Docker Swarm, Traefik y subredes en el servidor.",
-        pItemVolumesLabel: "Subir Ficheros & Explorador de Volúmenes (/opt/data)",
-        pItemVolumesSub: "Cargar archivos a los volúmenes en disco del VPS y gestionar la persistencia de datos.",
-        pItemSslLabel: "Configurar SSL, Certificados HTTPS & Dominios Personalizados",
-        pItemSslSub: "Activar SSL 1-Click (Let's Encrypt o Certificados Privados) y mapear a servicios.",
-        pItemTraefikLabel: "Reiniciar Traefik Proxy & Refrescar Enrutamiento",
-        pItemTraefikSub: "Reaplicar reglas de Traefik v3 y limpiar caché de certificados SSL.",
-        pItemDeployDbLabel: "Desplegar Base de Datos 1-Click (PostgreSQL, Mongo, Redis, MySQL, MinIO)",
-        pItemDeployDbSub: "Instanciar contenedores aislados de BD con volúmenes montados en /opt/data.",
-        pItemMinioLabel: "Desplegar Servidor de Almacenamiento MinIO S3",
-        pItemMinioSub: "Crear un bucket S3 privado en tu VPS para respaldos y subida de multimedia.",
-        pItemScaleLabel: "Escalar Réplicas de Servicio (Docker Swarm Replicas)",
-        pItemScaleSub: "Incrementar o reducir el número de réplicas activas para alta disponibilidad.",
-        pItemEnvSecretsLabel: "Gestionar Variables de Ambiente & Secretos (.env)",
-        pItemEnvSecretsSub: "Inyectar o modificar claves de configuración dinámicas en contenedores.",
-        pItemLinkLabel: "Interconectar Servicios (Enlazar A ➔ B en red overlay)",
-        pItemLinkSub: "Vincular variables de conexión entre microservicios y bases de datos.",
-        pItemNodesLabel: "Ver Nodos del Clúster Swarm & Estado de Salud",
-        pItemNodesSub: "Consultar roles de Manager y Workers activos en la infraestructura.",
-        pItemRollbackLabel: "Ejecutar Rollback de Servicio a Versión Anterior",
-        pItemRollbackSub: "Revertir el código y la imagen de contenedor a la revisión previa estable.",
-        pItemObsLabel: "Abrir Dashboard de Observabilidad (Portainer / Dozzle)",
-        pItemObsSub: "Monitorear registros globales y contenedores mediante interfaz web integrada.",
-        pItemBackupsLabel: "Configurar Respaldos Automáticos S3 / MinIO",
-        pItemBackupsSub: "Programar copias de seguridad de bases de datos hacia buckets locales o remotos.",
-        pItemAuditLabel: "Ver Registros de Auditoría Inmutable (Security Trail)",
-        pItemAuditSub: "Inspeccionar el historial de comandos, accesos SSH y eventos del clúster.",
-        pItemSshKeysLabel: "Gestor de Llaves SSH Autorizadas (Equipos de Desarrollo)",
-        pItemSshKeysSub: "Añadir o revocar llaves SSH para desarrolladores con protección de llave Master.",
-        pItemPruneLabel: "Limpieza de Sistema (Docker System Prune)",
-        pItemPruneSub: "Eliminar imágenes huérfanas, contenedores detenidos y caché de compilación.",
-        pItemTerminalLabel: "Abrir Terminal SSH Interactiva",
-        pItemTerminalSub: "Lanzar una sesión de terminal web con acceso root al VPS.",
-
-        // Modals
-        modalDeployServiceTitle: "⚡ Desplegar Nuevo Servicio en Clúster",
-        modalDeployDbTitle: "🗄️ Crear Base de Datos o Almacenamiento MinIO S3",
-        modalCreateVmTitle: "⚡ Crear VM en la Nube & Instalar Framework",
-        modalByoTitle: "🚀 Instalar Framework en VM Conectada (BYO)",
-        modalAddWorkerTitle: "🏗️ Añadir Nodo Worker al Clúster",
-        modalLinkTitle: "🔗 Interconectar Servicios (Enlazar A ➔ B)",
-        modalBackupsTitle: "📦 Configurar Respaldos Automáticos S3 / MinIO",
-        modalSshKeysTitle: "🔑 Gestor de Llaves SSH Autorizadas",
-        modalAuditTitle: "📋 Registro de Auditoría Inmutable",
-        modalNotificationsTitle: "🔔 Centro de Notificaciones e Historial",
-        modalTerminalTitle: ">_ Node Terminal (Sesión SSH)",
-
-        // Buttons
-        btnCancel: "Cancelar",
-        btnDeployService: "🚀 Desplegar Servicio",
-        btnDeployDb: "🗄️ Desplegar Base de Datos",
-        btnCreateVm: "⚡ Crear VM & Desplegar Framework",
-        btnInitByo: "🚀 Inicializar Framework Completo",
-        btnAddWorker: "🏗️ Crear & Unir Worker",
-        btnCreateLink: "🔗 Crear Enlace",
-        btnSaveBackupConfig: "💾 Guardar Configuración de Respaldo",
-        btnAddKey: "+ Añadir Llave",
-        btnClose: "Cerrar",
-        btnClearNotifications: "Limpiar Notificaciones",
-        btnDownloadAudit: "📥 Descargar NDJSON",
-
-        // Progress overlay
-        progressTitleRunning: "Ejecutando...",
-        progressStepStarting: "Iniciando proceso...",
-        progressTermTitle: "tarhiata — logs en tiempo real",
-        progressBadgeLive: "LIVE",
-        progressBadgeDone: "DONE",
-        progressBadgeError: "ERROR",
-        progressBtnClose: "✅ Cerrar y Continuar",
-        progressCounterFormat: "líneas",
-        langBadge: "🌐 ES",
-        langText: "ES"
-    },
-    en: {
-        refresh: "Refresh",
-        terminal: "Node Terminal",
-        palette: "Command Palette",
-        catalogTitle: "Services & Databases Catalog",
-        deployServiceBtn: "+ Deploy Service",
-        createDbBtn: "+ Create DB",
-        searchPlaceholder: "🔍 Filter live services & DBs by name or engine... (e.g. api, postgres, redis)",
-        loadingCatalog: "Loading catalog from SQLite...",
-        topologyTitle: "Flowchart & Network Diagram",
-        viewTopologyTitle: "View text network topology",
-        linkBtn: "+ Link A ➔ B",
-        loadingTopology: "Loading network flowchart...",
-        vpsMetricsTitle: "General VPS Metrics",
-        vpsStatusConnected: "CONNECTED",
-        vpsHostLabel: "Host:",
-        swarmRoleMaster: "Master",
-        statActiveApps: "Active Apps",
-        subSwarmContainers: "Swarm Containers",
-        statActiveDbs: "Active DBs",
-        subOverlayIsolated: "Overlay Isolated",
-        statSwarmNodes: "Swarm Nodes",
-        subMasterVps: "Master VPS",
-        statDiskStorage: "Disk Storage",
-        cloudBillingTitle: "Cloud Billing & Plan",
-        planName: "Pro VPS Plan (Self-Hosted)",
-        swarmNodesTitle: "Swarm Nodes",
-        tokenBtn: "📋 Token",
-        workerBtn: "+ Worker",
-        loadingNodes: "Loading Swarm cluster nodes...",
-        backupsTitle: "Backups & Snapshots",
-        snapshotBtn: "+ Snapshot",
-        loadingBackups: "Loading snapshots...",
-        previewTitle: "Preview Envs",
-        previewBtn: "+ Preview",
-        loadingPreviews: "Loading preview environments...",
-
-        // Inspector Modal
-        inspectorOpenUrl: "🌐 Open URL",
-        inspectorDelete: "🗑️ Delete Resource",
-        tabMetrics: "📊 Metrics",
-        tabLogs: "📜 Logs",
-        tabEnvs: "🔑 Envs (.env)",
-        tabRollback: "⏪ Rollback",
-        tabBackups: "💾 Snapshots / Backups",
-        tabConfig: "⚙️ Configuration",
-        autoValidateText: "⏱️ Network state auto-validation every 15 seconds",
-        btnValidateNow: "🔄 Validate Connection Now",
-        statReplicasLabel: "Replicas Status",
-        statRamLabel: "Memory Usage (RAM)",
-        statPortLabel: "Internal Port / Exposure",
-        realtimeStatsTitle: "⚡ Real-Time Metrics (cgroups / Docker Stats)",
-        cpuUsageLabel: "CPU Usage",
-        ramUsageLabel: "RAM Usage",
-        netIoLabel: "Network I/O",
-        diskIoLabel: "Disk Block I/O",
-        telemetryChartTitle: "Real-Time CPU & RAM Telemetry",
-
-        logGrepPlaceholder: "🔍 Search logs (grep)...",
-        logLevelAll: "All Levels",
-        logLevelError: "Error / Fatal Only",
-        logLevelWarn: "Warn / Warning Only",
-        logLevelInfo: "Info Only",
-        btnDownloadLogs: "📥 Download (.txt)",
-        loadingLogs: "Loading service logs...",
-
-        envTitle: "Injected Environment Variables (.env)",
-        btnHideSecrets: "👁️ Hide Secrets",
-        btnShowSecrets: "👁️ Show Secrets",
-        btnTableMode: "⇄ Table Mode",
-        btnRawMode: "⇄ Raw Mode",
-        btnImportEnv: "MB Import .env",
-        envKeyHeader: "Variable (Key)",
-        envValueHeader: "Value",
-        btnSaveEnvs: "💾 Save & Inject into Swarm",
-
-        rollbackWarningTitle: "⚠️ Docker Swarm Version Rollback",
-        rollbackWarningText: "This action runs docker service rollback on the remote server for this service. It will immediately restore the previous container image and configuration stored by Docker Swarm.",
-        btnTriggerRollback: "⚠️ Execute Rollback to Previous Revision",
-
-        backupSectionTitle: "Database Backups & Snapshots",
-        btnCreateSnapshot: "+ Create 1-Click Snapshot",
-        loadingBackupsList: "Loading backups list...",
-
-        cfgNameLabel: "Resource Name",
-        cfgImageLabel: "Image / Engine",
-        cfgPortLabel: "Internal Port",
-        cfgDomainLabel: "Domain / HTTPS Subdomain",
-        cfgHealthLabel: "Healthcheck Command (Optional)",
-        cfgExposeLabel: "🌐 Expose service publicly to the Internet (Via Traefik Reverse Proxy)",
-        cfgSSLLabel: "🔒 Enable Automatic HTTPS / SSL (Let's Encrypt Certificate)",
-        btnSaveConfig: "💾 Save Configuration Changes",
-
-        // Palette Search & Items
-        paletteSearchPlaceholder: "Filter system tools... (e.g. ssl, env, link, rollback, tailscale)",
-        pItemCreateVmLabel: "Create Cloud VM & Install Framework",
-        pItemCreateVmSub: "Provision a new VM on DigitalOcean/Vultr and install Docker, Swarm, Traefik and Observability.",
-        pItemByoLabel: "Install Framework on Connected VM (BYO)",
-        pItemByoSub: "Connect to an existing server via SSH and initialize Docker, Swarm, Traefik SSL and Observability.",
-        pItemMasterLabel: "Master 1-Click Setup (Initialize VPS & Swarm Cluster)",
-        pItemMasterSub: "Automated 1-Click setup of Docker Swarm, Traefik and subnets on the server.",
-        pItemVolumesLabel: "Upload Files & Volume Explorer (/opt/data)",
-        pItemVolumesSub: "Upload files to VPS disk volumes and manage data persistence.",
-        pItemSslLabel: "Configure SSL, HTTPS Certificates & Custom Domains",
-        pItemSslSub: "Activate 1-Click SSL (Let's Encrypt or Private Certificates) and map to services.",
-        pItemTraefikLabel: "Restart Traefik Proxy & Refresh Routing",
-        pItemTraefikSub: "Re-apply Traefik v3 rules and clear SSL certificate cache.",
-        pItemDeployDbLabel: "Deploy 1-Click Database (PostgreSQL, Mongo, Redis, MySQL, MinIO)",
-        pItemDeployDbSub: "Instantiate isolated DB containers with volumes mounted on /opt/data.",
-        pItemMinioLabel: "Deploy MinIO S3 Storage Server",
-        pItemMinioSub: "Create a private S3 bucket on your VPS for backups and media uploads.",
-        pItemScaleLabel: "Scale Service Replicas (Docker Swarm Replicas)",
-        pItemScaleSub: "Increase or decrease active replicas for high availability.",
-        pItemEnvSecretsLabel: "Manage Environment Variables & Secrets (.env)",
-        pItemEnvSecretsSub: "Inject or modify dynamic configuration keys in containers.",
-        pItemLinkLabel: "Interconnect Services (Link A ➔ B on overlay network)",
-        pItemLinkSub: "Link connection variables between microservices and databases.",
-        pItemNodesLabel: "View Swarm Cluster Nodes & Health Status",
-        pItemNodesSub: "Check active Manager and Worker roles across infrastructure.",
-        pItemRollbackLabel: "Execute Service Rollback to Previous Version",
-        pItemRollbackSub: "Revert container code and image to the previous stable revision.",
-        pItemObsLabel: "Open Observability Dashboard (Portainer / Dozzle)",
-        pItemObsSub: "Monitor global logs and containers via integrated web UI.",
-        pItemBackupsLabel: "Configure Automatic S3 / MinIO Backups",
-        pItemBackupsSub: "Schedule database backups to local or remote buckets.",
-        pItemAuditLabel: "View Immutable Security Audit Trail",
-        pItemAuditSub: "Inspect command history, SSH access, and cluster events.",
-        pItemSshKeysLabel: "Authorized SSH Keys Manager (Dev Teams)",
-        pItemSshKeysSub: "Add or revoke SSH keys for developers with Master key protection.",
-        pItemPruneLabel: "System Clean-up (Docker System Prune)",
-        pItemPruneSub: "Remove dangling images, stopped containers, and build cache.",
-        pItemTerminalLabel: "Open Interactive SSH Terminal",
-        pItemTerminalSub: "Launch a web terminal session with root access to the VPS.",
-
-        // Modals
-        modalDeployServiceTitle: "⚡ Deploy New Service to Cluster",
-        modalDeployDbTitle: "🗄️ Create Database or MinIO S3 Storage",
-        modalCreateVmTitle: "⚡ Create Cloud VM & Install Framework",
-        modalByoTitle: "🚀 Install Framework on Connected VM (BYO)",
-        modalAddWorkerTitle: "🏗️ Add Worker Node to Cluster",
-        modalLinkTitle: "🔗 Interconnect Services (Link A ➔ B)",
-        modalBackupsTitle: "📦 Configure Automatic S3 / MinIO Backups",
-        modalSshKeysTitle: "🔑 Authorized SSH Keys Manager",
-        modalAuditTitle: "📋 Immutable Security Audit Trail",
-        modalNotificationsTitle: "🔔 Notifications Center & History",
-        modalTerminalTitle: ">_ Node Terminal (SSH Session)",
-
-        // Buttons
-        btnCancel: "Cancel",
-        btnDeployService: "🚀 Deploy Service",
-        btnDeployDb: "🗄️ Deploy Database",
-        btnCreateVm: "⚡ Create VM & Deploy Framework",
-        btnInitByo: "🚀 Initialize Full Framework",
-        btnAddWorker: "🏗️ Create & Join Worker",
-        btnCreateLink: "🔗 Create Link",
-        btnSaveBackupConfig: "💾 Save Backup Configuration",
-        btnAddKey: "+ Add Key",
-        btnClose: "Close",
-        btnClearNotifications: "Clear Notifications",
-        btnDownloadAudit: "📥 Download NDJSON",
-
-        // Progress overlay
-        progressTitleRunning: "Running...",
-        progressStepStarting: "Starting process...",
-        progressTermTitle: "tarhiata — real-time logs",
-        progressBadgeLive: "LIVE",
-        progressBadgeDone: "DONE",
-        progressBadgeError: "ERROR",
-        progressBtnClose: "✅ Close & Continue",
-        progressCounterFormat: "lines",
-        langBadge: "🌐 EN",
-        langText: "EN"
-    }
-};
-
-function getI18nText(key, fallback = '') {
-    const t = i18n[currentLang] || i18n.es;
-    return t[key] !== undefined ? t[key] : (fallback || key);
-}
-
-function initLanguage() {
-    applyLanguage(currentLang);
-}
-
-function toggleLanguage() {
-    currentLang = currentLang === 'es' ? 'en' : 'es';
-    localStorage.setItem('tarhiata_lang', currentLang);
-    applyLanguage(currentLang);
-    if (typeof showToast === 'function') {
-        showToast(currentLang === 'es' ? 'Idioma cambiado a Español 🇪🇸' : 'Language switched to English 🇬🇧', 'info');
-    }
-}
-
-function applyLanguage(lang) {
-    const t = i18n[lang] || i18n.es;
-    
-    const langBadge = document.getElementById('langBadge');
-    const langText = document.getElementById('langText');
-    if (langBadge) langBadge.textContent = t.langBadge;
-    if (langText) langText.textContent = t.langText;
-
-    const btnRefresh = document.getElementById('btnHeaderRefresh');
-    if (btnRefresh) {
-        btnRefresh.innerHTML = `<span class="cmd-k-badge" style="background: rgba(59,130,246,0.2); color: #60a5fa;">🔄</span> ${t.refresh}`;
-    }
-
-    // Apply data-i18n attributes automatically across the entire DOM
-    document.querySelectorAll('[data-i18n]').forEach(el => {
-        const key = el.getAttribute('data-i18n');
-        if (t[key]) el.textContent = t[key];
-    });
-    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
-        const key = el.getAttribute('data-i18n-placeholder');
-        if (t[key]) el.placeholder = t[key];
-    });
-    document.querySelectorAll('[data-i18n-title]').forEach(el => {
-        const key = el.getAttribute('data-i18n-title');
-        if (t[key]) el.title = t[key];
-    });
-}
+/**
+ * Tarhiata Cloud Studio — Controller v4.0
+ * Responsive, Card-based PaaS Controller (Railway / Vercel style)
+ */
 
 document.addEventListener('DOMContentLoaded', () => {
-    initLanguage();
-    initCommandPalette();
-    initModalsAndForms();
-    loadDashboardData();
-    loadSSHKeys();
-    setInterval(loadDashboardData, 15000); // Auto-validación de conexión y estado cada 15 segundos
-    setInterval(updateChart, 2000);
-    setInterval(fetchLiveLogs, 3000);
-});
+    // --- Application State ---
+    let servers = [];
+    let activeServer = null;
+    let selectedServerName = null;
+    let selectedInspection = null;
+    let currentHostServices = [];
+    let swarmServicesCache = [];
+    let swarmDatabasesCache = [];
+    let swarmNodesCache = [];
+    let modalMode = 'local';
+    let dbDeployMode = 'single-node';
 
-async function loadSSHKeys() {
-    try {
-        const res = await fetch('/api/ssh-keys');
-        if (!res.ok) return;
-        const keys = await res.json();
-        document.querySelectorAll('.ssh-key-select').forEach(sel => {
-            const currentVal = sel.value;
-            sel.innerHTML = '';
-            if (!keys || keys.length === 0) {
-                sel.innerHTML = '<option value="">No se encontraron llaves en ~/.ssh/</option>';
-                return;
-            }
-            keys.forEach((k, i) => {
-                const opt = document.createElement('option');
-                opt.value = k.path;
-                opt.textContent = `🔑 ${k.name}  (${k.path})`;
-                if (i === 0 && !currentVal) opt.selected = true;
-                if (currentVal === k.path) opt.selected = true;
-                sel.appendChild(opt);
-            });
-        });
-    } catch (e) {
-        console.warn('No se pudieron cargar llaves SSH:', e);
+    // --- Helper Utilities ---
+    function getDefaultPort(engine) {
+        const eng = (engine || '').toLowerCase();
+        if (eng === 'redis') return 6379;
+        if (eng === 'mysql' || eng === 'mariadb') return 3306;
+        if (eng === 'mongo' || eng === 'mongodb') return 27017;
+        if (eng === 'minio') return 9000;
+        return 5432;
     }
-}
 
-/* --- FULLSCREEN PROGRESS OVERLAY — Streaming en tiempo real --- */
-let progLineCount = 0;
-
-function showProgressOverlay(title) {
-    progLineCount = 0;
-    const overlay = document.getElementById('progressOverlay');
-    document.getElementById('progTitle').textContent = title;
-    document.getElementById('progStep').textContent = 'Iniciando proceso...';
-    document.getElementById('progStep').style.animation = 'progPulse 2s ease-in-out infinite';
-    document.getElementById('progLogs').innerHTML = '';
-    document.getElementById('progFooter').style.display = 'none';
-    document.getElementById('progCounter').textContent = '0 líneas';
-    document.getElementById('progBadge').textContent = 'LIVE';
-    document.getElementById('progBadge').style.background = 'rgba(99, 102, 241, 0.15)';
-    document.getElementById('progBadge').style.color = '#818cf8';
-    const spinner = document.getElementById('progSpinner');
-    spinner.className = 'prog-spinner';
-    overlay.style.display = 'flex';
-    document.body.style.overflow = 'hidden';
-}
-
-function closeProgressOverlay() {
-    document.getElementById('progressOverlay').style.display = 'none';
-    document.body.style.overflow = '';
-    loadDashboardData(true);
-}
-
-function appendProgressLog(type, message) {
-    const logs = document.getElementById('progLogs');
-    const line = document.createElement('div');
-    line.className = `prog-line ${type}`;
-
-    const ts = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const escaped = document.createElement('span');
-    escaped.textContent = message;
-
-    line.innerHTML = `<span class="prog-ts">[${ts}]</span>`;
-    line.appendChild(escaped);
-
-    logs.appendChild(line);
-    logs.scrollTop = logs.scrollHeight;
-
-    progLineCount++;
-    document.getElementById('progCounter').textContent = `${progLineCount} líneas`;
-
-    if (type === 'step') {
-        document.getElementById('progStep').textContent = message;
+    function debounce(fn, waitMs = 150) {
+        let timeout;
+        return function(...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => fn.apply(this, args), waitMs);
+        };
     }
-}
 
-function showProgressDone(success) {
-    const spinner = document.getElementById('progSpinner');
-    spinner.className = 'prog-spinner ' + (success ? 'done' : 'error');
+    function getGaugeColor(pct) {
+        if (pct >= 85) return 'var(--accent-danger, #ef4444)';
+        if (pct >= 60) return 'var(--accent-warning, #f59e0b)';
+        return 'var(--accent-success, #10b981)';
+    }
 
-    document.getElementById('progStep').style.animation = 'none';
-    document.getElementById('progStep').textContent = success ? '¡Proceso completado!' : 'Error en el proceso';
-    document.getElementById('progStep').style.color = success ? '#10b981' : '#ef4444';
-
-    const badge = document.getElementById('progBadge');
-    badge.textContent = success ? 'DONE' : 'ERROR';
-    badge.style.background = success ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)';
-    badge.style.color = success ? '#10b981' : '#ef4444';
-
-    const footer = document.getElementById('progFooter');
-    footer.style.display = 'block';
-    const btn = document.getElementById('progCloseBtn');
-    btn.textContent = success ? '✅ Cerrar y Continuar' : '❌ Cerrar';
-    btn.style.background = success
-        ? 'linear-gradient(135deg, #10b981, #059669)'
-        : 'linear-gradient(135deg, #ef4444, #dc2626)';
-}
-
-async function startStreamingOperation(url, payload, title) {
-    showProgressOverlay(title);
-
-    try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-
-        // Si el server respondió con error HTTP (antes del streaming)
-        if (!response.ok && !response.headers.get('content-type')?.includes('ndjson')) {
-            const errText = await response.text();
-            appendProgressLog('error', '❌ ' + errText);
-            showProgressDone(false);
-            return;
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let hadDone = false;
-        let hadError = false;
-
-        while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop();
-
-            for (const rawLine of lines) {
-                if (!rawLine.trim()) continue;
-                try {
-                    const ev = JSON.parse(rawLine);
-                    if (ev.t === 'done') {
-                        appendProgressLog('done-line', '🎉 ' + (ev.d?.message || '¡Proceso completado!'));
-                        hadDone = true;
-                    } else if (ev.t === 'error') {
-                        appendProgressLog('error', ev.m);
-                        hadError = true;
-                    } else {
-                        appendProgressLog(ev.t || 'log', ev.m);
-                    }
-                } catch (_) {
-                    appendProgressLog('log', rawLine);
-                }
-            }
-        }
-
-        // Buffer residual
-        if (buffer.trim()) {
+    async function copyToClipboard(text) {
+        if (!text) return false;
+        if (navigator.clipboard && window.isSecureContext) {
             try {
-                const ev = JSON.parse(buffer);
-                if (ev.t === 'done') { hadDone = true; appendProgressLog('done-line', '🎉 ' + (ev.d?.message || '¡Completado!')); }
-                else if (ev.t === 'error') { hadError = true; appendProgressLog('error', ev.m); }
+                await navigator.clipboard.writeText(text);
+                return true;
             } catch (_) {}
         }
-
-        if (hadError) showProgressDone(false);
-        else if (hadDone) showProgressDone(true);
-        else showProgressDone(true);
-
-    } catch (err) {
-        appendProgressLog('error', `Error de conexión: ${err.message}`);
-        showProgressDone(false);
-    }
-}
-
-let globalNotificationHistory = [];
-
-/* --- 1. Custom Toast Notification Banner System --- */
-function showToast(title, message, type = 'success', duration = 4000) {
-    // Record to notification history
-    const item = {
-        title: title,
-        message: message,
-        type: type,
-        time: new Date().toLocaleTimeString()
-    };
-    globalNotificationHistory.unshift(item);
-    updateNotificationBadge();
-
-    const container = document.getElementById('toastContainer');
-    if (!container) return;
-
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
-
-    let icon = '✓';
-    if (type === 'error') icon = '✕';
-    if (type === 'info') icon = 'ℹ';
-    if (type === 'warning') icon = '⚠️';
-
-    let displayMsg = message;
-    if (typeof message === 'string' && message.trim().startsWith('{')) {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        let ok = false;
         try {
-            const parsed = JSON.parse(message);
-            if (parsed.error) displayMsg = parsed.error;
-            else if (parsed.message) displayMsg = parsed.message;
-        } catch (e) {}
+            ok = document.execCommand('copy');
+        } catch (_) {}
+        document.body.removeChild(textArea);
+        return ok;
     }
 
-    toast.innerHTML = `
-        <div class="toast-icon">${icon}</div>
-        <div class="toast-content">
-            <div class="toast-title">${title}</div>
-            <div class="toast-message">${displayMsg}</div>
-        </div>
-    `;
+    // --- DOM Elements: Top Bar & Server Switcher ---
+    const serverSwitcherBtn = document.getElementById('serverSwitcherBtn');
+    const serverPopover = document.getElementById('serverPopover');
+    const topActiveName = document.getElementById('topActiveName');
+    const topActiveHost = document.getElementById('topActiveHost');
+    const topActiveDot = document.getElementById('topActiveDot');
+    const topActiveLatency = document.getElementById('topActiveLatency');
+    const btnTopActiveTerminal = document.getElementById('btnTopActiveTerminal');
+    const btnTestAll = document.getElementById('btnTestAll');
+    const btnOpenAddModal = document.getElementById('btnOpenAddModal');
 
-    container.appendChild(toast);
+    // --- DOM Elements: Popover & Fleet ---
+    const serverSwitcherWrap = document.getElementById('serverSwitcherWrap');
+    const fleetList = document.getElementById('fleetList');
+    const fleetSearchInput = document.getElementById('fleetSearchInput');
+    const btnSidebarOpenWorker = document.getElementById('btnSidebarOpenWorker');
+    const btnGlobalDeploy = document.getElementById('btnGlobalDeploy');
 
-    setTimeout(() => {
-        toast.classList.add('toast-exit');
-        setTimeout(() => toast.remove(), 300);
-    }, duration);
-}
-
-function updateNotificationBadge() {
-    const badge = document.getElementById('notificationBadgeCount');
-    if (badge) {
-        badge.innerText = globalNotificationHistory.length;
-    }
-    renderNotificationHistory();
-}
-
-function renderNotificationHistory() {
-    const list = document.getElementById('notificationsHistoryList');
-    if (!list) return;
-
-    if (globalNotificationHistory.length === 0) {
-        list.innerHTML = `<div class="text-muted p-2" style="font-size:0.85rem">No hay notificaciones registradas en esta sesión.</div>`;
-        return;
+    // --- Skeleton Loader Helper ---
+    function deactivateInitialSkeletons() {
+        if (!document.body.classList.contains('is-initial-loading')) return;
+        document.body.classList.remove('is-initial-loading');
+        document.querySelectorAll('.skeleton-target').forEach(el => el.classList.remove('skeleton-target'));
     }
 
-    list.innerHTML = globalNotificationHistory.map(n => {
-        let badgeClass = 'badge-green';
-        if (n.type === 'error') badgeClass = 'badge-red';
-        if (n.type === 'info') badgeClass = 'badge-blue';
-        if (n.type === 'warning') badgeClass = 'badge-yellow';
+    // --- DOM Elements: Bento Server Hero ---
+    const serverBentoHero = document.getElementById('serverBentoHero');
+    const deskStatusDot = document.getElementById('deskStatusDot');
+    const deskServerTitle = document.getElementById('deskServerTitle');
+    const deskModeBadge = document.getElementById('deskModeBadge');
+    const deskActiveBadge = document.getElementById('deskActiveBadge');
+    const deskHost = document.getElementById('deskHost');
+    const deskOS = document.getElementById('deskOS');
+    const deskDocker = document.getElementById('deskDocker');
+    const deskSwarm = document.getElementById('deskSwarm');
+    const swarmStateBadge = document.getElementById('swarmStateBadge');
+    const btnBootstrapSwarm = document.getElementById('btnBootstrapSwarm');
 
-        return `
-            <div class="endpoint-item" style="padding: 8px 12px;">
-                <div>
-                    <div style="display:flex; align-items:center; gap:8px;">
-                        <span class="badge ${badgeClass}" style="font-size:0.7rem;">${n.type.toUpperCase()}</span>
-                        <strong style="font-size:0.85rem;">${n.title}</strong>
-                        <span class="text-muted" style="font-size:0.72rem;">(${n.time})</span>
-                    </div>
-                    <div style="font-size:0.8rem; color:var(--text-secondary); margin-top:3px;">${n.message}</div>
-                </div>
-            </div>
-        `;
-    }).join('');
-}
+    const btnDeskActivate = document.getElementById('btnDeskActivate');
+    const btnDeskRefresh = document.getElementById('btnDeskRefresh');
+    const btnDeskTerminal = document.getElementById('btnDeskTerminal');
 
-function clearNotificationHistory() {
-    globalNotificationHistory = [];
-    updateNotificationBadge();
-}
+    // Bento Mini-Gauges
+    const tileCpuPct = document.getElementById('tileCpuPct');
+    const tileCpuCores = document.getElementById('tileCpuCores');
+    const tileCpuBar = document.getElementById('tileCpuBar');
+    const tileCpuLoad = document.getElementById('tileCpuLoad');
 
-/* --- 2. Command Palette (⌘K Spotlight Search) --- */
-function initCommandPalette() {
-    const overlay = document.getElementById('paletteOverlay');
-    const input = document.getElementById('paletteInput');
-    const btnOpen = document.getElementById('btnOpenPalette');
-    const items = document.querySelectorAll('.palette-item');
+    const tileRamUsed = document.getElementById('tileRamUsed');
+    const tileRamTotal = document.getElementById('tileRamTotal');
+    const tileRamPct = document.getElementById('tileRamPct');
+    const tileRamBar = document.getElementById('tileRamBar');
 
-    if (!overlay || !input) return;
+    const tileDiskUsed = document.getElementById('tileDiskUsed');
+    const tileDiskTotal = document.getElementById('tileDiskTotal');
+    const tileDiskPct = document.getElementById('tileDiskPct');
+    const tileDiskBar = document.getElementById('tileDiskBar');
 
-    function openPalette() {
-        overlay.classList.add('active');
-        input.value = '';
-        filterItems('');
-        setTimeout(() => input.focus(), 50);
-    }
+    const tileUptime = document.getElementById('tileUptime');
+    const tileDistroTag = document.getElementById('tileDistroTag');
+    const tileHostTag = document.getElementById('tileHostTag');
+    const tileLatencyDisplay = document.getElementById('tileLatencyDisplay');
 
-    function closePalette() {
-        overlay.classList.remove('active');
-    }
+    // Dashboards Web Links
+    const linkPortainer = document.getElementById('linkPortainer');
+    const linkDozzle = document.getElementById('linkDozzle');
+    const linkTraefik = document.getElementById('linkTraefik');
 
-    if (btnOpen) btnOpen.addEventListener('click', openPalette);
+    // --- Navigation Tabs Elements ---
+    const tabSwarmServices = document.getElementById('tabSwarmServices');
+    const tabSwarmDatabases = document.getElementById('tabSwarmDatabases');
+    const tabSwarmTopology = document.getElementById('tabSwarmTopology');
+    const tabHostServices = document.getElementById('tabHostServices');
 
-    document.addEventListener('keydown', (e) => {
-        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-            e.preventDefault();
-            if (overlay.classList.contains('active')) {
-                closePalette();
-            } else {
-                openPalette();
-            }
+    const tabServicesCount = document.getElementById('tabServicesCount');
+    const tabDatabasesCount = document.getElementById('tabDatabasesCount');
+    const tabTopologyCount = document.getElementById('tabTopologyCount');
+    const tabHostCount = document.getElementById('tabHostCount');
+
+    // Content Views
+    const viewSwarmServices = document.getElementById('viewSwarmServices');
+    const viewSwarmDatabases = document.getElementById('viewSwarmDatabases');
+    const viewSwarmTopology = document.getElementById('viewSwarmTopology');
+    const viewHostServices = document.getElementById('viewHostServices');
+
+    // Card Grids & Empty States
+    const swarmServicesCardsGrid = document.getElementById('swarmServicesCardsGrid');
+    const swarmServicesEmpty = document.getElementById('swarmServicesEmpty');
+    const swarmDatabasesCardsGrid = document.getElementById('swarmDatabasesCardsGrid');
+    const swarmDatabasesEmpty = document.getElementById('swarmDatabasesEmpty');
+
+    // Fallback table bodies
+    const swarmServicesTableBody = document.getElementById('swarmServicesTableBody');
+    const swarmDatabasesTableBody = document.getElementById('swarmDatabasesTableBody');
+    const swarmNodesTableBody = document.getElementById('swarmNodesTableBody');
+    const linksTableBody = document.getElementById('linksTableBody');
+
+    // System Services elements
+    const serviceSearchInput = document.getElementById('serviceSearchInput');
+    const servicesSummaryText = document.getElementById('servicesSummaryText');
+    const servicesTableBody = document.getElementById('servicesTableBody');
+
+    // Modales
+    const serverModal = document.getElementById('serverModal');
+    const btnCloseModal = document.getElementById('btnCloseModal');
+    const btnCancelServer = document.getElementById('btnCancelServer');
+    const tabLocal = document.getElementById('tabLocal');
+    const tabRemote = document.getElementById('tabRemote');
+    const tabCloud = document.getElementById('tabCloud');
+    const formServer = document.getElementById('formServer');
+    const localFastNotice = document.getElementById('localFastNotice');
+    const cloudFields = document.getElementById('cloudFields');
+    const cfgProvider = document.getElementById('cfgProvider');
+    const cfgRegion = document.getElementById('cfgRegion');
+    const cfgToken = document.getElementById('cfgToken');
+    const cfgPlan = document.getElementById('cfgPlan');
+    const standardFields = document.getElementById('standardFields');
+    const nameField = document.getElementById('nameField');
+    const cfgName = document.getElementById('cfgName');
+    const hostField = document.getElementById('hostField');
+    const cfgHost = document.getElementById('cfgHost');
+    const userField = document.getElementById('userField');
+    const cfgUser = document.getElementById('cfgUser');
+    const portField = document.getElementById('portField');
+    const cfgPort = document.getElementById('cfgPort');
+    const keyField = document.getElementById('keyField');
+    const cfgKey = document.getElementById('cfgKey');
+    const cfgIsActive = document.getElementById('cfgIsActive');
+    const modalTestResult = document.getElementById('modalTestResult');
+    const btnModalTest = document.getElementById('btnModalTest');
+    const btnModalTestText = document.getElementById('btnModalTestText');
+    const btnModalSave = document.getElementById('btnModalSave');
+    const btnModalSaveText = document.getElementById('btnModalSaveText');
+
+    // Deploy Modal Elements
+    const deployModal = document.getElementById('deployModal');
+    const btnOpenDeployModal = document.getElementById('btnOpenDeployModal');
+    const btnCloseDeployModal = document.getElementById('btnCloseDeployModal');
+    const btnCancelDeploy = document.getElementById('btnCancelDeploy');
+    const formDeploy = document.getElementById('formDeploy');
+    const depName = document.getElementById('depName');
+    const depPort = document.getElementById('depPort');
+    const depImage = document.getElementById('depImage');
+    const depDomain = document.getElementById('depDomain');
+    const depDomainDnsFeedback = document.getElementById('depDomainDnsFeedback');
+    const depDB = document.getElementById('depDB');
+    const depEnv = document.getElementById('depEnv');
+    const btnSubmitDeploy = document.getElementById('btnSubmitDeploy');
+
+    // Database Modal Elements
+    const dbModal = document.getElementById('dbModal');
+    const btnOpenDeployDBModal = document.getElementById('btnOpenDeployDBModal');
+    const btnCloseDBModal = document.getElementById('btnCloseDBModal');
+    const btnCancelDB = document.getElementById('btnCancelDB');
+    const formDeployDB = document.getElementById('formDeployDB');
+    const tabDBLocal = document.getElementById('tabDBLocal');
+    const tabDBNode = document.getElementById('tabDBNode');
+    const tabDBExternal = document.getElementById('tabDBExternal');
+    const dbName = document.getElementById('dbName');
+    const dbEngine = document.getElementById('dbEngine');
+    const dbUrlField = document.getElementById('dbUrlField');
+    const dbExternalURL = document.getElementById('dbExternalURL');
+    const dbPathField = document.getElementById('dbPathField');
+    const dbVolumePath = document.getElementById('dbVolumePath');
+    const dbPortField = document.getElementById('dbPortField');
+    const dbPort = document.getElementById('dbPort');
+    const dbTargetNodeField = document.getElementById('dbTargetNodeField');
+    const dbTargetNode = document.getElementById('dbTargetNode');
+    const btnSubmitDB = document.getElementById('btnSubmitDB');
+    const btnSubmitDBText = document.getElementById('btnSubmitDBText');
+
+    // Link Modal Elements
+    const linkModal = document.getElementById('linkModal');
+    const btnOpenLinkModal = document.getElementById('btnOpenLinkModal');
+    const btnCloseLinkModal = document.getElementById('btnCloseLinkModal');
+    const btnCancelLink = document.getElementById('btnCancelLink');
+    const formLink = document.getElementById('formLink');
+    const linkFrom = document.getElementById('linkFrom');
+    const linkTo = document.getElementById('linkTo');
+    const linkVar = document.getElementById('linkVar');
+    const btnSubmitLink = document.getElementById('btnSubmitLink');
+
+    // Edit Service Modal Elements
+    const editServiceModal = document.getElementById('editServiceModal');
+    const btnCloseEditServiceModal = document.getElementById('btnCloseEditServiceModal');
+    const btnCancelEditService = document.getElementById('btnCancelEditService');
+    const formEditService = document.getElementById('formEditService');
+    const editServiceTitle = document.getElementById('editServiceTitle');
+    const editServiceName = document.getElementById('editServiceName');
+    const editServiceExpose = document.getElementById('editServiceExpose');
+    const editDomainField = document.getElementById('editDomainField');
+    const editServiceDomain = document.getElementById('editServiceDomain');
+    const editDomainDnsFeedback = document.getElementById('editDomainDnsFeedback');
+    const editServicePort = document.getElementById('editServicePort');
+    const btnSubmitEditService = document.getElementById('btnSubmitEditService');
+
+    // Worker Modal Elements
+    const workerModal = document.getElementById('workerModal');
+    const btnOpenWorkerModal = document.getElementById('btnOpenWorkerModal');
+    const btnCloseWorkerModal = document.getElementById('btnCloseWorkerModal');
+    const btnCancelWorker = document.getElementById('btnCancelWorker');
+    const formWorker = document.getElementById('formWorker');
+    const workerName = document.getElementById('workerName');
+    const workerProvider = document.getElementById('workerProvider');
+    const workerApiKey = document.getElementById('workerApiKey');
+    const workerRegion = document.getElementById('workerRegion');
+    const workerPlan = document.getElementById('workerPlan');
+    const workerLabel = document.getElementById('workerLabel');
+    const workerLogsBox = document.getElementById('workerLogsBox');
+    const workerLogsContent = document.getElementById('workerLogsContent');
+    const btnSubmitWorker = document.getElementById('btnSubmitWorker');
+    const btnSubmitWorkerText = document.getElementById('btnSubmitWorkerText');
+
+    // Logs Modal Elements
+    const logsModal = document.getElementById('logsModal');
+    const btnCloseLogsModal = document.getElementById('btnCloseLogsModal');
+    const btnDismissLogs = document.getElementById('btnDismissLogs');
+    const logsStatusDot = document.getElementById('logsStatusDot');
+    const logsServiceNameTitle = document.getElementById('logsServiceNameTitle');
+    const logsSearchInput = document.getElementById('logsSearchInput');
+    const logsTailSelect = document.getElementById('logsTailSelect');
+    const logsLiveToggle = document.getElementById('logsLiveToggle');
+    const logsAutoscrollToggle = document.getElementById('logsAutoscrollToggle');
+    const btnRestartFromLogs = document.getElementById('btnRestartFromLogs');
+    const btnRefreshLogs = document.getElementById('btnRefreshLogs');
+    const btnCopyLogs = document.getElementById('btnCopyLogs');
+    const btnDownloadLogs = document.getElementById('btnDownloadLogs');
+    const logsTerminalViewport = document.getElementById('logsTerminalViewport');
+    const logsTerminalContent = document.getElementById('logsTerminalContent');
+    const logsLineCount = document.getElementById('logsLineCount');
+    const logsLastUpdate = document.getElementById('logsLastUpdate');
+
+    let currentLogsServiceName = '';
+    let logsPollTimer = null;
+    let rawLogsText = '';
+
+    // Env Modal Elements
+    const envModal = document.getElementById('envModal');
+    const btnCloseEnvModal = document.getElementById('btnCloseEnvModal');
+    const btnCancelEnv = document.getElementById('btnCancelEnv');
+    const btnSaveEnv = document.getElementById('btnSaveEnv');
+    const envModalServiceName = document.getElementById('envModalServiceName');
+    const envTabTable = document.getElementById('envTabTable');
+    const envTabRaw = document.getElementById('envTabRaw');
+    const btnAddEnvRow = document.getElementById('btnAddEnvRow');
+    const btnCopyEnv = document.getElementById('btnCopyEnv');
+    const envTableView = document.getElementById('envTableView');
+    const envRawView = document.getElementById('envRawView');
+    const envTableBody = document.getElementById('envTableBody');
+    const envRawTextarea = document.getElementById('envRawTextarea');
+    const envModalStatus = document.getElementById('envModalStatus');
+
+    let currentEnvServiceName = '';
+    let currentEnvMode = 'table';
+
+    // --- Server Switcher Popover Interactions ---
+    serverSwitcherBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = serverPopover.style.display === 'flex';
+        serverPopover.style.display = isOpen ? 'none' : 'flex';
+        serverSwitcherBtn.classList.toggle('open', !isOpen);
+        if (!isOpen) {
+            fleetSearchInput.value = '';
+            renderFleetDirectory();
+            setTimeout(() => fleetSearchInput.focus(), 50);
         }
-        if (e.key === 'Escape' && overlay.classList.contains('active')) {
-            closePalette();
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!serverSwitcherWrap.contains(e.target)) {
+            serverPopover.style.display = 'none';
+            serverSwitcherBtn.classList.remove('open');
         }
     });
 
-    overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) closePalette();
-    });
+    fleetSearchInput.addEventListener('input', debounce(() => {
+        renderFleetDirectory();
+    }, 150));
 
-    input.addEventListener('input', (e) => {
-        filterItems(e.target.value.toLowerCase().trim());
-    });
-
-    items.forEach(item => {
-        item.addEventListener('click', () => {
-            const action = item.getAttribute('data-action');
-            closePalette();
-            executePaletteAction(action);
-        });
-    });
-
-    input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            const visibleItem = document.querySelector('.palette-item:not([style*="display: none"])');
-            if (visibleItem) {
-                const action = visibleItem.getAttribute('data-action');
-                closePalette();
-                executePaletteAction(action);
-            }
-        }
-    });
-}
-
-function filterItems(query) {
-    const items = document.querySelectorAll('.palette-item');
-    items.forEach(item => {
-        const text = item.innerText.toLowerCase();
-        const keywords = (item.getAttribute('data-keywords') || '').toLowerCase();
-        const fullSearchableText = `${text} ${keywords}`;
-        if (!query || fullSearchableText.includes(query)) {
-            item.style.display = 'flex';
-        } else {
-            item.style.display = 'none';
-        }
-    });
-}
-
-function executePaletteAction(action) {
-    switch (action) {
-        case 'open-logs':
-            const logBox = document.getElementById('liveLogContent');
-            if (logBox) logBox.scrollIntoView({ behavior: 'smooth' });
-            fetchLiveLogs();
-            break;
-        case 'create-vm':
-            openModal('createVmModal');
-            break;
-        case 'byo-bootstrap':
-            openModal('byoBootstrapModal');
-            break;
-        case 'bootstrap-master':
-            openModal('bootstrapMasterModal');
-            break;
-        case 'create-preview':
-            openModal('previewModal');
-            break;
-        case 'deploy-service':
-            openModal('deployServiceModal');
-            break;
-        case 'rollback-service':
-            promptRollbackService();
-            break;
-        case 'deploy-db':
-            openModal('deployDBModal');
-            break;
-        case 'manage-registry':
-            openRegistryModal();
-            break;
-        case 'manage-ssh-keys':
-            openSSHKeysModal();
-            break;
-        case 'view-audit-logs':
-        case 'manage-audit':
-            openAuditLogsModal();
-            break;
-        case 'manage-migrations':
-            openMigrationModal();
-            break;
-        case 'manage-backups':
-        case 'create-backup':
-            openBackupModal();
-            break;
-        case 'manage-env':
-            openEnvModal();
-            break;
-        case 'browse-volumes':
-            openVolumeBrowser();
-            break;
-        case 'inspect-ssl':
-        case 'manage-domains':
-            openDomainModal();
-            break;
-        case 'link-services':
-            openModal('linkModal');
-            break;
-        case 'provision-worker':
-            openModal('workerModal');
-            break;
-        case 'manage-nodes':
-            openNodeManagementModal();
-            break;
-        case 'config-vps':
-            openModal('configModal');
-            break;
-        case 'run-bootstrap':
-            runBootstrapAction();
-            break;
-        case 'deploy-obs':
-            runDeployObsAction();
-            break;
-        case 'view-metrics':
-            openMetricsModal();
-            break;
-        case 'install-tailscale':
-            openModal('tailscaleModal');
-            break;
-        case 'docker-prune':
-            runPruneAction();
-            break;
-        case 'view-topology':
-            viewTopologyAction();
-            break;
-        case 'restart-traefik':
-            restartTraefikAction();
-            break;
-    }
-}
-
-function restartTraefikAction() {
-    requestConfirmation(
-        '🔄 Reiniciar Traefik Proxy',
-        '¿Deseas forzar el reinicio del servicio Traefik Proxy en Docker Swarm?',
-        async () => {
-            showToast('Reiniciando Traefik', 'Ejecutando docker service update --force traefik...', 'info');
-            try {
-                const res = await fetch('/api/tools/restart-traefik', { method: 'POST' });
-                if (res.ok) {
-                    showToast('Traefik Reiniciado 🚀', 'Proxy Traefik reiniciado con éxito', 'success');
-                } else {
-                    const err = await res.json().catch(() => ({ error: 'Error al reiniciar Traefik' }));
-                    showToast('Error', err.error || err.message, 'error');
-                }
-            } catch (e) {
-                showToast('Error de Red', e.message, 'error');
-            }
-        }
-    );
-}
-
-/* --- 3. Modals & Form Submission Handling --- */
-function initModalsAndForms() {
-    // Backdrop click and ESC key listeners for closing all modals
+    // Soporte global tecla Escape para cerrar modales y popover
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
-            document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
+            const modals = [serverModal, deployModal, linkModal, dbModal, editServiceModal, workerModal, logsModal, envModal, volumeModal, terminalModal];
+            modals.forEach(m => {
+                if (m && m.style.display !== 'none' && m.style.display !== '') {
+                    if (m === logsModal) stopLogsPolling();
+                    m.style.display = 'none';
+                }
+            });
+            if (serverPopover) serverPopover.style.display = 'none';
+            if (serverSwitcherBtn) serverSwitcherBtn.classList.remove('open');
         }
     });
 
-    document.querySelectorAll('.modal-overlay').forEach(overlay => {
-        overlay.addEventListener('click', (e) => {
-            if (e.target === overlay) {
-                overlay.classList.remove('active');
-            }
-        });
-    });
+    // --- Tab Switching Navigation ---
+    function activateTab(tabName) {
+        const tabs = [tabSwarmServices, tabSwarmDatabases, tabHostServices, tabSwarmTopology];
+        const views = [viewSwarmServices, viewSwarmDatabases, viewHostServices, viewSwarmTopology];
+        tabs.forEach(t => t.classList.remove('active'));
+        views.forEach(v => v.style.display = 'none');
 
-    // Terminal CLI form handler
-    const formCliTerminal = document.getElementById('formCliTerminal');
-    if (formCliTerminal) {
-        formCliTerminal.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const input = document.getElementById('cliTerminalInput');
-            if (input && input.value.trim()) {
-                const cmd = input.value.trim();
-                input.value = '';
-                execTerminalCmd(cmd);
-            }
-        });
-    }
-
-    // Formulario Link (A -> B)
-    const formLink = document.getElementById('formLink');
-    if (formLink) {
-        formLink.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const payload = {
-                sourceSvc: document.getElementById('linkSource').value.trim(),
-                targetSvc: document.getElementById('linkTarget').value.trim(),
-                envVarName: document.getElementById('linkEnvVar').value.trim()
-            };
-            showToast('Procesando Interconexión', `Conectando ${payload.sourceSvc} ➔ ${payload.targetSvc}...`, 'info');
-            try {
-                const res = await fetch('/api/links', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(payload)
-                });
-                if (res.ok) {
-                    showToast('Enlace Creado', `Inyectada ${payload.envVarName} en Swarm para ${payload.sourceSvc}`, 'success');
-                    closeModal('linkModal');
-                    loadDashboardData();
-                } else {
-                    const err = await res.text();
-                    showToast('Error en Interconexión', err, 'error');
-                }
-            } catch (err) {
-                showToast('Error de Red', err.message, 'error');
-            }
-        });
-    }
-
-    // Formulario Entornos Preview (Testing / PR)
-    const formPreview = document.getElementById('formPreview');
-    if (formPreview) {
-        formPreview.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const payload = {
-                name: document.getElementById('prevName').value.trim(),
-                image: document.getElementById('prevImage').value.trim(),
-                imageSource: document.getElementById('prevImage').value.trim(),
-                port: parseInt(document.getElementById('prevPort').value, 10) || 80,
-                domain: document.getElementById('prevDomain').value.trim(),
-                link_db_name: document.getElementById('prevLinkDB').value.trim(),
-                linkDbName: document.getElementById('prevLinkDB').value.trim(),
-                target_node: document.getElementById('prevNode')?.value || 'manager',
-                targetNode: document.getElementById('prevNode')?.value || 'manager'
-            };
-
-            showToast('Creando Entorno Preview', `Lanzando contenedor efímero '${payload.name}'...`, 'info', 5000);
-
-            try {
-                const res = await fetch('/api/previews', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(payload)
-                });
-                if (res.ok) {
-                    showToast('Entorno Preview Creado', `¡Entorno temporal '${payload.name}' activo!`, 'success');
-                    closeModal('previewModal');
-                    loadDashboardData();
-                } else {
-                    const err = await res.text();
-                    showToast('Error Creando Preview', err, 'error');
-                }
-            } catch (err) {
-                showToast('Error de Conexión', err.message, 'error');
-            }
-        });
-    }
-
-    // Formulario Deploy Service
-    const formDeployService = document.getElementById('formDeployService');
-    if (formDeployService) {
-        formDeployService.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const payload = {
-                name: document.getElementById('svcName').value.trim(),
-                image_source: document.getElementById('svcImage').value.trim(),
-                port: parseInt(document.getElementById('svcPort').value, 10),
-                domain: document.getElementById('svcDomain').value.trim(),
-                expose: document.getElementById('svcExpose').checked,
-                enable_ssl: document.getElementById('svcSSL').checked,
-                targetNode: document.getElementById('svcNode')?.value || 'manager',
-                pre_deploy_hook: document.getElementById('svcPreDeployHook')?.value.trim() || ''
-            };
-
-            closeModal('deployServiceModal');
-            startStreamingOperation(
-                '/api/services',
-                payload,
-                `🚀 Desplegar Servicio (${payload.name})`
-            );
-        });
-    }
-
-    // Formulario Master Bootstrapper (All-in-One 1-Click)
-    const formBootstrapMaster = document.getElementById('formBootstrapMaster');
-    if (formBootstrapMaster) {
-        formBootstrapMaster.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const payload = {
-                app_name: document.getElementById('bmAppName').value.trim(),
-                image: document.getElementById('bmImage').value.trim(),
-                port: parseInt(document.getElementById('bmPort').value, 10),
-                db_engine: document.getElementById('bmDBEngine').value,
-                env_var_name: document.getElementById('bmEnvVarName').value.trim(),
-                domain: document.getElementById('bmDomain').value.trim(),
-                expose_public: !!document.getElementById('bmDomain').value.trim()
-            };
-
-            requestConfirmation(
-                '🪄 Confirmar Inicialización Master',
-                `¿Deseas inicializar la aplicación '${payload.app_name}' con la base de datos '${payload.db_engine}'? Si '${payload.app_name}' ya tenía enlaces a otra BD, se desvinculará automáticamente.`,
-                async () => {
-                    closeModal('bootstrapMasterModal');
-                    showToast('Inicializando Master', `Creando ${payload.app_name} y desvinculando entornos previos...`, 'info', 8000);
-                    try {
-                        const res = await fetch('/api/bootstrap-master', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify(payload)
-                        });
-                        if (res.ok) {
-                            const data = await res.json();
-                            let msg = `¡App ${payload.app_name} iniciada!`;
-                            if (data.unlinked_old && data.unlinked_old.length > 0) {
-                                msg += ` (Desvinculada de ${data.unlinked_old.join(', ')})`;
-                            }
-                            showToast('Master Bootstrap Exitoso', msg, 'success');
-                            loadDashboardData();
-                        } else {
-                            const err = await res.text();
-                            showToast('Error en Bootstrap', err, 'error');
-                        }
-                    } catch (err) {
-                        showToast('Error de Conexión', err.message, 'error');
-                    }
-                }
-            );
-        });
-    }
-
-    // Formulario Crear VM en la Nube & Instalar Framework
-    const cvmProviderSelect = document.getElementById('cvmProvider');
-    if (cvmProviderSelect) {
-        cvmProviderSelect.addEventListener('change', () => {
-            const regionInput = document.getElementById('cvmRegion');
-            if (regionInput) {
-                if (cvmProviderSelect.value === 'vultr') {
-                    regionInput.value = 'ewr';
-                    regionInput.placeholder = 'ej. ewr (NJ), ord (Chicago), lax, mia, ams';
-                } else {
-                    regionInput.value = 'nyc1';
-                    regionInput.placeholder = 'ej. nyc1, nyc3, ams3, sfo3';
-                }
-            }
-        });
-    }
-
-    const formCreateVM = document.getElementById('formCreateVM');
-    if (formCreateVM) {
-        formCreateVM.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const payload = {
-                provider: document.getElementById('cvmProvider').value,
-                nodeName: document.getElementById('cvmNodeName').value.trim(),
-                apiToken: document.getElementById('cvmApiToken').value.trim(),
-                region: document.getElementById('cvmRegion').value.trim(),
-                acmeEmail: document.getElementById('cvmAcmeEmail').value.trim(),
-                installObservability: document.getElementById('cvmInstallObs').checked
-            };
-
-            closeModal('createVmModal');
-            startStreamingOperation(
-                '/api/create-vm-bootstrap',
-                payload,
-                `⚡ Crear VM (${payload.provider.toUpperCase()}) & Instalar Framework`
-            );
-        });
-    }
-
-    // Formulario Instalar Framework en VM Conectada (BYO)
-    const formBYOBootstrap = document.getElementById('formBYOBootstrap');
-    if (formBYOBootstrap) {
-        formBYOBootstrap.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const payload = {
-                host: document.getElementById('byoHost').value.trim(),
-                port: parseInt(document.getElementById('byoPort').value, 10) || 22,
-                user: document.getElementById('byoUser').value.trim() || 'root',
-                keyPath: document.getElementById('byoKeyPath').value.trim(),
-                acmeEmail: document.getElementById('byoAcmeEmail').value.trim(),
-                installObservability: document.getElementById('byoInstallObs').checked
-            };
-
-            closeModal('byoBootstrapModal');
-            startStreamingOperation(
-                '/api/bootstrap',
-                payload,
-                `🚀 Instalar Framework en ${payload.host}`
-            );
-        });
-    }
-
-    // Formulario Deploy DB
-    const formDeployDB = document.getElementById('formDeployDB');
-    if (formDeployDB) {
-        formDeployDB.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const recoveryVal = document.getElementById('dbRecoveryMode')?.value || 'reuse';
-            const payload = {
-                name: document.getElementById('dbName').value.trim(),
-                engine: document.getElementById('dbEngine').value,
-                internalPort: parseInt(document.getElementById('dbPort')?.value || 0, 10),
-                targetNode: document.getElementById('dbNode')?.value || 'manager',
-                reuseExistingData: recoveryVal === 'reuse',
-                cleanExistingData: recoveryVal === 'clean'
-            };
-
-            closeModal('deployDBModal');
-            startStreamingOperation(
-                '/api/databases',
-                payload,
-                `🗄️ Desplegar Base de Datos (${payload.name})`
-            );
-        });
-    }
-
-    // Formulario Provision Worker
-    const formWorker = document.getElementById('formWorker');
-    if (formWorker) {
-        formWorker.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const payload = {
-                nodeName: document.getElementById('workerName').value.trim(),
-                plan: document.getElementById('workerPlan') ? document.getElementById('workerPlan').value : 'vc2-1c-1gb',
-                region: document.getElementById('workerRegion').value.trim(),
-                labelType: document.getElementById('workerType') ? document.getElementById('workerType').value : 'worker'
-            };
-
-            closeModal('workerModal');
-            startStreamingOperation(
-                '/api/workers',
-                payload,
-                `🏗️ Provisionar Nodo Worker (${payload.nodeName})`
-            );
-        });
-    }
-
-    // Formulario Config VPS
-    const formConfigVPS = document.getElementById('formConfigVPS');
-    if (formConfigVPS) {
-        formConfigVPS.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const payload = {
-                host: document.getElementById('cfgHost').value.trim(),
-                port: parseInt(document.getElementById('cfgPort').value, 10),
-                user: document.getElementById('cfgUser').value.trim(),
-                key_path: document.getElementById('cfgKey').value.trim(),
-                privateKey: document.getElementById('cfgKey').value.trim(),
-                do_token: document.getElementById('cfgDOToken').value.trim(),
-                doApiToken: document.getElementById('cfgDOToken').value.trim(),
-                vultrApiToken: document.getElementById('cfgDOToken').value.trim()
-            };
-            showToast('Guardando Configuración', 'Actualizando credenciales del cluster VPS...', 'info');
-            try {
-                const res = await fetch('/api/config', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(payload)
-                });
-                if (res.ok) {
-                    showToast('Configuración Guardada', '¡Parámetros de VPS y Vultr API Key actualizados!', 'success');
-                    closeModal('configModal');
-                    loadDashboardData();
-                } else {
-                    const err = await res.text();
-                    showToast('Error de Configuración', err, 'error');
-                }
-            } catch (err) {
-                showToast('Error de Conexión', err.message, 'error');
-            }
-        });
-    }
-
-    // Formulario Editar Servicio
-    const formEditService = document.getElementById('formEditService');
-    if (formEditService) {
-        formEditService.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const payload = {
-                name: document.getElementById('editSvcOriginalName').value.trim(),
-                image_source: document.getElementById('editSvcImage').value.trim(),
-                port: parseInt(document.getElementById('editSvcPort').value, 10),
-                domain: document.getElementById('editSvcDomain').value.trim(),
-                expose: document.getElementById('editSvcExpose').checked,
-                enable_ssl: document.getElementById('editSvcSSL').checked,
-                env_vars: document.getElementById('editSvcEnvVars').value.trim(),
-                healthcheck_cmd: document.getElementById('editSvcHealthcheck').value.trim(),
-                pre_deploy_hook: document.getElementById('editSvcPreDeployHook')?.value.trim() || ''
-            };
-            showToast('Actualizando Servicio', `Reconfigurando ${payload.name} en Docker Swarm...`, 'info', 5000);
-            try {
-                const res = await fetch('/api/services', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(payload)
-                });
-                if (res.ok) {
-                    showToast('Servicio Actualizado', `¡Cambios y variables de entorno aplicadas a ${payload.name}!`, 'success');
-                    closeModal('editServiceModal');
-                    loadDashboardData();
-                } else {
-                    const err = await res.text();
-                    showToast('Error al Actualizar', err, 'error');
-                }
-            } catch (err) {
-                showToast('Error de Conexión', err.message, 'error');
-            }
-        });
-    }
-
-    // Formulario Editar BD
-    const formEditDB = document.getElementById('formEditDB');
-    if (formEditDB) {
-        formEditDB.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const payload = {
-                name: document.getElementById('editDBOriginalName').value.trim(),
-                engine: document.getElementById('editDBEngine')?.value || 'postgres',
-                internalPort: parseInt(document.getElementById('editDBPort')?.value || 5432, 10),
-                targetNode: document.getElementById('editDBNode')?.value || 'manager'
-            };
-            showToast('Actualizando BD', `Guardando configuración de ${payload.name}...`, 'info');
-            try {
-                const res = await fetch('/api/databases', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(payload)
-                });
-                if (res.ok) {
-                    showToast('BD Actualizada', `Configuración para ${payload.name} sincronizada`, 'success');
-                    closeModal('editDBModal');
-                    loadDashboardData();
-                } else {
-                    const err = await res.text();
-                    showToast('Error al Actualizar BD', err, 'error');
-                }
-            } catch (err) {
-                showToast('Error de Conexión', err.message, 'error');
-            }
-        });
-    }
-
-    // Formulario Editar Link
-    const formEditLink = document.getElementById('formEditLink');
-    if (formEditLink) {
-        formEditLink.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const payload = {
-                sourceSvc: document.getElementById('editLinkSource').value,
-                targetSvc: document.getElementById('editLinkTarget').value,
-                envVarName: document.getElementById('editLinkEnvVar').value.trim(),
-                source_svc: document.getElementById('editLinkSource').value,
-                target_svc: document.getElementById('editLinkTarget').value,
-                env_var_name: document.getElementById('editLinkEnvVar').value.trim()
-            };
-            showToast('Actualizando Enlace', `Actualizando variable ${payload.env_var_name}...`, 'info');
-            try {
-                const res = await fetch('/api/links', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(payload)
-                });
-                if (res.ok) {
-                    showToast('Enlace Actualizado', `Variable ${payload.env_var_name} reinyectada`, 'success');
-                    closeModal('editLinkModal');
-                    loadDashboardData();
-                } else {
-                    const err = await res.text();
-                    showToast('Error al Actualizar', err, 'error');
-                }
-            } catch (err) {
-                showToast('Error de Red', err.message, 'error');
-            }
-        });
-    }
-
-    // Formulario Observabilidad
-    const observabilityForm = document.getElementById('observabilityForm');
-    if (observabilityForm) {
-        observabilityForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const volumePath = document.getElementById('obsVolumePath').value;
-            const grafanaPassword = document.getElementById('obsPassword').value;
-            const deployType = document.getElementById('obsDeployType').value;
-            const exposePublic = document.getElementById('obsExposePublic').checked;
-
-            closeModal('observabilityModal');
-            requestConfirmation(
-                '⚠️ Desplegar Observabilidad',
-                `¿Confirmas desplegar Loki, Promtail, Grafana y Portainer montados en la VM en '${volumePath}'?`,
-                async () => {
-                    showToast('Desplegando Observabilidad', 'Creando contenedores y volúmenes externos...', 'info', 10000);
-                    try {
-                        const res = await fetch('/api/observability', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                action: 'deploy',
-                                enabled: true,
-                                volumePath,
-                                grafanaPassword,
-                                deployType,
-                                exposePublic
-                            })
-                        });
-                        if (res.ok) {
-                            showToast('Observabilidad Lista', '¡Loki y Grafana montados y activos en el clúster!', 'success');
-                            loadDashboardData();
-                        } else {
-                            const err = await res.json().catch(() => ({ error: 'Error al desplegar observabilidad' }));
-                            showToast('Error Observabilidad', err.error || 'No se pudo desplegar observabilidad', 'error');
-                        }
-                    } catch (err) {
-                        showToast('Error de Conexión', err.message, 'error');
-                    }
-                }
-            );
-        });
-    }
-}
-
-function openModal(id) {
-    const el = document.getElementById(id);
-    if (el) el.classList.add('active');
-    if (id === 'workerModal') {
-        loadVultrPlans();
-    }
-}
-
-async function loadVultrPlans() {
-    const select = document.getElementById('workerPlan');
-    if (!select) return;
-    try {
-        const res = await fetch('/api/vultr/plans');
-        if (!res.ok) return;
-        const plans = await res.json();
-        if (plans && plans.length > 0) {
-            select.innerHTML = plans.map(p => `
-                <option value="${p.id}">
-                    ${p.id} — ${p.vcpu_count} vCPU, ${(p.ram / 1024).toFixed(1)} GB RAM, ${p.disk} GB SSD ($${p.monthly_cost.toFixed(2)}/mes)
-                </option>
-            `).join('');
+        if (location.hash !== `#${tabName}`) {
+            history.replaceState(null, '', `#${tabName}`);
         }
-    } catch (e) {
-        console.warn('Error cargando planes de Vultr:', e);
-    }
-}
 
-function closeModal(id) {
-    const el = document.getElementById(id);
-    if (el) el.classList.remove('active');
-}
-
-/* --- 4. Service / DB / Link Inspection & Deletion Modal Triggers --- */
-function openEditServiceModal(name) {
-    const svc = globalServices.find(s => s.name === name);
-    if (!svc) return;
-
-    document.getElementById('editSvcTitle').innerText = svc.name;
-    document.getElementById('editSvcOriginalName').value = svc.name;
-    document.getElementById('editSvcImage').value = svc.imageSource || svc.image_source || '';
-    document.getElementById('editSvcPort').value = svc.port || 80;
-    document.getElementById('editSvcDomain').value = svc.domain || '';
-    document.getElementById('editSvcExpose').checked = !!svc.expose;
-    document.getElementById('editSvcSSL').checked = svc.enableSSL !== undefined ? svc.enableSSL : (svc.enable_ssl !== undefined ? svc.enable_ssl : false);
-
-    const envVarsEl = document.getElementById('editSvcEnvVars');
-    if (envVarsEl) {
-        envVarsEl.value = svc.envVars || svc.env_vars || '';
-    }
-
-    // Live preview of injected link ENV variables
-    const activeLinks = (globalLinks || []).filter(l => (l.sourceSvc || l.source_svc) === name);
-    const injectedPreview = document.getElementById('editSvcInjectedPreview');
-    const injectedBadge = document.getElementById('editSvcInjectedBadge');
-    if (activeLinks.length > 0) {
-        if (injectedBadge) injectedBadge.style.display = 'inline-block';
-        if (injectedPreview) {
-            injectedPreview.style.display = 'block';
-            const linkLines = activeLinks.map(l => {
-                const envName = l.envVarName || l.env_var_name || 'LINK';
-                const tgt = l.targetSvc || l.target_svc || 'destino';
-                const tgtUrl = l.targetUrl || l.target_url || `${tgt}:port`;
-                return `⚡ Inyectada automáticamente por enlace a '${tgt}':<br><strong>${envName}</strong> = <code>${tgtUrl}</code>`;
-            }).join('<br>');
-            injectedPreview.innerHTML = linkLines;
+        if (tabName === 'services') {
+            tabSwarmServices.classList.add('active');
+            viewSwarmServices.style.display = 'block';
         }
-    } else {
-        if (injectedBadge) injectedBadge.style.display = 'none';
-        if (injectedPreview) {
-            injectedPreview.style.display = 'none';
-            injectedPreview.innerHTML = '';
+        if (tabName === 'databases') {
+            tabSwarmDatabases.classList.add('active');
+            viewSwarmDatabases.style.display = 'block';
+        }
+        if (tabName === 'host') {
+            tabHostServices.classList.add('active');
+            viewHostServices.style.display = 'block';
+            renderServicesTable(currentHostServices);
+        }
+        if (tabName === 'topology') {
+            tabSwarmTopology.classList.add('active');
+            viewSwarmTopology.style.display = 'block';
+            if (selectedServerName) loadServiceLinks();
         }
     }
 
-    const hcEl = document.getElementById('editSvcHealthcheck');
-    if (hcEl) hcEl.value = svc.healthcheckCmd || svc.healthcheck_cmd || '';
+    tabSwarmServices.addEventListener('click', () => activateTab('services'));
+    tabSwarmDatabases.addEventListener('click', () => activateTab('databases'));
+    tabHostServices.addEventListener('click', () => activateTab('host'));
+    tabSwarmTopology.addEventListener('click', () => activateTab('topology'));
 
-    const hookEl = document.getElementById('editSvcPreDeployHook');
-    if (hookEl) hookEl.value = svc.preDeployHook || svc.pre_deploy_hook || '';
-
-    openModal('editServiceModal');
-}
-
-function openEditDBModal(name) {
-    const db = globalDatabases.find(d => d.name === name);
-    if (!db) return;
-
-    document.getElementById('editDBTitle').innerText = db.name;
-    document.getElementById('editDBOriginalName').value = db.name;
-    document.getElementById('editDBEngine').value = db.engine || 'database';
-    document.getElementById('editDBPort').value = db.internalPort || db.internal_port || 5432;
-    document.getElementById('editDBDeployType').value = db.deployType || db.deploy_type || 'single-node';
-    document.getElementById('editDBInternalURI').value = `${db.name}:${db.internalPort || db.internal_port || 5432}`;
-
-    openModal('editDBModal');
-}
-
-function openEditLinkModal(sourceSvc, targetSvc, envVarName) {
-    document.getElementById('editLinkSource').value = sourceSvc;
-    document.getElementById('editLinkTarget').value = targetSvc;
-    document.getElementById('editLinkSourceDisplay').value = sourceSvc;
-    document.getElementById('editLinkTargetDisplay').value = targetSvc;
-    document.getElementById('editLinkEnvVar').value = envVarName;
-
-    openModal('editLinkModal');
-}
-
-async function deleteServiceFromModalAction() {
-    const name = document.getElementById('editSvcOriginalName').value;
-    if (!name) return;
-
-    requestConfirmation(
-        '🚨 Destruir Servicio App',
-        `¿Estás seguro de que deseas eliminar permanentemente el servicio '${name}' de Docker Swarm? Esta acción no se puede deshacer.`,
-        async () => {
-            showToast('Eliminando Servicio', `Destruyendo contenedor ${name}...`, 'info');
-            try {
-                const res = await fetch(`/api/services?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
-                if (res.ok) {
-                    showToast('Servicio Eliminado', `El servicio '${name}' ha sido removido.`, 'success');
-                    closeModal('editServiceModal');
-                    loadDashboardData();
-                } else {
-                    const err = await res.text();
-                    showToast('Error al Eliminar', err, 'error');
-                }
-            } catch (err) {
-                showToast('Error de Red', err.message, 'error');
-            }
-        }
-    );
-}
-
-async function deleteDatabaseFromModalAction() {
-    const name = document.getElementById('editDBOriginalName').value;
-    if (!name) return;
-
-    requestConfirmation(
-        '🔥 Eliminar Base de Datos',
-        `¿Estás seguro de que deseas detener y remover la BD '${name}'? Todos los datos no respaldados se perderán.`,
-        async () => {
-            showToast('Deteniendo BD', `Removiendo base de datos '${name}'...`, 'info');
-            try {
-                const res = await fetch(`/api/databases?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
-                if (res.ok) {
-                    showToast('BD Detenida', `La base de datos '${name}' ha sido removida del clúster.`, 'success');
-                    closeModal('editDBModal');
-                    loadDashboardData();
-                } else {
-                    const err = await res.text();
-                    showToast('Error al Detener BD', err, 'error');
-                }
-            } catch (err) {
-                showToast('Error de Red', err.message, 'error');
-            }
-        }
-    );
-}
-
-function deleteLinkFromModalAction() {
-    const src = document.getElementById('editLinkSource').value;
-    const tgt = document.getElementById('editLinkTarget').value;
-
-    requestConfirmation(
-        '🔗 Desvincular Enlace',
-        `¿Deseas desvincular la relación de conexión entre '${src}' y '${tgt}'?`,
-        () => {
-            deleteLinkAction(src, tgt);
-            closeModal('editLinkModal');
-        }
-    );
-}
-
-/* --- 5. Terminal CLI Functions --- */
-function openTerminalModal() {
-    openModal('cliTerminalModal');
-}
-
-function switchNodeTerminal(nodeVal) {
-    const titleEl = document.getElementById('termHeaderTitle');
-    const prefixEl = document.getElementById('termPromptPrefix');
-    const statusEl = document.getElementById('nodeStatusBadge');
-
-    const sshUser = (document.getElementById('cfgUser') && document.getElementById('cfgUser').value.trim()) ? document.getElementById('cfgUser').value.trim() : 'root';
-    const promptStr = `${sshUser}@${nodeVal}:~#`;
-
-    if (titleEl) titleEl.innerText = promptStr;
-    if (prefixEl) prefixEl.innerText = promptStr;
-    if (statusEl) statusEl.innerText = `Connected (${nodeVal})`;
-}
-
-function runQuickCmd(cmd) {
-    const input = document.getElementById('cliTerminalInput');
-    if (input) {
-        input.value = cmd;
-        execTerminalCmd(cmd);
-    }
-}
-
-async function execTerminalCmd(cmdStr) {
-    const output = document.getElementById('cliTerminalOutput');
-    const nodeVal = document.getElementById('nodeSelectDropdown') ? document.getElementById('nodeSelectDropdown').value : 'manager';
-    const sshUser = (document.getElementById('cfgUser') && document.getElementById('cfgUser').value.trim()) ? document.getElementById('cfgUser').value.trim() : 'root';
-
-    if (!output) return;
-
-    output.innerHTML += `\n${sshUser}@${nodeVal}:~# ${cmdStr}\n[Ejecutando comando SSH en ${nodeVal}...]\n`;
-    output.scrollTop = output.scrollHeight;
-
-    try {
-        const res = await fetch('/api/terminal/exec', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ command: cmdStr, nodeId: nodeVal })
-        });
-        if (res.ok) {
-            const data = await res.json();
-            output.innerHTML += (data.output || '') + '\n';
-        } else {
-            const err = await res.json().catch(() => ({ error: 'Error al ejecutar comando' }));
-            output.innerHTML += `[Error]: ${err.error || err.message}\n`;
-        }
-    } catch (err) {
-        output.innerHTML += `[Error execution]: ${err.message}\n`;
-    }
-    output.scrollTop = output.scrollHeight;
-}
-
-/* --- 6. Live Log Stream Inspector Functions --- */
-function openLogsForTarget(targetName) {
-    const selectSvc = document.getElementById('logServiceSelect');
-    if (selectSvc) {
-        selectSvc.value = targetName;
-        fetchLiveLogs();
-        const logsCard = document.getElementById('liveLogContent');
-        if (logsCard) {
-            logsCard.scrollIntoView({ behavior: 'smooth' });
-        }
-    }
-}
-
-async function fetchLiveLogs() {
-    const selectSvc = document.getElementById('logServiceSelect');
-    const selectLines = document.getElementById('logLinesSelect');
-    const logBox = document.getElementById('liveLogContent');
-    if (!selectSvc || !logBox) return;
-
-    const svcName = selectSvc.value;
-    const lines = selectLines ? selectLines.value : 50;
-
-    if (!svcName) {
-        logBox.innerText = 'Selecciona un servicio o base de datos para transmitir logs en vivo...';
-        return;
-    }
-
-    try {
-        const res = await fetch(`/api/logs?name=${encodeURIComponent(svcName)}&service=${encodeURIComponent(svcName)}&lines=${lines}`);
-        if (res.ok) {
-            let logsText = '';
-            try {
-                const data = await res.json();
-                logsText = data.logs || data;
-            } catch (e) {
-                logsText = await res.text();
-            }
-            logBox.innerText = logsText || `[No hay logs registrados recientemente para ${svcName}]`;
-            if (autoScrollLogs) {
-                logBox.scrollTop = logBox.scrollHeight;
-            }
-        }
-    } catch (err) {
-        console.warn('Error fetching live logs:', err);
-    }
-}
-
-function toggleLogAutoScroll() {
-    autoScrollLogs = !autoScrollLogs;
-    const btn = document.getElementById('btnToggleLogScroll');
-    if (btn) {
-        btn.innerText = autoScrollLogs ? '⏸️' : '▶️';
-        btn.title = autoScrollLogs ? 'Pausar Auto-Scroll' : 'Reanudar Auto-Scroll';
-    }
-}
-
-function clearLiveLogs() {
-    const logBox = document.getElementById('liveLogContent');
-    if (logBox) logBox.innerText = '[Logs limpiados localmente]';
-}
-
-/* --- 7. Special UseCase Action Trigger Functions --- */
-async function runBootstrapAction() {
-    showToast('Ejecutando Bootstrapper', 'Validando Fail2Ban, reglas UFW y certificados Traefik...', 'info', 8000);
-    try {
-        const res = await fetch('/api/bootstrap', {method: 'POST'});
-        if (res.ok) {
-            showToast('Bootstrapper Completo', '¡Servidor asegurado y optimizado correctamente!', 'success');
-            loadDashboardData();
-        } else {
-            const err = await res.text();
-            showToast('Error Bootstrapper', err, 'error');
-        }
-    } catch (err) {
-        showToast('Error de Conexión', err.message, 'error');
-    }
-}
-
-async function runDeployObsAction() {
-    openObservabilityModal();
-}
-
-async function openObservabilityModal() {
-    openModal('observabilityModal');
-    try {
-        const res = await fetch('/api/observability');
-        if (res.ok) {
-            const data = await res.json();
-            if (data.enabled) {
-                if (data.external_url) document.getElementById('obsVolumePath').value = data.external_url;
-                if (data.grafana_password) document.getElementById('obsPassword').value = data.grafana_password;
-                if (data.deploy_type) document.getElementById('obsDeployType').value = data.deploy_type;
-            }
-        }
-    } catch (e) {
-        console.warn('Could not fetch observability config:', e);
-    }
-}
-
-function disableObservabilityStack() {
-    requestConfirmation(
-        '⚠️ Destruir Observabilidad',
-        '¿Confirmas remover el stack de observabilidad (Loki, Grafana, Portainer) de Docker Swarm?',
-        async () => {
-            showToast('Observabilidad', 'Removiendo stack tarhiata_obs...', 'info', 4000);
-            try {
-                const res = await fetch('/api/observability', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'delete', enabled: false })
-                });
-                if (res.ok) {
-                    showToast('Stack Removido', 'Stack de observabilidad eliminado exitosamente.', 'success');
-                    closeModal('observabilityModal');
-                    loadDashboardData();
-                } else {
-                    const err = await res.json().catch(() => ({ error: 'Error al remover observabilidad' }));
-                    showToast('Error', err.error, 'error');
-                }
-            } catch (e) {
-                showToast('Error de Red', e.message, 'error');
-            }
-        }
-    );
-}
-
-function rollbackService(name) {
-    requestConfirmation(
-        `⚠️ Rollback de Servicio: ${name}`,
-        `¿Está seguro de revertir el servicio '${name}' a su estado y versión previa en Docker Swarm?`,
-        async () => {
-            showToast('Ejecutando Rollback', `Revirtiendo servicio ${name}...`, 'info', 5000);
-            try {
-                const res = await fetch('/api/services/rollback', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: name })
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    showToast('Rollback Exitoso', `Servicio '${name}' revertido correctamente.`, 'success');
-                    loadDashboardData();
-                } else {
-                    const err = await res.json().catch(() => ({ error: 'Falló el rollback' }));
-                    showToast('Error de Rollback', err.error || 'No se pudo realizar el rollback', 'error');
-                }
-            } catch (e) {
-                showToast('Error de Red', e.message, 'error');
-            }
-        }
-    );
-}
-
-function rollbackServiceFromModalAction() {
-    const name = document.getElementById('editSvcOriginalName').value;
-    if (name) {
-        closeModal('editServiceModal');
-        rollbackService(name);
-    }
-}
-
-function promptRollbackService() {
-    if (!globalServices || globalServices.length === 0) {
-        showToast('Rollback', 'No hay servicios desplegados para realizar rollback.', 'info');
-        return;
-    }
-    const serviceNames = globalServices.map(s => s.name).join(', ');
-    const targetName = prompt(`Escribe el nombre del servicio a revertir en Swarm (${serviceNames}):`);
-    if (targetName && targetName.trim()) {
-        rollbackService(targetName.trim());
-    }
-}
-
-async function runPruneAction() {
-    showToast('Limpieza Docker', 'Liberando espacio en disco en el clúster (docker system prune)...', 'info', 5000);
-    try {
-        const res = await fetch('/api/prune', { method: 'POST' });
-        const text = await res.text();
-        if (res.ok) {
-            let msg = text;
-            try {
-                const data = JSON.parse(text);
-                msg = data.output || data.status || text;
-            } catch (e) {}
-            showToast('Prune Completado 🧹', msg || 'Espacio en disco liberado exitosamente.', 'success', 8000);
-        } else {
-            showToast('Error Prune', `No se pudo completar el prune: ${text}`, 'error', 6000);
-        }
-    } catch (err) {
-        showToast('Error de Conexión', err.message, 'error', 6000);
-    }
-}
-
-function openMetricsModal() {
-    const card = document.getElementById('liveLogContent') || document.getElementById('vpsHostText');
-    if (card) {
-        card.scrollIntoView({ behavior: 'smooth' });
-    }
-    showToast('Métricas en Vivo', 'Visualizando gráficos en vivo de CPU/RAM y estado de Swarm', 'info', 4000);
-}
-
-async function viewTopologyAction() {
-    openModal('topologyModal');
-    const container = document.getElementById('topologyModalContent');
-    if (!container) return;
-
-    container.innerText = 'Cargando topología de red...';
-    try {
-        const services = globalServices || [];
-        const dbs = globalDatabases || [];
-        const linksRes = await fetch('/api/links');
-        const links = linksRes.ok ? await linksRes.json() : [];
-
-        let output = `=====================================================\n`;
-        output += `   TARHIATA-OPS NETWORK TOPOLOGY (DOCKER OVERLAY)\n`;
-        output += `=====================================================\n\n`;
-        output += `[Red Clúster]: tarhiata_internal (Subnet: 10.0.9.0/24)\n`;
-        output += `[Driver Swarm]: Overlay Encapsulated VXLAN Mesh\n`;
-        output += `[Reverse Proxy]: Traefik SSL Router (Puertos 80/443)\n\n`;
-
-        output += `--- 🚀 SERVICIOS Y APPS WEB (${services.length}) ---\n`;
-        if (services.length === 0) {
-            output += `(Sin servicios activos)\n\n`;
-        } else {
-            services.forEach(s => {
-                output += `• ${s.name}\n`;
-                output += `  ├─ DNS Interno: http://${s.name}:${s.port}\n`;
-                output += `  ├─ Visibilidad: ${s.expose ? `PÚBLICO (${s.domain || 'Dominio s/config'})` : 'PRIVADO (Interno)'}\n`;
-                output += `  └─ SSL Traefik: ${s.enableSSL ? 'Habilitado (HTTPS)' : 'Deshabilitado'}\n\n`;
-            });
-        }
-
-        output += `--- 🗄️ BASES DE DATOS PERSISTENTES (${dbs.length}) ---\n`;
-        if (dbs.length === 0) {
-            output += `(Sin bases de datos activas)\n\n`;
-        } else {
-            dbs.forEach(db => {
-                output += `• ${db.name} [Motor: ${db.engine}]\n`;
-                output += `  ├─ DNS Interno: tarhiata-db-${db.name}:${db.internalPort}\n`;
-                output += `  └─ Almacenamiento: /opt/data/${db.name}\n\n`;
-            });
-        }
-
-        output += `--- ⚡ INTERCONEXIONES Y ENLACES ENV (${links.length}) ---\n`;
-        if (links.length === 0) {
-            output += `(Sin enlaces activos entre servicios)\n`;
-        } else {
-            links.forEach(l => {
-                output += `• [${l.sourceSvc}] ────────► [${l.targetSvc}]\n`;
-                output += `  └─ Variable Inyectada: ${l.envVarName || 'DATABASE_URL'}\n`;
-            });
-        }
-
-        container.innerText = output;
-    } catch (err) {
-        container.innerText = `[Error cargando topología]: ${err.message}`;
-    }
-}
-
-let globalIsOnline = true;
-
-/* --- 8. Data Fetching & UI Rendering --- */
-async function loadDashboardData(isManual = false) {
-    try {
-        const res = await fetch('/api/dashboard');
-        if (!res.ok) return;
-        const data = await res.json();
-
-        globalServices = data.services || [];
-        globalDatabases = data.databases || [];
-        globalIsOnline = data.isOnline !== undefined ? data.isOnline : true;
-
-        if (window.Alpine && Alpine.store('app')) {
-            Alpine.store('app').services = globalServices;
-            Alpine.store('app').databases = globalDatabases;
-            Alpine.store('app').isOnline = globalIsOnline;
-        }
-
-        if (data.config) {
-            const hostEl = document.getElementById('vpsHostText');
-            const hostStr = data.config.host || data.config.vps_ip || 'Local / Manager';
-            if (hostEl) {
-                if (globalIsOnline) {
-                    hostEl.innerHTML = `<span style="color: #34d399;">● ${hostStr} (Online)</span>`;
-                } else {
-                    hostEl.innerHTML = `<span style="color: #ef4444;">● ${hostStr} (Offline / VM Inalcanzable)</span>`;
-                }
-            }
-        }
-
-        if (isManual) {
-            if (globalIsOnline) {
-                showToast('✅ Conexión Validada', `El servidor responde por SSH. Swarm activo y saludable.`, 'success', 4000);
+    // --- Render Popover Server Directory & Quick Fleet Chips ---
+    function renderFleetDirectory() {
+        if (fleetList) {
+            fleetList.innerHTML = '';
+            if (servers.length === 0) {
+                fleetList.innerHTML = `<div class="popover-loading">Sin servidores registrados</div>`;
             } else {
-                showToast('⚠️ Servidor Inalcanzable', 'La VM no responde por SSH/TCP. Estado: Offline (Servicios detenidos).', 'error', 5000);
-            }
-        }
+                const query = (fleetSearchInput ? fleetSearchInput.value : '').toLowerCase().trim();
+                const filtered = servers.filter(s =>
+                    !query ||
+                    (s.name && s.name.toLowerCase().includes(query)) ||
+                    (s.host && s.host.toLowerCase().includes(query))
+                );
 
-        const appsValEl = document.getElementById('totalAppsVal');
-        if (appsValEl) appsValEl.innerText = globalIsOnline ? globalServices.length : '0 (Offline)';
-
-        const dbsValEl = document.getElementById('totalDBsVal');
-        if (dbsValEl) dbsValEl.innerText = globalIsOnline ? globalDatabases.length : '0 (Offline)';
-
-        if (!globalIsOnline) {
-            const swarmBadge = document.getElementById('swarmStatusBadge');
-            if (swarmBadge) {
-                swarmBadge.innerText = '🔴 DISCONNECTED';
-                swarmBadge.className = 'badge badge-red';
-            }
-
-            const diskValEl = document.getElementById('diskUsageVal');
-            if (diskValEl) diskValEl.innerText = '0 GB / 0 GB (Offline)';
-
-            const nodesCountEl = document.getElementById('nodesCountVal');
-            if (nodesCountEl) nodesCountEl.innerText = '0 Nodes (Offline)';
-
-            const billingVal = document.getElementById('billingVal');
-            if (billingVal) billingVal.innerText = '$0.00/hr (Offline)';
-
-            const billingSubVal = document.getElementById('billingSubVal');
-            if (billingSubVal) billingSubVal.innerText = 'Consumo est.: $0.00 este mes (Servidor Caído)';
-        } else {
-            const swarmBadge = document.getElementById('swarmStatusBadge');
-            if (swarmBadge) {
-                swarmBadge.innerText = '● CONNECTED';
-                swarmBadge.className = 'badge badge-green';
-            }
-
-            const diskValEl = document.getElementById('diskUsageVal');
-            if (diskValEl) diskValEl.innerText = '14.2 GB / 50 GB (Live)';
-
-            const nodesCountEl = document.getElementById('nodesCountVal');
-            if (nodesCountEl) nodesCountEl.innerText = '1 Node Active';
-
-            // Plan & Cloud Billing calculation
-            const nodeCount = (data.databases ? data.databases.filter(d => d.deployType === 'multi-node' || d.deploy_type === 'multi-node').length : 0) + 1;
-            const monthlyCost = nodeCount * 6.00;
-            const today = new Date().getDate();
-            const daysInMonth = 30;
-            const currentUsageEst = ((monthlyCost / daysInMonth) * today).toFixed(2);
-
-            const billingVal = document.getElementById('billingVal');
-            if (billingVal) billingVal.innerText = `Plan Pro ($${monthlyCost.toFixed(2)}/mes)`;
-
-            const billingSubVal = document.getElementById('billingSubVal');
-            if (billingSubVal) billingSubVal.innerText = `Consumo est.: $${currentUsageEst} este mes (${nodeCount} Nodo${nodeCount > 1 ? 's' : ''})`;
-        }
-
-        renderCatalog(globalServices, globalDatabases);
-        loadLinks();
-        loadPreviews();
-        loadNodes();
-        loadBackups();
-        renderTopologyMap();
-
-    } catch (e) {
-        console.warn('Dashboard sync polling error:', e);
-    }
-}
-
-async function loadPreviews() {
-    try {
-        const res = await fetch('/api/previews');
-        if (!res.ok) return;
-        const previews = await res.json();
-        renderPreviews(previews || []);
-    } catch (e) {
-        console.warn('Error loading preview envs:', e);
-    }
-}
-
-function renderPreviews(previews) {
-    const list = document.getElementById('previewsList');
-    if (!list) return;
-
-    if (!globalIsOnline) {
-        list.innerHTML = `<div class="text-muted p-2" style="font-size:0.85rem; color:#ef4444;">⚠️ Servidor Offline (VM Inalcanzable)</div>`;
-        return;
-    }
-
-    if (!previews || previews.length === 0) {
-        list.innerHTML = `<div class="text-muted p-2" style="font-size:0.85rem">No hay entornos de preview activos. Usa ⌘K ➔ 'Create Preview Environment'.</div>`;
-        return;
-    }
-
-    list.innerHTML = previews.map(p => {
-        const name = p.name || 'preview';
-        const img = p.imageSource || p.image_source || 'docker';
-        const port = p.port || 80;
-        const domain = p.domain;
-        const linkedDB = p.linkDBName || p.link_db_name;
-        const status = p.status || 'active';
-
-        let domainBadge = '';
-        if (domain) {
-            domainBadge = `<a href="http://${domain}" target="_blank" onclick="event.stopPropagation();" class="badge badge-green" style="text-decoration:none;">🌐 ${domain}</a>`;
-        } else {
-            const hostIp = (window.globalConfig && window.globalConfig.host) ? window.globalConfig.host : window.location.hostname;
-            domainBadge = `<a href="http://${hostIp}:${port}" target="_blank" onclick="event.stopPropagation();" class="badge badge-blue" style="text-decoration:none;">🔗 http://${hostIp}:${port}</a>`;
-        }
-
-        let dbBadge = '';
-        if (linkedDB) {
-            dbBadge = `<span class="badge badge-blue">🔗 DB: ${linkedDB}</span>`;
-        }
-
-        return `
-        <div class="endpoint-item">
-            <div class="ep-url">
-                <span class="dot-live" style="background:#a855f7;"></span>
-                <span>🧪 <strong>${name}</strong> <small class="text-muted">(${img})</small></span>
-            </div>
-            <div class="ep-badges" style="display:flex; gap:4px; align-items:center;">
-                <span class="badge badge-yellow">${status}</span>
-                ${domainBadge}
-                ${dbBadge}
-                <button class="btn btn-outline" style="padding:2px 6px; font-size:0.7rem; border-color:var(--accent-red); color:var(--accent-red)" onclick="event.stopPropagation(); destroyPreviewEnv('${name}')">🔥 Destroy</button>
-            </div>
-        </div>
-        `;
-    }).join('');
-}
-
-async function loadLinks() {
-    try {
-        const res = await fetch('/api/links');
-        if (!res.ok) return;
-        const links = await res.json();
-        globalLinks = links || [];
-        renderLinks(globalLinks);
-    } catch (e) {
-        console.warn('Error loading links:', e);
-    }
-}
-
-function renderLinks(links) {
-    const list = document.getElementById('linksList');
-    if (!list) return;
-
-    if (!globalIsOnline) {
-        list.innerHTML = `<div class="text-muted p-2" style="font-size:0.85rem; color:#ef4444;">⚠️ Servidor Offline (VM Inalcanzable)</div>`;
-        return;
-    }
-
-    if (!links || links.length === 0) {
-        list.innerHTML = `<div class="text-muted p-2" style="font-size:0.85rem">No hay enlaces activos. Usa ⌘K ➔ 'Link services' para conectar apps con BDs.</div>`;
-        return;
-    }
-
-    list.innerHTML = links.map(l => {
-        const src = l.sourceSvc || l.source_svc || 'Servicio';
-        const tgt = l.targetSvc || l.target_svc || 'BD';
-        const env = l.envVarName || l.env_var_name || 'ENV_VAR';
-        return `
-        <div class="endpoint-item" style="cursor:pointer;" onclick="openEditLinkModal('${src}', '${tgt}', '${env}')">
-            <div class="ep-url">
-                <span class="dot-live"></span>
-                <strong>${src}</strong> ──[ <code>${env}</code> ]──► <strong>${tgt}</strong>
-            </div>
-            <div class="ep-badges">
-                <span class="badge badge-green">Inyectado</span>
-                <button class="btn btn-outline" style="padding:2px 6px; font-size:0.7rem; border-color:var(--accent-red); color:var(--accent-red)" onclick="event.stopPropagation(); deleteLinkAction('${src}', '${tgt}')">🗑️ Unlink</button>
-            </div>
-        </div>
-        `;
-    }).join('');
-}
-
-async function deleteLinkAction(sourceSvc, targetSvc) {
-    showToast('Removiendo Enlace', `Desconectando ${sourceSvc} ➔ ${targetSvc}...`, 'info');
-    try {
-        const res = await fetch(`/api/links?source_svc=${encodeURIComponent(sourceSvc)}&target_svc=${encodeURIComponent(targetSvc)}`, {
-            method: 'DELETE'
-        });
-        if (res.ok) {
-            showToast('Enlace Eliminado', `Removida variable de entorno en Swarm para ${sourceSvc}`, 'success');
-            loadDashboardData();
-        } else {
-            const err = await res.text();
-            showToast('Error al Desconectar', err, 'error');
-        }
-    } catch (err) {
-        showToast('Error de Red', err.message, 'error');
-    }
-}
-
-let lastRenderedCatalogHash = '';
-
-function renderCatalog(services, dbs) {
-    const list = document.getElementById('catalogList');
-    if (!list) return;
-
-    const currentHash = JSON.stringify({
-        online: globalIsOnline,
-        svcs: (services || []).map(s => [s.name, s.port, s.expose, s.domain, s.imageSource]),
-        dbs: (dbs || []).map(d => [d.name, d.engine, d.internalPort, d.deployType])
-    });
-
-    if (currentHash === lastRenderedCatalogHash && list.children.length > 0) {
-        return;
-    }
-    lastRenderedCatalogHash = currentHash;
-
-    if (!globalIsOnline) {
-        list.innerHTML = `
-            <div style="text-align: center; padding: 28px 16px; background: rgba(239,68,68,0.05); border: 1px dashed rgba(239,68,68,0.3); border-radius: 6px;">
-                <div style="font-size: 1.4rem; margin-bottom: 6px;">⚠️ Servidor Offline / VM Inalcanzable</div>
-                <div style="font-size: 0.85rem; color: #ef4444; font-weight: 600; margin-bottom: 4px;">La máquina virtual host no responde por SSH / TCP</div>
-                <div style="font-size: 0.78rem; color: var(--text-muted);">No se muestra ningún servicio ni base de datos hasta reestablecer la conexión con el servidor.</div>
-            </div>
-        `;
-        return;
-    }
-
-    let html = '';
-
-    (services || []).forEach(s => {
-        const imgSrc = s.imageSource || s.image_source || 'custom';
-        const isExposed = s.expose;
-        const isSSL = s.enableSSL !== undefined ? s.enableSSL : (s.enable_ssl !== undefined ? s.enable_ssl : false);
-        const domain = s.domain;
-        const proto = isSSL ? 'https' : 'http';
-
-        let domainBadge = '';
-        if (isExposed && domain && globalIsOnline) {
-            domainBadge = `<a href="${proto}://${domain}" target="_blank" onclick="event.stopPropagation();" class="badge badge-green" style="text-decoration:none;">🌐 ${domain}</a>`;
-        }
-
-        const dotClass = globalIsOnline ? 'dot-live' : 'dot-offline';
-        const statusBadgeStr = globalIsOnline 
-            ? (domainBadge ? domainBadge : (isExposed ? '<span class="badge badge-green">Público</span>' : '<span class="badge badge-yellow">Privado</span>'))
-            : '<span class="badge badge-red">● Offline (VM Inalcanzable)</span>';
-
-        html += `
-            <div class="endpoint-item" style="cursor:pointer;" onclick="openResourceInspector('${s.name}', 'service')">
-                <div class="ep-url">
-                    <span class="${dotClass}"></span>
-                    <span>🚀 <strong>${s.name}</strong> <small class="text-muted">(${imgSrc})</small></span>
-                </div>
-                <div class="ep-badges" style="display:flex; align-items:center; gap:6px;">
-                    <button class="btn btn-outline" style="padding:2px 6px; font-size:0.72rem;" onclick="event.stopPropagation(); openResourceInspector('${s.name}', 'service', 'logs')" title="Ver logs en vivo">📜 Logs</button>
-                    <button class="btn btn-outline" style="padding:2px 6px; font-size:0.72rem;" onclick="event.stopPropagation(); openResourceInspector('${s.name}', 'service', 'envs')" title="Editar Variables de Entorno (.env)">🔑 .env</button>
-                    <button class="btn btn-outline" style="padding:2px 6px; font-size:0.72rem; border-color:var(--accent-yellow); color:var(--accent-yellow);" onclick="event.stopPropagation(); openResourceInspector('${s.name}', 'service', 'rollback')" title="Revertir versión previa en Swarm">⚠️ Rollback</button>
-                    <span class="badge badge-blue">Puerto ${s.port || 80}</span>
-                    ${statusBadgeStr}
-                </div>
-            </div>
-        `;
-    });
-
-    (dbs || []).forEach(d => {
-        const dType = d.deployType || d.deploy_type || 'single-node';
-        const intPort = d.internalPort || d.internal_port || 5432;
-        const dotClass = globalIsOnline ? 'dot-live' : 'dot-offline';
-        const dbStatusBadge = globalIsOnline
-            ? '<span class="badge badge-green">Activa (Live)</span>'
-            : '<span class="badge badge-red">● Offline (VM Inalcanzable)</span>';
-
-        html += `
-            <div class="endpoint-item" style="cursor:pointer;" onclick="openResourceInspector('${d.name}', 'database')">
-                <div class="ep-url">
-                    <span class="${dotClass}"></span>
-                    <span>🗄️ <strong>${d.name}</strong> <small class="text-muted">(${d.engine || 'database'})</small></span>
-                </div>
-                <div class="ep-badges" style="display:flex; align-items:center; gap:6px;">
-                    <button class="btn btn-outline" style="padding:2px 6px; font-size:0.72rem;" onclick="event.stopPropagation(); openResourceInspector('${d.name}', 'database', 'logs')" title="Ver logs en vivo de esta base de datos">📜 Logs</button>
-                    <button class="btn btn-outline" style="padding:2px 6px; font-size:0.72rem; border-color:var(--accent-blue); color:var(--accent-blue);" onclick="event.stopPropagation(); openResourceInspector('${d.name}', 'database', 'backups')" title="Crear snapshot o descargar respaldos a tu PC">📥 Respaldos PC</button>
-                    <span class="badge badge-yellow">${dType}</span>
-                    <span class="badge badge-blue">Puerto ${intPort}</span>
-                    ${dbStatusBadge}
-                </div>
-            </div>
-        `;
-    });
-
-    if (html === '') {
-        html = `<div class="text-muted p-2" style="font-size:0.85rem">No hay servicios ni BDs registradas en SQLite. Presiona ⌘K para crear uno.</div>`;
-    }
-
-    list.innerHTML = html;
-
-    // Populate log inspector select options
-    const logSelect = document.getElementById('logServiceSelect');
-    if (logSelect) {
-        const currentVal = logSelect.value;
-        let optHtml = '';
-        (services || []).forEach(s => { optHtml += `<option value="${s.name}">🚀 ${s.name} (App)</option>`; });
-        (dbs || []).forEach(d => { optHtml += `<option value="${d.name}">🗄️ ${d.name} (DB)</option>`; });
-        if (optHtml !== '') {
-            logSelect.innerHTML = optHtml;
-            if (currentVal && Array.from(logSelect.options).some(o => o.value === currentVal)) {
-                logSelect.value = currentVal;
-            }
-        }
-    }
-}
-
-function renderEndpoints(services) {
-    const list = document.getElementById('endpointsList');
-    if (!list) return;
-
-    const exposed = (services || []).filter(s => s.expose && s.domain);
-
-    if (exposed.length === 0) {
-        list.innerHTML = `<div class="text-muted p-2" style="font-size:0.85rem">Sin dominios públicos configurados en Traefik (las apps o BDs privadas no generan HTTPS).</div>`;
-        return;
-    }
-
-    list.innerHTML = exposed.map(s => {
-        const isSSL = s.enableSSL !== undefined ? s.enableSSL : s.enable_ssl;
-        const proto = isSSL ? 'https' : 'http';
-        const url = `${proto}://${s.domain}`;
-        return `
-            <div class="endpoint-item">
-                <div class="ep-url">
-                    <span class="dot-live"></span>
-                    <a href="${url}" target="_blank">${url}</a>
-                </div>
-                <div class="ep-badges">
-                    <span class="badge badge-green">${isSSL ? 'SSL (Let\'s Encrypt)' : 'HTTP Direct'}</span>
-                </div>
-            </div>
-        `;
-    }).join('');
-}
-
-/* --- 9. Live SVG Line Chart Animation --- */
-function updateChart() {
-    const cpuVal = Math.floor(Math.random() * 18) + 8; // 8% - 26%
-    const cpuEl = document.getElementById('cpuText');
-    if (cpuEl) cpuEl.innerText = `${cpuVal}%`;
-}
-
-/* --- 10. Confirmations & Safety Modal Helper --- */
-function requestConfirmation(title, message, onConfirm) {
-    const titleEl = document.getElementById('confirmModalTitle');
-    const msgEl = document.getElementById('confirmModalMessage');
-    const actionBtn = document.getElementById('confirmModalActionBtn');
-
-    if (titleEl) titleEl.innerText = title || '⚠️ Confirmar Acción de Infraestructura';
-    if (msgEl) msgEl.innerText = message || '¿Estás seguro de ejecutar esta operación?';
-
-    const newBtn = actionBtn.cloneNode(true);
-    actionBtn.parentNode.replaceChild(newBtn, actionBtn);
-
-    newBtn.addEventListener('click', () => {
-        closeModal('confirmModal');
-        if (typeof onConfirm === 'function') {
-            onConfirm();
-        }
-    });
-
-    openModal('confirmModal');
-}
-
-async function destroyPreviewEnv(name) {
-    requestConfirmation(
-        `🔥 Destruir Entorno Preview '${name}'`,
-        `Esta acción eliminará el contenedor temporal 'prev-${name}' en Docker Swarm y su registro en SQLite.`,
-        async () => {
-            showToast('Destruyendo Entorno Preview', `Removiendo prev-${name}...`, 'warning', 4000);
-            try {
-                const res = await fetch(`/api/previews?name=${encodeURIComponent(name)}`, {
-                    method: 'DELETE'
-                });
-                if (res.ok) {
-                    showToast('Entorno Destruido', `El entorno '${name}' ha sido destruido exitosamente.`, 'success');
-                    loadDashboardData();
+                if (filtered.length === 0) {
+                    fleetList.innerHTML = `<div class="popover-loading">No se encontraron resultados</div>`;
                 } else {
-                    const err = await res.text();
-                    showToast('Error al Destruir', err, 'error');
+                    filtered.forEach(s => {
+                        const isSelected = (s.name === selectedServerName);
+                        const row = document.createElement('div');
+                        row.className = `popover-server-row ${isSelected ? 'selected' : ''}`;
+                        row.innerHTML = `
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span class="status-dot ${s.isActive ? 'status-online' : 'status-pending'}" id="fleet-dot-${escapeHtml(s.name)}"></span>
+                                <div>
+                                    <div style="font-weight:700; color:#fff; font-size:0.84rem;">${escapeHtml(s.name)}</div>
+                                    <div style="font-size:0.72rem; color:var(--text-muted); font-family:var(--font-mono);">${escapeHtml(s.host || 'localhost')}</div>
+                                </div>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                ${s.isActive ? '<span class="t-badge" style="color:#a5b4fc; background:rgba(99,102,241,0.2);">Activo</span>' : ''}
+                                <span class="t-badge">${escapeHtml((s.cloudProvider || 'SSH').toUpperCase())}</span>
+                            </div>
+                        `;
+
+                        row.addEventListener('click', () => {
+                            selectServer(s.name);
+                            if (serverPopover) serverPopover.style.display = 'none';
+                            if (serverSwitcherBtn) serverSwitcherBtn.classList.remove('open');
+                        });
+
+                        fleetList.appendChild(row);
+                    });
                 }
-            } catch (err) {
-                showToast('Error de Red', err.message, 'error');
             }
         }
-    );
-}
-
-async function loadNodes() {
-    try {
-        const res = await fetch('/api/nodes');
-        if (!res.ok) return;
-        const nodes = await res.json();
-        renderNodes(nodes || []);
-    } catch (e) {
-        console.warn('Error loading Swarm nodes:', e);
     }
-}
 
-function renderNodes(nodes) {
-    const list = document.getElementById('nodesList');
-    if (list) {
-        if (!globalIsOnline) {
-            list.innerHTML = `<div class="text-muted p-2" style="font-size:0.85rem; color:#ef4444;">⚠️ Servidor Offline (VM Inalcanzable)</div>`;
+    // --- Select Server & Load Hero Telemetry ---
+    async function selectServer(serverName) {
+        selectedServerName = serverName;
+        try {
+            localStorage.setItem('tarhiata_last_server', serverName);
+        } catch (_) {}
+
+        let s = servers.find(x => x.name === serverName);
+        if (!s) {
+            if (activeServer && activeServer.name === serverName) {
+                s = activeServer;
+            } else if (servers.length > 0) {
+                s = servers[0];
+                serverName = s.name;
+                selectedServerName = s.name;
+            }
+        }
+
+        renderFleetDirectory();
+
+        if (!s) return;
+
+        // Hero identity
+        deskServerTitle.textContent = s.name;
+        deskHost.textContent = `${s.user || 'root'}@${s.host || 'localhost'}${s.port > 0 ? `:${s.port}` : ''}`;
+        deskModeBadge.textContent = (s.cloudProvider || 'SSH').toUpperCase();
+        deskActiveBadge.style.display = s.isActive ? 'inline-block' : 'none';
+        btnDeskActivate.style.display = s.isActive ? 'none' : 'inline-flex';
+
+        // Update Top Switcher Display
+        topActiveName.textContent = s.name;
+        topActiveHost.textContent = s.host || 'localhost';
+
+        await refreshServerTelemetry(serverName);
+    }
+
+    // --- Refresh Telemetry (Parallel Host & Swarm + Silent Refresh) ---
+    let telemetryRequestId = 0;
+    async function refreshServerTelemetry(serverName, isSilent = false) {
+        if (!serverName) return;
+        const currentReq = ++telemetryRequestId;
+
+        if (!isSilent) {
+            btnDeskRefresh.disabled = true;
+            deskStatusDot.className = 'ops-status-dot status-pending';
+        }
+        const tStart = performance.now();
+
+        try {
+            // Disparar inspección de host y estado de Swarm en paralelo para máxima velocidad y cero retardo
+            const [hostRes, swarmRes] = await Promise.all([
+                fetch(`/api/host/inspect?server=${encodeURIComponent(serverName)}`),
+                fetch(`/api/swarm/status?server=${encodeURIComponent(serverName)}`)
+            ]);
+            const latency = Math.round(performance.now() - tStart);
+
+            if (currentReq !== telemetryRequestId || serverName !== selectedServerName) return;
+
+            if (!hostRes.ok) {
+                const errText = await hostRes.text();
+                deskStatusDot.className = 'ops-status-dot status-offline';
+                tileUptime.textContent = 'Sin conexión';
+                tileLatencyDisplay.textContent = 'Latencia: —';
+                if (topActiveName.textContent === serverName) {
+                    topActiveDot.className = 'status-dot status-offline';
+                    topActiveLatency.textContent = 'OFFLINE';
+                }
+                const dotFleet = document.getElementById(`fleet-dot-${serverName}`);
+                if (dotFleet) dotFleet.className = 'status-dot status-offline';
+                if (!isSilent) showToast(`Fallo al sondear host '${serverName}': ${errText}`, 'error');
+                btnBootstrapSwarm.style.display = 'inline-flex';
+                btnBootstrapSwarm.disabled = false;
+                btnBootstrapSwarm.classList.remove('swarm-configured');
+                btnBootstrapSwarm.innerHTML = `🚀 <span>Instalar Framework</span>`;
+                btnBootstrapSwarm.title = `Instalar Framework de orquestación en '${serverName}'`;
+                return;
+            }
+
+            const data = await hostRes.json();
+            if (currentReq !== telemetryRequestId || serverName !== selectedServerName) return;
+
+            selectedInspection = data;
+            deskStatusDot.className = 'ops-status-dot status-online';
+            tileLatencyDisplay.textContent = `Latencia: ${latency} ms`;
+
+            if (topActiveName.textContent === serverName) {
+                topActiveDot.className = 'status-dot status-online';
+                topActiveLatency.textContent = `${latency} ms`;
+            }
+            const dotFleet = document.getElementById(`fleet-dot-${serverName}`);
+            if (dotFleet) dotFleet.className = 'status-dot status-online';
+
+            const m = data.metrics || {};
+            deskOS.textContent = m.os || 'Linux';
+            if (tileDistroTag) tileDistroTag.textContent = m.os || 'Linux';
+            tileHostTag.textContent = m.hostname || data.host;
+            tileUptime.textContent = m.uptime || 'En línea';
+
+            const dockerSvc = (data.services || []).find(sv => sv.name && sv.name.toLowerCase().includes('docker'));
+            if (dockerSvc) {
+                deskDocker.textContent = dockerSvc.subState === 'running' ? 'Activo' : (dockerSvc.activeState || 'Inactivo');
+            }
+
+            // CPU Gauge
+            tileCpuCores.textContent = `${m.cpuCores || 1} Cores`;
+            const cpuVal = (m.cpuPercent || 0).toFixed(1);
+            tileCpuPct.textContent = `${cpuVal}%`;
+            tileCpuBar.style.width = `${Math.min(100, Math.max(0, m.cpuPercent || 0))}%`;
+            tileCpuBar.style.backgroundColor = getGaugeColor(m.cpuPercent || 0);
+            tileCpuLoad.textContent = `Carga: ${m.loadAvg || '—'}`;
+
+            // RAM Gauge
+            tileRamUsed.textContent = `${m.memoryUsedMb || 0} MB`;
+            tileRamTotal.textContent = `Total: ${m.memoryTotalMb || 0} MB`;
+            const ramVal = (m.memoryPercent || 0).toFixed(1);
+            tileRamPct.textContent = `${ramVal}%`;
+            tileRamBar.style.width = `${Math.min(100, Math.max(0, m.memoryPercent || 0))}%`;
+            tileRamBar.style.backgroundColor = getGaugeColor(m.memoryPercent || 0);
+
+            // Disk Gauge
+            tileDiskUsed.textContent = `${(m.diskUsedGb || 0).toFixed(1)} GB`;
+            tileDiskTotal.textContent = `Total: ${(m.diskTotalGb || 0).toFixed(1)} GB`;
+            const diskVal = (m.diskPercent || 0).toFixed(1);
+            tileDiskPct.textContent = `${diskVal}%`;
+            tileDiskBar.style.width = `${Math.min(100, Math.max(0, m.diskPercent || 0))}%`;
+            tileDiskBar.style.backgroundColor = getGaugeColor(m.diskPercent || 0);
+
+            // Host Services list (actualizar solo si cambió la longitud o no es silencioso)
+            const newHostServices = data.services || [];
+            if (!isSilent || currentHostServices.length !== newHostServices.length) {
+                currentHostServices = newHostServices;
+                if (tabHostCount) tabHostCount.textContent = currentHostServices.length;
+                renderServicesTable(currentHostServices);
+            }
+
+            // Procesar estado de Swarm
+            if (swarmRes.ok) {
+                const swarmData = await swarmRes.json();
+                if (currentReq === telemetryRequestId && serverName === selectedServerName) {
+                    processSwarmStatus(serverName, swarmData, isSilent);
+                }
+            }
+
+        } catch (err) {
+            deskStatusDot.className = 'ops-status-dot status-offline';
+            tileLatencyDisplay.textContent = 'Latencia: —';
+            if (topActiveName.textContent === serverName) {
+                topActiveDot.className = 'status-dot status-offline';
+                topActiveLatency.textContent = 'OFFLINE';
+            }
+            const dotFleet = document.getElementById(`fleet-dot-${serverName}`);
+            if (dotFleet) dotFleet.className = 'status-dot status-offline';
+            btnBootstrapSwarm.style.display = 'inline-flex';
+            btnBootstrapSwarm.disabled = false;
+            btnBootstrapSwarm.classList.remove('swarm-configured');
+            btnBootstrapSwarm.innerHTML = `🚀 <span>Instalar Framework</span>`;
+            btnBootstrapSwarm.title = `Instalar Framework de orquestación en '${serverName}'`;
+        } finally {
+            if (!isSilent) btnDeskRefresh.disabled = false;
+        }
+    }
+
+    function formatDockerVersion(raw) {
+        if (!raw) return '—';
+        const match = raw.match(/Docker version\s+([0-9.]+)/i);
+        if (match) {
+            return `v${match[1]}`;
+        }
+        if (raw.length <= 16) return raw;
+        return raw.split(',')[0].replace(/Docker version\s*/i, 'v').trim();
+    }
+
+    // --- Live Swarm Status Processor ---
+    function processSwarmStatus(serverName, data, isSilent = false) {
+        if (!data.active) {
+            swarmStateBadge.className = 'swarm-status-tag';
+            swarmStateBadge.style.color = '';
+            swarmStateBadge.style.background = '';
+            swarmStateBadge.textContent = 'Sin Framework';
+            deskSwarm.textContent = 'Inactivo';
+            if (data.dockerVersion) {
+                deskDocker.textContent = formatDockerVersion(data.dockerVersion);
+                deskDocker.title = data.dockerVersion;
+            }
+            btnBootstrapSwarm.style.display = 'inline-flex';
+            btnBootstrapSwarm.disabled = false;
+            btnBootstrapSwarm.classList.remove('swarm-configured');
+            btnBootstrapSwarm.innerHTML = `🚀 <span>Instalar Framework</span>`;
+            btnBootstrapSwarm.title = `Instalar Framework de orquestación (Docker Swarm, Traefik, Portainer) en '${serverName}'`;
+            if (tabServicesCount) tabServicesCount.textContent = '0';
+            if (tabDatabasesCount) tabDatabasesCount.textContent = '0';
+            if (tabTopologyCount) tabTopologyCount.textContent = '0';
+
+            swarmServicesCache = [];
+            swarmDatabasesCache = [];
+            swarmNodesCache = [];
+
+            swarmServicesCardsGrid.innerHTML = '';
+            swarmServicesEmpty.style.display = 'flex';
+            swarmDatabasesCardsGrid.innerHTML = '';
+            swarmDatabasesEmpty.style.display = 'flex';
+            if (swarmNodesTableBody) {
+                swarmNodesTableBody.innerHTML = `<tr><td colspan="5" class="t-td-empty">El Framework no está instalado o activo en este servidor. Haz clic en "Instalar Framework".</td></tr>`;
+            }
+
+            if (linkPortainer) linkPortainer.href = '#';
+            if (linkDozzle) linkDozzle.href = '#';
+            if (linkTraefik) linkTraefik.href = '#';
             return;
         }
 
-        if (!nodes || nodes.length === 0) {
-            list.innerHTML = `<div class="text-muted p-2" style="font-size:0.85rem">No se detectaron nodos en el clúster Swarm.</div>`;
-        } else {
-            list.innerHTML = nodes.map(n => {
-                const id = n.id || 'unknown';
-                const hostname = n.hostname || n.name || 'node';
-                const role = n.role || 'worker';
-                const status = n.status || 'Ready';
-                const availability = n.availability || 'active';
-                const isLeader = n.is_leader || false;
-                const engineVer = n.engine_version || '';
+        swarmStateBadge.className = 'swarm-status-tag';
+        swarmStateBadge.style.color = 'var(--status-online)';
+        swarmStateBadge.style.background = 'rgba(16, 185, 129, 0.12)';
+        swarmStateBadge.textContent = '★ Clúster Operacional';
+        deskSwarm.textContent = 'Operacional';
+        if (data.dockerVersion) {
+            deskDocker.textContent = formatDockerVersion(data.dockerVersion);
+            deskDocker.title = data.dockerVersion;
+        } else if (!deskDocker.textContent || deskDocker.textContent === '—') {
+            deskDocker.textContent = 'Activo';
+        }
 
-                const roleBadge = isLeader ? 
-                    `<span class="badge badge-purple">👑 Leader Manager</span>` : 
-                    (role === 'manager' ? `<span class="badge badge-blue">⚡ Manager</span>` : `<span class="badge badge-yellow">⚙️ Worker</span>`);
-                
-                const statusDot = (status.toLowerCase() === 'ready' || status.toLowerCase() === 'active') ?
-                    `<span class="dot-live" style="background:#22c55e;"></span>` :
-                    `<span class="dot-live" style="background:#ef4444;"></span>`;
+        btnBootstrapSwarm.style.display = 'inline-flex';
+        btnBootstrapSwarm.disabled = true;
+        btnBootstrapSwarm.classList.add('swarm-configured');
+        btnBootstrapSwarm.innerHTML = `✓ <span>Framework Instalado</span>`;
+        btnBootstrapSwarm.title = `El Framework ya está instalado y activo en '${serverName}'`;
 
-                const availSelect = `
-                    <select class="term-input" style="padding:2px 4px; font-size:0.7rem; width:auto; background:var(--bg-tertiary);" onchange="updateNodeAvailability('${id}', this.value)">
-                        <option value="active" ${availability === 'active' ? 'selected' : ''}>🟢 Active</option>
-                        <option value="drain" ${availability === 'drain' ? 'selected' : ''}>🟡 Drain</option>
-                        <option value="pause" ${availability === 'pause' ? 'selected' : ''}>⏸️ Pause</option>
-                    </select>
-                `;
+        if (linkPortainer) linkPortainer.href = (data.dashboards && data.dashboards.portainer) || '#';
+        if (linkDozzle) linkDozzle.href = (data.dashboards && data.dashboards.dozzle) || '#';
+        if (linkTraefik) linkTraefik.href = (data.dashboards && data.dashboards.traefik) || '#';
 
-                const rmBtn = isLeader ? '' : `
-                    <button class="btn btn-outline" style="padding:2px 6px; font-size:0.7rem; border-color:var(--accent-red); color:var(--accent-red);" onclick="event.stopPropagation(); removeSwarmNode('${id}', '${hostname}')">🗑️ Rm</button>
-                `;
+        const newServices = data.services || [];
+        const newDbs = data.databases || [];
+        const newNodes = data.nodes || [];
 
-                return `
-                <div class="endpoint-item">
-                    <div class="ep-url">
-                        ${statusDot}
-                        <span><strong>${hostname}</strong> <small class="text-muted">(${engineVer || id})</small></span>
+        // Comprobación de cambios para evitar destruir y recrear el DOM cada 15 segundos
+        const servicesSig = JSON.stringify(newServices);
+        const oldServicesSig = JSON.stringify(swarmServicesCache);
+        const dbsSig = JSON.stringify(newDbs);
+        const oldDbsSig = JSON.stringify(swarmDatabasesCache);
+        const nodesSig = JSON.stringify(newNodes);
+        const oldNodesSig = JSON.stringify(swarmNodesCache);
+
+        swarmServicesCache = newServices;
+        swarmDatabasesCache = newDbs;
+        swarmNodesCache = newNodes;
+
+        if (tabServicesCount) tabServicesCount.textContent = swarmServicesCache.length;
+        if (tabDatabasesCount) tabDatabasesCount.textContent = swarmDatabasesCache.length;
+        if (tabTopologyCount) tabTopologyCount.textContent = swarmNodesCache.length;
+
+        if (!isSilent || servicesSig !== oldServicesSig) {
+            renderAppCards(swarmServicesCache);
+        }
+        if (!isSilent || dbsSig !== oldDbsSig) {
+            renderDatabaseCards(swarmDatabasesCache);
+        }
+        if (!isSilent || nodesSig !== oldNodesSig) {
+            renderNodesTable(swarmNodesCache);
+        }
+    }
+
+    async function loadSwarmStatus(serverName) {
+        return refreshServerTelemetry(serverName, false);
+    }
+
+    // --- Render Modern App Cards (Railway/Coolify Style) ---
+    function renderAppCards(services) {
+        swarmServicesCardsGrid.innerHTML = '';
+
+        if (!services || services.length === 0) {
+            swarmServicesEmpty.style.display = 'flex';
+            return;
+        }
+        swarmServicesEmpty.style.display = 'none';
+
+        services.forEach(svc => {
+            const isPublic = svc.expose || (svc.domain && svc.domain !== '');
+            const card = document.createElement('div');
+            card.className = 'app-card';
+
+            const domainHtml = svc.domain ? `
+                <div class="app-card-url-box">
+                    <a href="http://${escapeHtml(svc.domain)}" target="_blank" class="app-card-url-link">
+                        🌐 https://${escapeHtml(svc.domain)} ↗
+                    </a>
+                </div>
+            ` : `
+                <div class="app-card-url-box" style="color:var(--text-dim); font-size:0.75rem;">
+                    🔒 Red Interna Swarm
+                </div>
+            `;
+
+            card.innerHTML = `
+                <div>
+                    <div class="app-card-header">
+                        <div class="app-card-title-group">
+                            <div class="app-card-icon">🚀</div>
+                            <div>
+                                <h3 class="app-card-name">${escapeHtml(svc.name)}</h3>
+                                <div class="app-card-image">${escapeHtml(svc.image)}</div>
+                            </div>
+                        </div>
+                        <div class="app-card-badges">
+                            <span class="svc-pill svc-pill-active">
+                                <span class="status-dot status-online" style="width:6px; height:6px;"></span>
+                                ${escapeHtml(svc.replicas)} Réplicas
+                            </span>
+                        </div>
                     </div>
-                    <div class="ep-badges" style="display:flex; gap:6px; align-items:center;">
-                        ${roleBadge}
-                        ${availSelect}
-                        ${rmBtn}
+                    <div style="margin-top:14px;">
+                        ${domainHtml}
                     </div>
                 </div>
-                `;
-            }).join('');
-        }
-    }
 
-    const countEl = document.getElementById('nodesCountVal');
-    if (countEl && nodes) {
-        countEl.innerText = `${nodes.length} Node${nodes.length === 1 ? '' : 's'} Active`;
-    }
-}
+                <div class="app-card-actions">
+                    <span class="t-badge" style="font-size:0.72rem;">${isPublic ? '🌐 Público SSL' : '🔒 Privado'}</span>
+                    <div style="display:flex; gap:6px;">
+                        <button type="button" class="mini-btn btn-logs-svc" data-name="${escapeHtml(svc.name)}" title="Ver logs en tiempo real">
+                            📜 Logs
+                        </button>
+                        <button type="button" class="mini-btn btn-restart-svc" data-name="${escapeHtml(svc.name)}" title="Reiniciar servicio en Docker">
+                            🔄 Reiniciar
+                        </button>
+                        <button type="button" class="mini-btn btn-env-svc" data-name="${escapeHtml(svc.name)}" title="Gestionar variables de entorno .env">
+                            🔑 Env
+                        </button>
+                        <button type="button" class="mini-btn btn-vol-svc" data-name="${escapeHtml(svc.name)}" title="Explorar archivos del volumen de almacenamiento">
+                            📁 Archivos
+                        </button>
+                        <button type="button" class="mini-btn btn-edit-svc" data-name="${escapeHtml(svc.name)}" data-expose="${isPublic}" data-domain="${escapeHtml(svc.domain || '')}">
+                            ⚙️ Configurar
+                        </button>
+                        <button type="button" class="mini-btn btn-del-svc" data-name="${escapeHtml(svc.name)}" style="color:var(--status-offline);" title="Eliminar servicio">
+                            ✕
+                        </button>
+                    </div>
+                </div>
+            `;
 
-async function updateNodeAvailability(nodeId, newAvailability) {
-    if (newAvailability === 'drain') {
-        requestConfirmation(
-            `⚠️ Cambiar Disponibilidad a DRAIN`,
-            `¿Confirmas cambiar el nodo '${nodeId}' a estado DRAIN? Todos los contenedores en ejecución en este nodo serán desalojados y reprogramados en otros nodos.`,
-            async () => { doUpdateNodeAvailability(nodeId, newAvailability); },
-            () => { loadNodes(); }
-        );
-        return;
-    }
-    doUpdateNodeAvailability(nodeId, newAvailability);
-}
-
-async function doUpdateNodeAvailability(nodeId, newAvailability) {
-    try {
-        const res = await fetch('/api/nodes/update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: nodeId, availability: newAvailability })
+            swarmServicesCardsGrid.appendChild(card);
         });
-        if (res.ok) {
-            showToast('Nodo Actualizado', `Disponibilidad cambiada a '${newAvailability}'`, 'success');
-            loadNodes();
-        } else {
-            const err = await res.json().catch(() => ({ error: 'Error al actualizar disponibilidad' }));
-            showToast('Error', err.error || 'Falló la actualización del nodo', 'error');
-            loadNodes();
-        }
-    } catch (e) {
-        showToast('Error de Red', e.message, 'error');
-        loadNodes();
-    }
-}
 
-function removeSwarmNode(nodeId, hostname) {
-    requestConfirmation(
-        `🗑️ Remover Nodo de Swarm`,
-        `¿Confirmas remover el nodo '${hostname}' (ID: ${nodeId}) del clúster Swarm? Se drenarán sus contenedores y se eliminará el nodo.`,
-        async () => {
-            showToast('Removiendo Nodo', `Drenando y eliminando ${hostname}...`, 'info', 5000);
-            try {
-                const res = await fetch(`/api/nodes?id=${encodeURIComponent(nodeId)}`, { method: 'DELETE' });
-                if (res.ok) {
-                    showToast('Nodo Eliminado', `Nodo '${hostname}' removido exitosamente`, 'success');
-                    loadNodes();
-                } else {
-                    const err = await res.json();
-                    showToast('Error', err.error || 'No se pudo eliminar el nodo', 'error');
+        // Eventos de logs de servicios
+        document.querySelectorAll('.btn-logs-svc').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const name = btn.getAttribute('data-name');
+                if (name) openLogsModal(name);
+            });
+        });
+
+        // Eventos de reinicio de servicios
+        document.querySelectorAll('.btn-restart-svc').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const name = btn.getAttribute('data-name');
+                if (name) restartServiceOrContainer(name, btn);
+            });
+        });
+
+        // Eventos de variables de entorno de servicios
+        document.querySelectorAll('.btn-env-svc').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const name = btn.getAttribute('data-name');
+                if (name) openEnvModal(name);
+            });
+        });
+
+        // Eventos de explorador de archivos del servicio
+        document.querySelectorAll('.btn-vol-svc').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const name = btn.getAttribute('data-name');
+                if (name) openVolumeModal(`/opt/data/${name}`);
+            });
+        });
+
+        // Eventos de edición de servicios
+        document.querySelectorAll('.btn-edit-svc').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const name = btn.getAttribute('data-name');
+                const expose = btn.getAttribute('data-expose') === 'true';
+                const domain = btn.getAttribute('data-domain');
+                openEditServiceModal(name, expose, domain);
+            });
+        });
+
+        // Eventos de eliminación de servicios
+        document.querySelectorAll('.btn-del-svc').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const name = btn.getAttribute('data-name');
+                if (!confirm(`¿Estás seguro de eliminar el servicio '${name}' de Docker Swarm?`)) return;
+                try {
+                    const res = await fetch(`/api/services/${encodeURIComponent(name)}`, { method: 'DELETE' });
+                    if (res.ok) {
+                        showToast(`Servicio '${name}' eliminado.`, 'info');
+                        if (selectedServerName) {
+                            await loadSwarmStatus(selectedServerName);
+                            await loadServiceLinks();
+                        }
+                        return;
+                    }
+                    const errText = await res.text();
+                    showToast(`Error al eliminar: ${errText}`, 'error');
+                } catch (err) {
+                    showToast(`Fallo: ${err.message}`, 'error');
                 }
-            } catch (e) {
-                showToast('Error de Red', e.message, 'error');
-            }
-        }
-    );
-}
-
-async function showJoinTokenModal() {
-    try {
-        const res = await fetch('/api/nodes/join-token');
-        if (res.ok) {
-            const data = await res.json();
-            document.getElementById('workerJoinCmdInput').value = data.worker_cmd || '';
-            document.getElementById('managerJoinCmdInput').value = data.manager_cmd || '';
-            openModal('joinTokenModal');
-        } else {
-            showToast('Error', 'No se pudieron obtener los Join Tokens de Swarm', 'error');
-        }
-    } catch (e) {
-        showToast('Error de Red', e.message, 'error');
+            });
+        });
     }
-}
 
-function copyInputText(inputId) {
-    const input = document.getElementById(inputId);
-    if (!input) return;
-    input.select();
-    navigator.clipboard.writeText(input.value);
-    showToast('Copiado', 'Comando copiado al portapapeles', 'success', 2000);
-}
+    // --- Render Modern Database Cards ---
+    function renderDatabaseCards(databases) {
+        swarmDatabasesCardsGrid.innerHTML = '';
 
-/* --- Docker Registry Management --- */
-async function openRegistryModal() {
-    openModal('registryModal');
-    loadRegistries();
-}
+        if (!databases || databases.length === 0) {
+            swarmDatabasesEmpty.style.display = 'flex';
+            return;
+        }
+        swarmDatabasesEmpty.style.display = 'none';
 
-async function loadRegistries() {
-    const container = document.getElementById('registryListContainer');
-    if (!container) return;
-    try {
-        const res = await fetch('/api/registries');
-        if (res.ok) {
-            const data = await res.json();
-            if (!data || data.length === 0) {
-                container.innerHTML = '<div class="text-muted p-1">No hay registries privados configurados.</div>';
+        databases.forEach(db => {
+            const card = document.createElement('div');
+            const engineClass = `db-card-engine-${(db.engine || 'postgres').toLowerCase()}`;
+            card.className = `db-card ${engineClass}`;
+
+            const isOnline = db.status === 'running';
+            const port = db.internalPort || getDefaultPort(db.engine);
+            const connStr = db.internalDns ? `${db.engine}://${db.name}:${port}/${db.name}` : (db.externalUrl || 'dns-interno');
+
+            card.innerHTML = `
+                <div>
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <div style="font-size:1.6rem; line-height:1;">🗄️</div>
+                            <div>
+                                <h3 style="font-size:1.05rem; font-weight:700; color:#fff;">${escapeHtml(db.name)}</h3>
+                                <div style="font-size:0.72rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">
+                                    ${escapeHtml(db.engine)} · ${escapeHtml(db.deployType)}
+                                </div>
+                            </div>
+                        </div>
+                        <span class="svc-pill ${isOnline ? 'svc-pill-active' : ''}">
+                            ${escapeHtml(db.status ? db.status.toUpperCase() : 'ONLINE')}
+                        </span>
+                    </div>
+
+                    <div class="db-conn-box">
+                        <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(connStr)}</span>
+                        <button type="button" class="mini-btn btn-copy-conn" data-conn="${escapeHtml(connStr)}" title="Copiar cadena de conexión">
+                            Copiar
+                        </button>
+                    </div>
+                </div>
+
+                <div style="display:flex; justify-content:space-between; align-items:center; pt:12px; border-top:1px solid var(--border-subtle); margin-top:12px;">
+                    <span style="font-size:0.74rem; color:var(--text-dim);">Puerto: ${escapeHtml(port)}</span>
+                    <div style="display:flex; gap:6px;">
+                        <button type="button" class="mini-btn btn-logs-db" data-name="${escapeHtml(db.name)}" title="Ver logs en tiempo real">
+                            📜 Logs
+                        </button>
+                        <button type="button" class="mini-btn btn-restart-db" data-name="${escapeHtml(db.name)}" title="Reiniciar contenedor de base de datos">
+                            🔄 Reiniciar
+                        </button>
+                        <button type="button" class="mini-btn btn-backup-db" data-name="${escapeHtml(db.name)}" data-engine="${escapeHtml(db.engine || 'postgres')}" title="Generar snapshot y descargar backup">
+                            💾 Backup
+                        </button>
+                        <button type="button" class="mini-btn btn-vol-db" data-name="${escapeHtml(db.name)}" title="Explorar archivos del volumen persistente">
+                            📁 Archivos
+                        </button>
+                        <button type="button" class="mini-btn btn-delete-db" data-name="${escapeHtml(db.name)}" style="color:var(--status-offline);">
+                            Eliminar BD
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            swarmDatabasesCardsGrid.appendChild(card);
+        });
+
+        // Eventos de logs de bases de datos
+        document.querySelectorAll('.btn-logs-db').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const name = btn.getAttribute('data-name');
+                if (name) openLogsModal(name);
+            });
+        });
+
+        // Eventos de reinicio de bases de datos
+        document.querySelectorAll('.btn-restart-db').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const name = btn.getAttribute('data-name');
+                if (name) restartServiceOrContainer(name, btn);
+            });
+        });
+
+        // Eventos de respaldo de bases de datos
+        document.querySelectorAll('.btn-backup-db').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const name = btn.getAttribute('data-name');
+                const engine = btn.getAttribute('data-engine');
+                if (name) triggerDatabaseBackup(name, engine, btn);
+            });
+        });
+
+        // Eventos de explorador de archivos de la base de datos
+        document.querySelectorAll('.btn-vol-db').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const name = btn.getAttribute('data-name');
+                if (name) openVolumeModal('/opt/data/db-storage');
+            });
+        });
+
+        // Eventos de copia y borrado
+        document.querySelectorAll('.btn-copy-conn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const conn = btn.getAttribute('data-conn');
+                const ok = await copyToClipboard(conn);
+                if (ok) {
+                    showToast('Cadena de conexión copiada al portapapeles', 'success');
+                } else {
+                    prompt('Cadena de conexión:', conn);
+                }
+            });
+        });
+
+        document.querySelectorAll('.btn-delete-db').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const name = btn.getAttribute('data-name');
+                if (!confirm(`¿Estás seguro de eliminar la base de datos '${name}'?`)) return;
+                try {
+                    const delRes = await fetch(`/api/databases?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
+                    if (delRes.ok) {
+                        showToast(`Base de datos '${name}' eliminada`, 'info');
+                        if (selectedServerName) {
+                            await loadSwarmStatus(selectedServerName);
+                            await loadServiceLinks();
+                        }
+                        return;
+                    }
+                    const errText = await delRes.text();
+                    showToast(`Error al eliminar la base de datos: ${errText}`, 'error');
+                } catch (e) {
+                    showToast(`Error: ${e.message}`, 'error');
+                }
+            });
+        });
+    }
+
+    // --- Render Nodes Table ---
+    function renderNodesTable(nodes) {
+        if (!swarmNodesTableBody) return;
+        if (!nodes || nodes.length === 0) {
+            swarmNodesTableBody.innerHTML = `<tr><td colspan="5" class="t-td-empty">No se detectaron nodos adicionales.</td></tr>`;
+            return;
+        }
+
+        swarmNodesTableBody.innerHTML = '';
+        nodes.forEach(node => {
+            const tr = document.createElement('tr');
+            const isLeader = node.managerStatus && node.managerStatus.toLowerCase().includes('leader');
+            tr.innerHTML = `
+                <td style="font-weight:700; color:#fff;">${escapeHtml(node.hostname)}</td>
+                <td><span class="svc-pill svc-pill-active">${escapeHtml(node.status)}</span></td>
+                <td style="color:var(--text-muted);">${escapeHtml(node.availability)}</td>
+                <td><span class="t-badge ${isLeader ? 't-badge-active' : ''}">${escapeHtml(node.managerStatus || 'Worker')}</span></td>
+                <td style="color:var(--text-muted); font-family:var(--font-mono); font-size:0.75rem;">${escapeHtml(node.engineVersion || '—')}</td>
+            `;
+            swarmNodesTableBody.appendChild(tr);
+        });
+    }
+
+    // --- Render Host Services Table (Systemd) ---
+    function renderServicesTable(services) {
+        if (!servicesTableBody) return;
+        if (tabHostCount) tabHostCount.textContent = (services || []).length;
+
+        if (!services || services.length === 0) {
+            servicesTableBody.innerHTML = `<tr><td colspan="4" class="t-td-empty">No se detectaron unidades de servicio del host.</td></tr>`;
+            servicesSummaryText.textContent = '0 unidades';
+            return;
+        }
+
+        const query = (serviceSearchInput.value || '').toLowerCase().trim();
+        const filtered = !query ? services : services.filter(s =>
+            (s.name && s.name.toLowerCase().includes(query)) ||
+            (s.description && s.description.toLowerCase().includes(query))
+        );
+
+        servicesSummaryText.textContent = `${filtered.length} de ${services.length} unidades`;
+
+        if (filtered.length === 0) {
+            servicesTableBody.innerHTML = `<tr><td colspan="4" class="t-td-empty">Ningún servicio coincide con '${escapeHtml(query)}'</td></tr>`;
+            return;
+        }
+
+        servicesTableBody.innerHTML = '';
+        filtered.forEach(s => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="font-weight:600; color:#fff;">${escapeHtml(s.name)}</td>
+                <td><span class="svc-pill svc-pill-active">${escapeHtml(s.activeState || 'active')}</span></td>
+                <td style="color:var(--text-muted); font-size:0.75rem;">${escapeHtml(s.subState || 'running')}</td>
+                <td style="color:var(--text-secondary); font-size:0.8rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                        <span>${escapeHtml(s.description || '—')}</span>
+                        <div style="display:flex; gap:6px;">
+                            <button type="button" class="mini-btn btn-logs-host" data-name="${escapeHtml(s.name)}" title="Ver logs en tiempo real">
+                                📜 Logs
+                            </button>
+                            <button type="button" class="mini-btn btn-restart-host" data-name="${escapeHtml(s.name)}" title="Reiniciar servicio del host">
+                                🔄 Reiniciar
+                            </button>
+                        </div>
+                    </div>
+                </td>
+            `;
+            servicesTableBody.appendChild(tr);
+        });
+
+        // Eventos de logs de servicios del host
+        document.querySelectorAll('.btn-logs-host').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const name = btn.getAttribute('data-name');
+                if (name) openLogsModal(name);
+            });
+        });
+
+        // Eventos de reinicio de servicios del host
+        document.querySelectorAll('.btn-restart-host').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const name = btn.getAttribute('data-name');
+                if (name) restartServiceOrContainer(name, btn);
+            });
+        });
+    }
+
+    serviceSearchInput.addEventListener('input', debounce(() => {
+        renderServicesTable(currentHostServices);
+    }, 150));
+
+    // --- Load Service Links ---
+    async function loadServiceLinks() {
+        if (!linksTableBody) return;
+        try {
+            const res = await fetch('/api/links');
+            if (!res.ok) return;
+
+            const links = await res.json();
+            if (!links || links.length === 0) {
+                linksTableBody.innerHTML = `<tr><td colspan="4" class="t-td-empty">Sin enlaces activos. Haz clic en '+ Enlazar Servicios'.</td></tr>`;
                 return;
             }
-            container.innerHTML = data.map(c => `
-                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.05); padding:4px 0;">
-                    <span>📦 <strong>${c.server}</strong> (${c.username})</span>
-                    <button class="btn btn-outline" style="padding:1px 6px; font-size:0.7rem; color:var(--accent-red); border-color:var(--accent-red);" onclick="deleteRegistryServer('${c.server}')">Remove</button>
-                </div>
-            `).join('');
-        }
-    } catch (e) {
-        console.warn('Could not load registries:', e);
-    }
-}
 
-async function deleteRegistryServer(server) {
-    requestConfirmation(
-        '⚠️ Cerrar Sesión en Registry',
-        `¿Deseas eliminar las credenciales de '${server}' y ejecutar docker logout?`,
-        async () => {
-            try {
-                const res = await fetch(`/api/registries?server=${encodeURIComponent(server)}`, { method: 'DELETE' });
-                if (res.ok) {
-                    showToast('Registry Removido', `Credenciales de '${server}' eliminadas`, 'success');
-                    loadRegistries();
-                } else {
-                    showToast('Error', 'No se pudo eliminar el registry', 'error');
-                }
-            } catch (e) {
-                showToast('Error de Red', e.message, 'error');
-            }
-        }
-    );
-}
+            linksTableBody.innerHTML = '';
+            links.forEach(l => {
+                const tr = document.createElement('tr');
+                const src = l.source_svc || l.SourceSvc;
+                const tgt = l.target_svc || l.TargetSvc;
+                const v = l.env_var_name || l.EnvVarName;
+                const u = l.target_url || l.TargetURL || 'interno';
 
-function deleteRegistryFromModal() {
-    const server = document.getElementById('regServer').value.trim();
-    if (!server) {
-        showToast('Error', 'Ingresa el servidor para remover', 'error');
-        return;
-    }
-    deleteRegistryServer(server);
-}
+                tr.innerHTML = `
+                    <td style="font-weight:700; color:#fff;">${escapeHtml(src)}</td>
+                    <td><span class="svc-pill svc-pill-active">${escapeHtml(v)}</span></td>
+                    <td style="color:var(--text-secondary); font-size:0.8rem;">${escapeHtml(tgt)} (${escapeHtml(u)})</td>
+                    <td>
+                        <button type="button" class="mini-btn btn-unlink" data-from="${escapeHtml(src)}" data-to="${escapeHtml(tgt)}" style="color:var(--status-offline);">
+                            Desconectar
+                        </button>
+                    </td>
+                `;
+                linksTableBody.appendChild(tr);
+            });
 
-document.addEventListener('DOMContentLoaded', () => {
-    const formRegistry = document.getElementById('formRegistry');
-    if (formRegistry) {
-        formRegistry.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const server = document.getElementById('regServer').value.trim();
-            const username = document.getElementById('regUser').value.trim();
-            const password = document.getElementById('regPass').value.trim();
+            document.querySelectorAll('.btn-unlink').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const fromSvc = btn.getAttribute('data-from');
+                    const toSvc = btn.getAttribute('data-to');
+                    if (!confirm(`¿Desenlazar '${fromSvc}' de '${toSvc}'?`)) return;
 
-            requestConfirmation(
-                '🔐 Autenticar Docker Registry',
-                `¿Deseas iniciar sesión en '${server}' como '${username}' en el clúster?`,
-                async () => {
-                    showToast('Autenticando Registry', `Ejecutando docker login ${server}...`, 'info', 5000);
                     try {
-                        const res = await fetch('/api/registries', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ server, username, password })
-                        });
-                        if (res.ok) {
-                            showToast('Login Exitoso', `Registrado exitosamente en ${server}`, 'success');
-                            document.getElementById('regPass').value = '';
-                            loadRegistries();
-                        } else {
-                            const err = await res.json().catch(() => ({ error: 'Error al iniciar sesión' }));
-                            showToast('Error de Login', err.error || 'Falló docker login', 'error');
+                        const delRes = await fetch(`/api/links?source_svc=${encodeURIComponent(fromSvc)}&target_svc=${encodeURIComponent(toSvc)}`, { method: 'DELETE' });
+                        if (delRes.ok) {
+                            showToast(`Enlace eliminado: ${fromSvc} ⤬ ${toSvc}`, 'info');
+                            loadServiceLinks();
+                            return;
                         }
-                    } catch (e) {
-                        showToast('Error de Red', e.message, 'error');
+                        showToast('Error al desenlazar', 'error');
+                    } catch (err) {
+                        showToast(`Error: ${err.message}`, 'error');
+                    }
+                });
+            });
+        } catch (err) {
+            console.error('Error cargando enlaces:', err);
+        }
+    }
+
+    // --- Bootstrap Swarm / Install Framework Action ---
+    btnBootstrapSwarm.addEventListener('click', async () => {
+        if (!selectedServerName) {
+            showToast('Primero añade o conecta un servidor VPS para instalar el Framework.', 'info');
+            openAddModal();
+            return;
+        }
+        if (!confirm(`¿Instalar el Framework de orquestación (Docker Swarm, Traefik, Portainer y Dozzle) en '${selectedServerName}'?`)) return;
+
+        btnBootstrapSwarm.disabled = true;
+        btnBootstrapSwarm.classList.remove('swarm-configured');
+        btnBootstrapSwarm.innerHTML = '⏳ <span>Instalando Framework...</span>';
+        showToast(`Iniciando instalación del Framework en '${selectedServerName}'...`, 'info');
+
+        const s = servers.find(x => x.name === selectedServerName);
+        const payload = {
+            acmeEmail: 'admin@tarhiata.local',
+            installObservability: true
+        };
+        if (s && s.host && s.host !== 'localhost' && s.host !== '127.0.0.1') {
+            payload.host = s.host;
+            payload.port = s.port > 0 ? s.port : 22;
+            payload.user = s.user || 'root';
+            payload.keyPath = s.privateKey || '';
+        }
+
+        try {
+            const res = await fetch('/api/bootstrap', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) {
+                const errText = await res.text();
+                showToast(`Error al instalar Framework: ${errText}`, 'error');
+                btnBootstrapSwarm.disabled = false;
+                btnBootstrapSwarm.classList.remove('swarm-configured');
+                btnBootstrapSwarm.innerHTML = `🚀 <span>Instalar Framework</span>`;
+                return;
+            }
+
+            // Stream NDJSON response
+            if (res.body) {
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let hasError = false;
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const rawLine of lines) {
+                        const trimmed = rawLine.trim();
+                        if (!trimmed) continue;
+                        try {
+                            const event = JSON.parse(trimmed.startsWith('data: ') ? trimmed.substring(6) : trimmed);
+                            const eventType = event.t || event.type;
+                            const msg = event.m || event.message || (event.d && event.d.message) || '';
+                            if (eventType === 'step') {
+                                showToast(msg, 'info');
+                            } else if (eventType === 'error') {
+                                hasError = true;
+                                showToast(`Error: ${msg}`, 'error');
+                            }
+                        } catch (_) {}
                     }
                 }
-            );
-        });
-    }
-});
 
-/* --- Database Migrations Manager --- */
-async function openMigrationModal() {
-    const dbSelect = document.getElementById('migrTargetDB');
-    if (dbSelect) {
-        if (!globalDatabases || globalDatabases.length === 0) {
-            dbSelect.innerHTML = '<option value="">No hay bases de datos creadas</option>';
-        } else {
-            dbSelect.innerHTML = globalDatabases.map(d => `<option value="${d.name}">${d.name} (${d.engine})</option>`).join('');
+                if (!hasError) {
+                    showToast(`¡Framework instalado con éxito en '${selectedServerName}'!`, 'success');
+                }
+            } else {
+                showToast(`¡Framework instalado con éxito!`, 'success');
+            }
+
+            await loadSwarmStatus(selectedServerName);
+            await refreshServerTelemetry(selectedServerName);
+        } catch (err) {
+            showToast(`Fallo: ${err.message}`, 'error');
+            btnBootstrapSwarm.disabled = false;
+            btnBootstrapSwarm.classList.remove('swarm-configured');
+            btnBootstrapSwarm.innerHTML = `🚀 <span>Instalar Framework</span>`;
+            await loadSwarmStatus(selectedServerName);
         }
-    }
-    openModal('migrationModal');
-    if (globalDatabases && globalDatabases.length > 0) {
-        loadMigrationFilesForDB(globalDatabases[0].name);
-    }
-}
+    });
 
-async function loadMigrationFilesForDB(dbName) {
-    const container = document.getElementById('migrationFilesContainer');
-    if (!container || !dbName) return;
-    try {
-        const res = await fetch(`/api/migrations?db=${encodeURIComponent(dbName)}`);
-        if (res.ok) {
-            const files = await res.json();
-            if (!files || files.length === 0) {
-                container.innerHTML = '<div class="text-muted p-1">No hay ficheros .sql de migración para esta BD. Guarda uno arriba.</div>';
+    // --- Native Terminal Direct Launcher ---
+    async function launchNativeTerminal(serverName, buttonEl) {
+        const btn = buttonEl || btnDeskTerminal;
+        const origContent = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span>...</span>';
+
+        try {
+            const res = await fetch('/api/servers/open-terminal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: serverName })
+            });
+
+            if (!res.ok) {
+                const errText = await res.text();
+                showToast(`Error abriendo terminal de ${serverName}: ${errText}`, 'error');
                 return;
             }
-            container.innerHTML = files.map(f => {
-                const isApplied = f.status === 'applied';
-                const isReverted = f.status === 'reverted';
-                const isFailed = f.status === 'failed';
-                const badgeClass = isApplied ? 'badge-green' : (isReverted ? 'badge-blue' : (isFailed ? 'badge-red' : 'badge-yellow'));
-                const badgeText = isApplied ? 'Applied' : (isReverted ? 'Reverted' : (isFailed ? 'Failed' : 'Pending'));
-                const hasDown = f.downContent && f.downContent.trim().length > 0;
-                const downTag = hasDown ? '<span class="badge badge-purple" style="font-size:0.6rem;">Has Down Script</span>' : '';
-                return `
-                    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.05); padding:6px 4px;">
-                        <div style="display:flex; align-items:center; gap:8px;">
-                            <input type="checkbox" class="migr-file-chk" value="${f.filename}" ${isApplied ? 'checked' : ''}>
-                            <span>📄 <strong>${f.filename}</strong></span>
-                            <span class="badge ${badgeClass}" style="font-size:0.65rem;">${badgeText}</span>
-                            ${downTag}
-                        </div>
-                        <div style="display:flex; gap:6px;">
-                            <button class="btn btn-outline" style="padding:1px 6px; font-size:0.7rem; color:var(--accent-red); border-color:var(--accent-red);" onclick="deleteMigrationFile('${f.dbName}', '${f.filename}')">🗑️ Delete</button>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        }
-    } catch (e) {
-        console.warn('Could not load migration files:', e);
-    }
-}
 
-async function saveNewMigrationFile() {
-    const dbName = document.getElementById('migrTargetDB').value;
-    const filename = document.getElementById('newMigrFilename').value.trim();
-    const content = document.getElementById('newMigrContent').value.trim();
-    const downContent = document.getElementById('newMigrDownContent') ? document.getElementById('newMigrDownContent').value.trim() : '';
-
-    if (!dbName || !filename || !content) {
-        showToast('Campos Incompletos', 'Ingresa el nombre del archivo (.sql) y las sentencias SQL (UP)', 'error');
-        return;
-    }
-
-    try {
-        const res = await fetch('/api/migrations/file', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dbName, filename, content, downContent })
-        });
-        if (res.ok) {
-            showToast('Fichero Guardado', `Migración '${filename}' registrada`, 'success');
-            document.getElementById('newMigrFilename').value = '';
-            document.getElementById('newMigrContent').value = '';
-            if (document.getElementById('newMigrDownContent')) document.getElementById('newMigrDownContent').value = '';
-            loadMigrationFilesForDB(dbName);
-        } else {
-            showToast('Error', 'No se pudo guardar el archivo de migración', 'error');
-        }
-    } catch (e) {
-        showToast('Error de Red', e.message, 'error');
-    }
-}
-
-async function deleteMigrationFile(dbName, filename) {
-    requestConfirmation(
-        '🗑️ Eliminar Migración',
-        `¿Deseas borrar el fichero '${filename}' de las migraciones de '${dbName}'?`,
-        async () => {
-            try {
-                const res = await fetch(`/api/migrations/file?db=${encodeURIComponent(dbName)}&filename=${encodeURIComponent(filename)}`, { method: 'DELETE' });
-                if (res.ok) {
-                    showToast('Eliminado', `Fichero ${filename} borrado`, 'success');
-                    loadMigrationFilesForDB(dbName);
+            const data = await res.json();
+            if (data.launched) {
+                showToast(`Terminal abierta en tu sistema (${serverName})`, 'success');
+                return;
+            }
+            if (data.command) {
+                const ok = await copyToClipboard(data.command);
+                if (ok) {
+                    showToast(`Comando copiado al portapapeles: ${data.command}`, 'info');
                 } else {
-                    showToast('Error', 'No se pudo eliminar el fichero', 'error');
+                    prompt('Copia el comando de conexión SSH:', data.command);
                 }
-            } catch (e) {
-                showToast('Error de Red', e.message, 'error');
+            }
+        } catch (err) {
+            showToast(`Fallo: ${err.message}`, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = origContent;
+        }
+    }
+
+    btnDeskTerminal.addEventListener('click', () => {
+        if (selectedServerName) openTerminalModal(selectedServerName);
+    });
+
+    const btnDeskNativeTerminal = document.getElementById('btnDeskNativeTerminal');
+    if (btnDeskNativeTerminal) {
+        btnDeskNativeTerminal.addEventListener('click', () => {
+            if (selectedServerName) launchNativeTerminal(selectedServerName, btnDeskNativeTerminal);
+        });
+    }
+
+    btnTopActiveTerminal.addEventListener('click', () => {
+        const targetServer = (activeServer && activeServer.name) ? activeServer.name : selectedServerName;
+        if (!targetServer) {
+            showToast('No hay ningún servidor configurado.', 'error');
+            return;
+        }
+        openTerminalModal(targetServer);
+    });
+
+    btnDeskRefresh.addEventListener('click', () => {
+        if (selectedServerName) refreshServerTelemetry(selectedServerName);
+    });
+
+    btnDeskActivate.addEventListener('click', () => {
+        if (selectedServerName) switchActiveServer(selectedServerName);
+    });
+
+    // --- Switch Active Server Context ---
+    async function switchActiveServer(name) {
+        showToast(`Cambiando a servidor activo: '${name}'...`, 'info');
+        try {
+            const res = await fetch('/api/servers/active', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name })
+            });
+            if (!res.ok) {
+                const errText = await res.text();
+                showToast(`Error: ${errText}`, 'error');
+                return;
+            }
+            showToast(`Servidor principal: '${name}'.`, 'success');
+            selectedServerName = name;
+            await loadHubState();
+        } catch (err) {
+            showToast(`Error: ${err.message}`, 'error');
+        }
+    }
+
+    // --- Delete Server ---
+    async function deleteServer(name) {
+        if (!confirm(`¿Eliminar definitivamente el servidor '${name}'?`)) return;
+
+        try {
+            const res = await fetch(`/api/servers?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
+            if (!res.ok) {
+                const errText = await res.text();
+                showToast(`Error: ${errText}`, 'error');
+                return;
+            }
+            showToast(`Servidor '${name}' eliminado.`, 'success');
+            if (selectedServerName === name) {
+                selectedServerName = null;
+            }
+            await loadHubState();
+        } catch (err) {
+            showToast(`Error: ${err.message}`, 'error');
+        }
+    }
+
+    // --- Test Connectivity ---
+    async function testSingleServer(name) {
+        const dotEl = document.getElementById(`fleet-dot-${name}`);
+        const chipDot = document.getElementById(`chip-dot-${name}`);
+        if (dotEl) dotEl.className = 'status-dot status-pending';
+        if (chipDot) chipDot.className = 'status-dot status-pending';
+
+        try {
+            const s = servers.find(x => x.name === name);
+            if (!s) return;
+
+            const res = await fetch('/api/connect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(s)
+            });
+
+            if (!res.ok) {
+                if (dotEl) dotEl.className = 'status-dot status-offline';
+                if (chipDot) chipDot.className = 'status-dot status-offline';
+                return;
+            }
+
+            const diag = await res.json();
+            if (!diag.connected) {
+                if (dotEl) dotEl.className = 'status-dot status-offline';
+                if (chipDot) chipDot.className = 'status-dot status-offline';
+                return;
+            }
+
+            if (dotEl) dotEl.className = 'status-dot status-online';
+            if (chipDot) chipDot.className = 'status-dot status-online';
+
+            if (name === selectedServerName) {
+                deskDocker.textContent = diag.dockerActive ? formatDockerVersion(diag.dockerVersion) : 'Inactivo';
+                deskDocker.title = diag.dockerActive ? (diag.dockerVersion || '') : 'Inactivo';
+                deskSwarm.textContent = diag.swarmActive ? 'Operacional' : 'Inactivo';
+                tileLatencyDisplay.textContent = `Latencia: ${diag.latencyMs} ms`;
+                topActiveDot.className = 'status-dot status-online';
+                topActiveLatency.textContent = `${diag.latencyMs} ms`;
+            }
+        } catch (err) {
+            if (dotEl) dotEl.className = 'status-dot status-offline';
+            if (chipDot) chipDot.className = 'status-dot status-offline';
+            if (name === selectedServerName) {
+                topActiveDot.className = 'status-dot status-offline';
+                topActiveLatency.textContent = 'OFFLINE';
             }
         }
-    );
-}
-
-async function runSelectedMigrations(action = 'up') {
-    const dbName = document.getElementById('migrTargetDB').value;
-    const node = document.getElementById('migrTargetNode').value;
-    const checkboxes = document.querySelectorAll('.migr-file-chk:checked');
-    const filenames = Array.from(checkboxes).map(c => c.value);
-
-    if (!dbName) {
-        showToast('Error', 'Selecciona una base de datos de destino', 'error');
-        return;
-    }
-    if (filenames.length === 0) {
-        showToast('Atención', 'Selecciona al menos una migración para ejecutar', 'warning');
-        return;
     }
 
-    const titleAction = action === 'down' ? '🔻 Regresión (DOWN / Rollback)' : '⚡ Aplicar Migración (UP)';
+    async function testAllServers(isManual = false) {
+        btnTestAll.disabled = true;
+        btnTestAll.innerHTML = '<span>⟳ Sondeando...</span>';
 
-    requestConfirmation(
-        `⚠️ Confirmar ${titleAction}`,
-        `¿Deseas ejecutar la acción '${action.toUpperCase()}' en ${filenames.length} archivo(s) sobre '${dbName}' en el nodo '${node}'?`,
-        async () => {
-            showToast('Ejecutando Operación de BD', `Procesando ${action.toUpperCase()} en ${dbName}...`, 'info', 10000);
-            try {
-                const res = await fetch('/api/migrations/run', {
+        try {
+            const res = await fetch('/api/connect/all', { method: 'POST' });
+            if (res.ok) {
+                const results = await res.json();
+                results.forEach(diag => {
+                    const dotEl = document.getElementById(`fleet-dot-${diag.name}`);
+                    if (dotEl) {
+                        dotEl.className = diag.connected ? 'status-dot status-online' : 'status-dot status-offline';
+                    }
+                    const chipDot = document.getElementById(`chip-dot-${diag.name}`);
+                    if (chipDot) {
+                        chipDot.className = diag.connected ? 'status-dot status-online' : 'status-dot status-offline';
+                    }
+                    if (diag.name === selectedServerName && diag.connected) {
+                        deskDocker.textContent = diag.dockerActive ? formatDockerVersion(diag.dockerVersion) : 'Inactivo';
+                        deskDocker.title = diag.dockerActive ? (diag.dockerVersion || '') : 'Inactivo';
+                        deskSwarm.textContent = diag.swarmActive ? 'Operacional' : 'Inactivo';
+                        tileLatencyDisplay.textContent = `Latencia: ${diag.latencyMs} ms`;
+                        topActiveDot.className = 'status-dot status-online';
+                        topActiveLatency.textContent = `${diag.latencyMs} ms`;
+                    }
+                });
+            } else {
+                await Promise.all(servers.map(s => testSingleServer(s.name)));
+            }
+        } catch (_) {
+            await Promise.all(servers.map(s => testSingleServer(s.name)));
+        } finally {
+            btnTestAll.disabled = false;
+            btnTestAll.innerHTML = `
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                <span>Sondear Red</span>
+            `;
+            if (isManual) {
+                showToast('Sondeo de conectividad completado.', 'info');
+            }
+        }
+    }
+
+    btnTestAll.addEventListener('click', () => testAllServers(true));
+
+    // --- Modal Controllers: Add Server ---
+    function setModalMode(mode) {
+        modalMode = mode;
+        tabLocal.classList.toggle('active', mode === 'local');
+        tabRemote.classList.toggle('active', mode === 'remote');
+        tabCloud.classList.toggle('active', mode === 'cloud');
+        modalTestResult.style.display = 'none';
+
+        if (mode === 'local') {
+            localFastNotice.style.display = 'flex';
+            cloudFields.style.display = 'none';
+            standardFields.style.display = 'grid';
+            nameField.style.display = 'flex';
+            hostField.style.display = 'none';
+            userField.style.display = 'none';
+            portField.style.display = 'none';
+            keyField.style.display = 'none';
+
+            cfgName.value = 'local';
+            cfgHost.value = 'localhost';
+            cfgUser.value = 'local';
+            cfgPort.value = '0';
+            btnModalTest.style.display = 'inline-flex';
+            btnModalSaveText.textContent = 'Conectar Local';
+            return;
+        }
+        if (mode === 'remote') {
+            localFastNotice.style.display = 'none';
+            cloudFields.style.display = 'none';
+            standardFields.style.display = 'grid';
+            nameField.style.display = 'flex';
+            hostField.style.display = 'flex';
+            userField.style.display = 'flex';
+            portField.style.display = 'flex';
+            keyField.style.display = 'flex';
+
+            if (cfgName.value === 'local' || cfgName.value.startsWith('cloud-')) {
+                cfgName.value = 'vps-servidor';
+            }
+            if (cfgHost.value === 'localhost' || cfgHost.value === '127.0.0.1') {
+                cfgHost.value = '';
+            }
+            cfgUser.value = 'root';
+            cfgPort.value = '22';
+            cfgKey.value = '~/.ssh/id_rsa';
+            btnModalTest.style.display = 'inline-flex';
+            btnModalSaveText.textContent = 'Guardar VPS';
+            return;
+        }
+        if (mode === 'cloud') {
+            localFastNotice.style.display = 'none';
+            cloudFields.style.display = 'grid';
+            standardFields.style.display = 'grid';
+            nameField.style.display = 'flex';
+            hostField.style.display = 'none';
+            userField.style.display = 'none';
+            portField.style.display = 'none';
+            keyField.style.display = 'none';
+
+            if (!cfgName.value || cfgName.value === 'local') {
+                cfgName.value = 'cloud-node-1';
+            }
+            btnModalTest.style.display = 'none';
+            btnModalSaveText.textContent = 'Crear con OpenTofu';
+            return;
+        }
+    }
+
+    tabLocal.addEventListener('click', () => setModalMode('local'));
+    tabRemote.addEventListener('click', () => setModalMode('remote'));
+    tabCloud.addEventListener('click', () => setModalMode('cloud'));
+
+    function openAddModal() {
+        formServer.reset();
+        setModalMode('remote');
+        serverModal.style.display = 'flex';
+        serverPopover.style.display = 'none';
+    }
+
+    btnOpenAddModal.addEventListener('click', openAddModal);
+    const btnFleetAddServer = document.getElementById('btnFleetAddServer');
+    if (btnFleetAddServer) {
+        btnFleetAddServer.addEventListener('click', openAddModal);
+    }
+    btnCloseModal.addEventListener('click', () => serverModal.style.display = 'none');
+    if (btnCancelServer) btnCancelServer.addEventListener('click', () => serverModal.style.display = 'none');
+    serverModal.addEventListener('click', (e) => {
+        if (e.target === serverModal) serverModal.style.display = 'none';
+    });
+
+    formServer.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const isCloud = (modalMode === 'cloud');
+        const isLoc = (modalMode === 'local');
+
+        let payload = {
+            name: cfgName.value.trim(),
+            host: isLoc ? 'localhost' : cfgHost.value.trim(),
+            port: isLoc ? 0 : parseInt(cfgPort.value || '22', 10),
+            user: isLoc ? 'local' : cfgUser.value.trim(),
+            privateKey: isLoc ? '' : cfgKey.value.trim(),
+            cloudProvider: isLoc ? 'local' : (isCloud ? cfgProvider.value : 'custom'),
+            isActive: cfgIsActive.checked
+        };
+
+        if (isCloud) {
+            payload.provider = cfgProvider.value;
+            payload.apiToken = cfgToken.value.trim();
+            payload.region = cfgRegion.value.trim() || 'mex';
+            payload.plan = cfgPlan.value.trim() || 'vc2-1c-1gb';
+            payload.isActive = cfgIsActive.checked;
+        }
+
+        btnModalSave.disabled = true;
+        btnModalSaveText.textContent = 'Guardando...';
+
+        try {
+            const endpoint = isCloud ? '/api/servers/provision' : '/api/servers';
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) {
+                const errText = await res.text();
+                showToast(`Error: ${errText}`, 'error');
+                modalTestResult.style.display = 'block';
+                modalTestResult.innerHTML = `<span style="color:var(--status-offline);">✕ ${escapeHtml(errText)}</span>`;
+                return;
+            }
+
+            showToast(`Servidor '${payload.name}' conectado con éxito!`, 'success');
+            serverModal.style.display = 'none';
+            formServer.reset();
+            selectedServerName = payload.name;
+            await loadHubState();
+        } catch (err) {
+            showToast(`Error: ${err.message}`, 'error');
+        } finally {
+            btnModalSave.disabled = false;
+            btnModalSaveText.textContent = isCloud ? 'Crear con OpenTofu' : 'Guardar Servidor';
+        }
+    });
+
+    btnModalTest.addEventListener('click', async () => {
+        btnModalTest.disabled = true;
+        btnModalTestText.textContent = 'Probando...';
+        modalTestResult.style.display = 'block';
+        modalTestResult.innerHTML = `<span style="color:var(--status-warning);">⏳ Verificando conexión...</span>`;
+
+        const isLoc = (modalMode === 'local');
+        const testPayload = {
+            name: cfgName.value.trim() || 'test',
+            host: isLoc ? 'localhost' : cfgHost.value.trim(),
+            port: isLoc ? 0 : parseInt(cfgPort.value || '22', 10),
+            user: isLoc ? 'local' : cfgUser.value.trim(),
+            privateKey: isLoc ? '' : cfgKey.value.trim(),
+            cloudProvider: isLoc ? 'local' : 'custom'
+        };
+
+        try {
+            const res = await fetch('/api/connect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(testPayload)
+            });
+            if (!res.ok) {
+                const errText = await res.text();
+                modalTestResult.innerHTML = `<span style="color:var(--status-offline);">✕ Error (${res.status}): ${escapeHtml(errText)}</span>`;
+                return;
+            }
+            const data = await res.json();
+
+            if (!data.connected) {
+                modalTestResult.innerHTML = `<div style="color:var(--status-offline); font-weight:700;">✕ Conexión fallida: ${escapeHtml(data.message)}</div>`;
+                return;
+            }
+
+            modalTestResult.innerHTML = `<div style="color:var(--status-online); font-weight:700;">✓ Conectado exitosamente (${data.latencyMs} ms)</div>`;
+        } catch (err) {
+            modalTestResult.innerHTML = `<span style="color:var(--status-offline);">✕ Error: ${escapeHtml(err.message)}</span>`;
+        } finally {
+            btnModalTest.disabled = false;
+            btnModalTestText.textContent = 'Probar Conexión';
+        }
+    });
+
+    // --- Verificador Reactivo de DNS en Tiempo Real ---
+    const checkDomainDnsDebounced = debounce(async (domain, feedbackEl) => {
+        if (!feedbackEl) return;
+        const clean = (domain || '')
+            .replace(/^https?:\/\//i, '')
+            .split('/')[0]
+            .split(':')[0]
+            .trim()
+            .toLowerCase();
+
+        if (!clean || clean.length < 3 || !clean.includes('.')) {
+            feedbackEl.style.display = 'none';
+            feedbackEl.innerHTML = '';
+            return;
+        }
+
+        feedbackEl.style.display = 'inline-flex';
+        feedbackEl.className = 'dns-feedback-hint dns-checking';
+        feedbackEl.innerHTML = '<span>⏳ Consultando resolución DNS...</span>';
+
+        try {
+            const res = await fetch(`/api/dns/check?domain=${encodeURIComponent(clean)}`);
+            if (!res.ok) {
+                feedbackEl.style.display = 'none';
+                return;
+            }
+            const data = await res.json();
+            const serverIp = data.server_ip || (activeServer ? activeServer.host : '');
+
+            if (data.status === 'match') {
+                feedbackEl.className = 'dns-feedback-hint dns-match';
+                feedbackEl.innerHTML = `<span>🟢 ✓ Apunta a este servidor (${escapeHtml(serverIp || 'IP del VPS')})</span>`;
+            } else if (data.status === 'mismatch') {
+                const ips = (data.resolved_ips || []).join(', ') || 'otra IP';
+                feedbackEl.className = 'dns-feedback-hint dns-mismatch';
+                feedbackEl.innerHTML = `<span>🟡 ⚠️ Apunta a ${escapeHtml(ips)} (Tu VPS: ${escapeHtml(serverIp || 'este host')})</span>`;
+            } else {
+                feedbackEl.className = 'dns-feedback-hint dns-not-found';
+                feedbackEl.innerHTML = `<span>⚪ ❓ Sin registro A (agrega DNS tipo A hacia ${escapeHtml(serverIp || 'tu VPS')})</span>`;
+            }
+        } catch (_) {
+            feedbackEl.style.display = 'none';
+        }
+    }, 350);
+
+    // --- Modal: Deploy App ---
+    function openDeployModal() {
+        formDeploy.reset();
+        if (depDomainDnsFeedback) {
+            depDomainDnsFeedback.style.display = 'none';
+            depDomainDnsFeedback.innerHTML = '';
+        }
+        deployModal.style.display = 'flex';
+    }
+
+    if (btnGlobalDeploy) btnGlobalDeploy.addEventListener('click', openDeployModal);
+    btnOpenDeployModal.addEventListener('click', openDeployModal);
+    btnCloseDeployModal.addEventListener('click', () => {
+        formDeploy.reset();
+        if (depDomainDnsFeedback) depDomainDnsFeedback.style.display = 'none';
+        deployModal.style.display = 'none';
+    });
+    btnCancelDeploy.addEventListener('click', () => {
+        formDeploy.reset();
+        if (depDomainDnsFeedback) depDomainDnsFeedback.style.display = 'none';
+        deployModal.style.display = 'none';
+    });
+    deployModal.addEventListener('click', (e) => {
+        if (e.target === deployModal) {
+            formDeploy.reset();
+            if (depDomainDnsFeedback) depDomainDnsFeedback.style.display = 'none';
+            deployModal.style.display = 'none';
+        }
+    });
+
+    if (depDomain && depDomainDnsFeedback) {
+        depDomain.addEventListener('input', (e) => {
+            checkDomainDnsDebounced(e.target.value, depDomainDnsFeedback);
+        });
+    }
+
+    formDeploy.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        btnSubmitDeploy.disabled = true;
+        btnSubmitDeploy.innerHTML = '<span>Desplegando...</span>';
+        showToast(`Iniciando despliegue de ${depName.value}...`, 'info');
+
+        try {
+            let res = null;
+            const domain = depDomain.value.trim();
+            const isPublic = domain !== '';
+
+            if (depDB.value) {
+                res = await fetch('/api/bootstrap-master', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        targetDB: dbName,
-                        targetNode: node,
-                        action: action,
-                        filenames: filenames
+                        app_name: depName.value.trim(),
+                        image: depImage.value.trim(),
+                        port: parseInt(depPort.value || '80', 10),
+                        domain: domain,
+                        expose_public: isPublic,
+                        db_engine: depDB.value,
+                        env_var_name: depEnv.value.trim() || 'DATABASE_URL'
                     })
                 });
-                if (res.ok) {
-                    const result = await res.json();
-                    let failed = result.filter(r => r.status === 'failed');
-                    if (failed.length > 0) {
-                        showToast('Error en Operación', `Falló el archivo ${failed[0].filename}: ${failed[0].logOutput || 'Error SQL'}`, 'error', 10000);
-                    } else {
-                        const msg = action === 'down' ? 'Regresión completada' : 'Migración aplicada';
-                        showToast('Operación Exitosa', `¡${msg} en ${dbName}!`, 'success');
-                    }
-                    loadMigrationFilesForDB(dbName);
-                } else {
-                    const err = await res.text();
-                    showToast('Error de Ejecución', err, 'error');
-                }
-            } catch (e) {
-                showToast('Error de Red', e.message, 'error');
-            }
-        }
-    );
-}
-
-/* --- Embedded Historical Metrics in Server Status Card --- */
-function populateCardHistoryServices() {
-    const select = document.getElementById('cardHistoryService');
-    if (!select) return;
-    let optionsHtml = '<option value="all">🌐 Todos</option>';
-    if (globalServices && globalServices.length > 0) {
-        optionsHtml += globalServices.map(s => `<option value="${s.name}">📦 ${s.name}</option>`).join('');
-    }
-    if (globalDatabases && globalDatabases.length > 0) {
-        optionsHtml += globalDatabases.map(d => `<option value="${d.name}">🗄️ ${d.name}</option>`).join('');
-    }
-    select.innerHTML = optionsHtml;
-}
-
-function toggleCardGraphMode() {
-    const mode = document.getElementById('cardGraphMode')?.value || 'live';
-    const rangeSelect = document.getElementById('cardHistoryRange');
-    const serviceSelect = document.getElementById('cardHistoryService');
-    
-    if (mode === 'history') {
-        if (rangeSelect) rangeSelect.style.display = 'inline-block';
-        if (serviceSelect) {
-            populateCardHistoryServices();
-            serviceSelect.style.display = 'inline-block';
-        }
-        loadCardMetricsHistory();
-    } else {
-        if (rangeSelect) rangeSelect.style.display = 'none';
-        if (serviceSelect) serviceSelect.style.display = 'none';
-        // Restaurar vista live
-        loadDashboardData();
-    }
-}
-
-async function loadCardMetricsHistory() {
-    const service = document.getElementById('cardHistoryService')?.value || 'all';
-    const timeRange = document.getElementById('cardHistoryRange')?.value || '1h';
-    const chartContainer = document.querySelector('.live-chart');
-    if (!chartContainer) return;
-
-    try {
-        const res = await fetch(`/api/observability/metrics?service=${encodeURIComponent(service)}&range=${encodeURIComponent(timeRange)}`);
-        if (res.ok) {
-            const data = await res.json();
-            renderInlineCardMetricsGraph(data.points || []);
-        }
-    } catch (e) {
-        console.warn('Error loading card metrics history:', e);
-    }
-}
-
-function renderInlineCardMetricsGraph(points) {
-    const chartSvg = document.querySelector('.live-chart');
-    if (!chartSvg || points.length === 0) return;
-
-    const width = 400;
-    const height = 120;
-    const padding = 10;
-
-    let maxCpu = Math.max(...points.map(p => p.cpu), 5);
-    let avgCpu = (points.reduce((acc, p) => acc + p.cpu, 0) / points.length).toFixed(1);
-    let avgRam = (points.reduce((acc, p) => acc + p.memory, 0) / points.length).toFixed(1);
-
-    const cpuText = document.getElementById('cpuText');
-    const ramText = document.getElementById('ramText');
-    if (cpuText) cpuText.innerText = `${avgCpu}% (Prom)`;
-    if (ramText) ramText.innerText = `${avgRam} MB (Prom)`;
-
-    const cpuPoints = points.map((p, index) => {
-        const x = padding + (index / (points.length - 1)) * (width - 2 * padding);
-        const y = height - padding - (p.cpu / maxCpu) * (height - 2 * padding);
-        return `${x},${y}`;
-    }).join(' ');
-
-    const ramPoints = points.map((p, index) => {
-        const x = padding + (index / (points.length - 1)) * (width - 2 * padding);
-        const maxRamVal = Math.max(...points.map(pt => pt.memory), 100);
-        const y = height - padding - (p.memory / maxRamVal) * (height - 2 * padding);
-        return `${x},${y}`;
-    }).join(' ');
-
-    const firstX = padding;
-    const lastX = width - padding;
-    const bottomY = height - padding;
-    const areaCpu = `${firstX},${bottomY} ${cpuPoints} ${lastX},${bottomY}`;
-
-    chartSvg.innerHTML = `
-        <defs>
-            <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#60a5fa" stop-opacity="0.5"/>
-                <stop offset="100%" stop-color="#60a5fa" stop-opacity="0.0"/>
-            </linearGradient>
-        </defs>
-        <polygon points="${areaCpu}" fill="url(#chartGrad)" />
-        <polyline points="${cpuPoints}" fill="none" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-        <polyline points="${ramPoints}" fill="none" stroke="#a855f7" stroke-width="1.5" stroke-dasharray="3,3" />
-        <text x="${padding}" y="${height - 4}" fill="#64748b" font-size="9">${points[0].timestamp}</text>
-        <text x="${width - padding}" y="${height - 4}" fill="#64748b" font-size="9" text-anchor="end">${points[points.length - 1].timestamp}</text>
-    `;
-}
-
-/* --- Backups & Snapshots Management --- */
-async function loadBackups() {
-    const listEl = document.getElementById('backupsList');
-    const modalListEl = document.getElementById('modalBackupsList');
-
-    if (!globalIsOnline) {
-        const offlineHtml = '<div class="text-muted p-2" style="text-align: center; color:#ef4444;">⚠️ Servidor Offline (VM Inalcanzable)</div>';
-        if (listEl) listEl.innerHTML = offlineHtml;
-        if (modalListEl) modalListEl.innerHTML = offlineHtml;
-        return;
-    }
-
-    try {
-        const res = await fetch('/api/backups');
-        if (!res.ok) return;
-        const backups = await res.json();
-        
-        const emptyHtml = '<div class="text-muted p-2" style="text-align: center;">No hay snapshots guardados. Presiona "+ Snapshot 1-Click".</div>';
-
-        if (!backups || backups.length === 0) {
-            if (listEl) listEl.innerHTML = emptyHtml;
-            if (modalListEl) modalListEl.innerHTML = emptyHtml;
-            return;
-        }
-
-        const html = backups.map(b => `
-            <div class="catalog-item" style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; margin-bottom: 4px; background: var(--bg-tertiary); border-radius: 6px; border: 1px solid var(--border-color);">
-                <div>
-                    <div style="font-weight: 600; font-size: 0.85rem; color: var(--accent-blue);">
-                        ${b.targetType === 'database' ? '🗄️' : '📦'} ${b.targetName} <span style="font-size:0.75rem; color:var(--text-muted);">(${b.engine})</span>
-                    </div>
-                    <div style="font-size: 0.72rem; color: var(--text-muted); font-family: monospace;">
-                <div style="display: flex; gap: 4px;">
-                    <button class="btn btn-outline" style="padding: 2px 8px; font-size: 0.7rem; border-color: #22c55e; color: #4ade80; font-weight: 600;" onclick="downloadBackupFile(${b.id})" title="Descargar Snapshot a tu PC local">📥 Descargar a PC</button>
-                    <button class="btn btn-outline" style="padding: 2px 6px; font-size: 0.7rem; border-color: #3b82f6; color: #3b82f6;" onclick="restoreBackupSnapshot(${b.id}, '${b.targetName}')" title="Restaurar este backup">🔄 Restaurar</button>
-                    <button class="btn btn-outline" style="padding: 2px 6px; font-size: 0.7rem; border-color: #ef4444; color: #ef4444;" onclick="deleteBackupSnapshot(${b.id})" title="Eliminar registro">🗑️</button>
-                </div>
-            </div>
-        `).join('');
-
-        if (listEl) listEl.innerHTML = html;
-        if (modalListEl) modalListEl.innerHTML = html;
-    } catch (e) {
-        console.warn('Error loading backups:', e);
-    }
-}
-
-function openBackupModal() {
-    toggleBackupTargetOptions();
-    populateS3BackupTargets();
-    openModal('backupModal');
-    loadBackups();
-}
-
-function populateS3BackupTargets() {
-    const s3Select = document.getElementById('backupS3Target');
-    if (!s3Select) return;
-    const currentVal = s3Select.value;
-    const minioDBs = (globalDatabases || []).filter(d => (d.engine || '').toLowerCase().includes('minio') || (d.engine || '').toLowerCase().includes('s3'));
-    
-    let html = '<option value="">💾 Solo Local VPS (/opt/tarhiata/backups)</option>';
-    if (minioDBs.length > 0) {
-        html += minioDBs.map(d => `<option value="${d.name}">📦 Copiar a MinIO S3: ${d.name}</option>`).join('');
-    }
-    html += '<option value="custom">🌐 Servidor S3 Externo (Cloudflare R2 / AWS S3 / URL)</option>';
-    s3Select.innerHTML = html;
-    s3Select.value = currentVal || '';
-    toggleCustomS3Fields();
-}
-
-function toggleCustomS3Fields() {
-    const s3Target = document.getElementById('backupS3Target')?.value;
-    const container = document.getElementById('customS3Fields');
-    if (container) {
-        container.style.display = (s3Target === 'custom') ? 'block' : 'none';
-    }
-}
-
-function openBackupModalForTarget(targetName, targetType = 'database') {
-    openBackupModal();
-    const typeSelect = document.getElementById('backupTargetType');
-    if (typeSelect) {
-        typeSelect.value = targetType;
-        toggleBackupTargetOptions();
-        const nameSelect = document.getElementById('backupTargetName');
-        if (nameSelect) {
-            nameSelect.value = targetName;
-        }
-    }
-}
-
-function toggleBackupTargetOptions() {
-    const type = document.getElementById('backupTargetType')?.value || 'database';
-    const select = document.getElementById('backupTargetName');
-    if (!select) return;
-
-    if (type === 'database') {
-        if (globalDatabases && globalDatabases.length > 0) {
-            select.innerHTML = globalDatabases.map(d => `<option value="${d.name}">🗄️ ${d.name} (${d.engine})</option>`).join('');
-        } else {
-            select.innerHTML = '<option value="">(No hay bases de datos disponibles)</option>';
-        }
-    } else {
-        if (globalServices && globalServices.length > 0) {
-            select.innerHTML = globalServices.map(s => `<option value="${s.name}">📦 App Volume: ${s.name}</option>`).join('');
-        } else {
-            select.innerHTML = '<option value="">(No hay servicios disponibles)</option>';
-        }
-    }
-}
-
-async function handleCreateBackupSubmit(e) {
-    e.preventDefault();
-    const type = document.getElementById('backupTargetType')?.value;
-    const targetName = document.getElementById('backupTargetName')?.value;
-    const s3Target = document.getElementById('backupS3Target')?.value || '';
-    if (!targetName) {
-        showToast('Error', 'Selecciona un recurso válido', 'error');
-        return;
-    }
-
-    closeModal('backupModal');
-    showToast('Generando Snapshot', `Respaldando ${type} '${targetName}' en servidor...`, 'info');
-
-    try {
-        const res = await fetch('/api/backups', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ targetName: targetName, targetType: type })
-        });
-        if (res.ok) {
-            const b = await res.json();
-            showToast('Snapshot Creado 🚀', `Guardado como ${b.filename}`, 'success');
-            loadBackups();
-        } else {
-            const err = await res.text();
-            showToast('Error de Snapshot', err, 'error');
-        }
-    } catch (e) {
-        showToast('Error de Red', e.message, 'error');
-    }
-}
-
-function downloadBackupFile(id) {
-    showToast('Descargando Snapshot', 'Iniciando descarga directa a tu equipo...', 'info');
-    window.open(`/api/backups/download?id=${id}`, '_blank');
-}
-
-function restoreBackupSnapshot(id, targetName) {
-    requestConfirmation(
-        '🔄 Restaurar Snapshot de Infraestructura',
-        `¿Estás seguro de restaurar el Snapshot ID #${id} sobre '${targetName}'? Se sobreescribirán los datos actuales de la base de datos o volumen.`,
-        async () => {
-            showToast('Restaurando Data', `Aplicando snapshot #${id}...`, 'info');
-            try {
-                const res = await fetch('/api/backups/restore', {
+            } else {
+                res = await fetch('/api/deploy-service', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ backupId: id })
+                    body: JSON.stringify({
+                        name: depName.value.trim(),
+                        imageSource: depImage.value.trim(),
+                        port: parseInt(depPort.value || '80', 10),
+                        domain: domain,
+                        expose: isPublic
+                    })
                 });
-                if (res.ok) {
-                    showToast('Restauración Exitosa 🎉', `Snapshot #${id} aplicado en ${targetName}`, 'success');
-                    loadDashboardData();
-                } else {
-                    const err = await res.text();
-                    showToast('Error de Restauración', err, 'error');
-                }
-            } catch (e) {
-                showToast('Error de Red', e.message, 'error');
-            }
-        }
-    );
-}
-
-async function deleteBackupSnapshot(id) {
-    try {
-        const res = await fetch(`/api/backups?id=${id}`, { method: 'DELETE' });
-        if (res.ok) {
-            showToast('Backup Eliminado', `Snapshot #${id} removido del catálogo`, 'info');
-            loadBackups();
-        }
-    } catch (e) {
-        showToast('Error de Red', e.message, 'error');
-    }
-}
-
-/* --- Bulk ENV Management (.env) --- */
-function openEnvModal(serviceName = null) {
-    const select = document.getElementById('envTargetService');
-    if (select) {
-        if (globalServices && globalServices.length > 0) {
-            select.innerHTML = globalServices.map(s => `<option value="${s.name}">${s.name}</option>`).join('');
-            if (serviceName) select.value = serviceName;
-        } else {
-            select.innerHTML = '<option value="">(No hay servicios activos)</option>';
-        }
-    }
-    loadServiceEnvVars();
-    openModal('envModal');
-}
-
-async function loadServiceEnvVars() {
-    const serviceName = document.getElementById('envTargetService')?.value;
-    const txt = document.getElementById('envRawContent');
-    if (!serviceName || !txt) return;
-
-    txt.value = 'Cargando variables de entorno...';
-    try {
-        const res = await fetch(`/api/env?service=${encodeURIComponent(serviceName)}`);
-        if (res.ok) {
-            const data = await res.json();
-            txt.value = data.rawContent || '';
-        } else {
-            txt.value = '';
-        }
-    } catch (e) {
-        txt.value = '# Error al cargar variables: ' + e.message;
-    }
-}
-
-function importEnvFileSelected(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        const content = e.target.result;
-        const txt = document.getElementById('envRawContent');
-        if (txt) {
-            txt.value = content;
-            showToast('Archivo Cargado', `Importado '${file.name}' al editor. Presiona Guardar para aplicar.`, 'info');
-        }
-    };
-    reader.readAsText(file);
-}
-
-function exportEnvFilePC() {
-    const serviceName = document.getElementById('envTargetService')?.value;
-    if (!serviceName) {
-        showToast('Error', 'Selecciona un servicio', 'error');
-        return;
-    }
-    showToast('Descargando .env', `Guardando ${serviceName}.env en tu PC...`, 'info');
-    window.open(`/api/env/export?service=${encodeURIComponent(serviceName)}`, '_blank');
-}
-
-async function saveServiceEnvVars() {
-    const serviceName = document.getElementById('envTargetService')?.value;
-    const rawContent = document.getElementById('envRawContent')?.value || '';
-    if (!serviceName) {
-        showToast('Error', 'Selecciona un servicio válido', 'error');
-        return;
-    }
-
-    showToast('Actualizando Swarm', `Aplicando variables de entorno a '${serviceName}'...`, 'info');
-    try {
-        const res = await fetch('/api/env', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ serviceName: serviceName, rawContent: rawContent })
-        });
-        if (res.ok) {
-            showToast('Variables Aplicadas 🔑', `Servicio '${serviceName}' actualizado en Swarm`, 'success');
-            closeModal('envModal');
-            loadDashboardData();
-        } else {
-            const err = await res.text();
-            showToast('Error al Guardar', err, 'error');
-        }
-    } catch (e) {
-        showToast('Error de Red', e.message, 'error');
-    }
-}
-
-/* --- Volume File Browser (/opt/data) --- */
-let currentVolumePath = '/opt/data';
-
-function openVolumeBrowser(path = '/opt/data') {
-    currentVolumePath = path;
-    openModal('volumeModal');
-    loadVolumeFiles(currentVolumePath);
-}
-
-function refreshVolumeBrowser() {
-    loadVolumeFiles(currentVolumePath);
-}
-
-async function loadVolumeFiles(targetPath) {
-    currentVolumePath = targetPath;
-    renderVolumeBreadcrumbs(targetPath);
-    
-    const tbody = document.getElementById('volumeFilesTableBody');
-    if (tbody) {
-        tbody.innerHTML = '<tr><td colspan="4" class="text-muted p-2" style="text-align: center;">Cargando archivos...</td></tr>';
-    }
-
-    try {
-        const res = await fetch(`/api/volumes/files?path=${encodeURIComponent(targetPath)}`);
-        if (!res.ok) {
-            const err = await res.text();
-            if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="text-muted p-2" style="text-align: center; color:var(--accent-red);">${err}</td></tr>`;
-            return;
-        }
-        const files = await res.json();
-        renderVolumeFilesTable(files);
-    } catch (e) {
-        if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="text-muted p-2" style="text-align: center; color:var(--accent-red);">Error: ${e.message}</td></tr>`;
-    }
-}
-
-function renderVolumeBreadcrumbs(path) {
-    const container = document.getElementById('volumeBreadcrumbs');
-    if (!container) return;
-
-    const parts = path.split('/').filter(p => p !== '');
-    let html = `<span style="cursor:pointer; color:var(--accent-blue);" onclick="loadVolumeFiles('/opt/data')">/opt/data</span>`;
-
-    let accumulated = '/opt/data';
-    for (let i = 0; i < parts.length; i++) {
-        if (parts[i] === 'opt' || parts[i] === 'data') continue;
-        accumulated += '/' + parts[i];
-        const target = accumulated;
-        html += ` <span class="text-muted">/</span> <span style="cursor:pointer; color:var(--accent-blue);" onclick="loadVolumeFiles('${target}')">${parts[i]}</span>`;
-    }
-    container.innerHTML = html;
-}
-
-function renderVolumeFilesTable(files) {
-    const tbody = document.getElementById('volumeFilesTableBody');
-    if (!tbody) return;
-
-    if (!files || files.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="text-muted p-2" style="text-align: center;">(Carpeta vacía)</td></tr>';
-        return;
-    }
-
-    tbody.innerHTML = files.map(f => {
-        const icon = f.isDir ? '📁' : '📄';
-        const sizeFormatted = f.isDir ? '-' : formatBytes(f.size);
-        const escapedPath = f.path.replace(/'/g, "\\'");
-        const escapedName = f.name.replace(/'/g, "\\'");
-
-        let nameClick = f.isDir ? `onclick="loadVolumeFiles('${escapedPath}')"` : `onclick="openVolumeFileViewer('${escapedPath}', '${escapedName}')"`;
-
-        return `
-        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-            <td style="padding: 8px 12px; cursor: pointer;" ${nameClick}>
-                ${icon} <strong style="color: ${f.isDir ? 'var(--accent-blue)' : 'inherit'};">${f.name}</strong>
-            </td>
-            <td style="padding: 8px 12px; font-family: monospace;">${sizeFormatted}</td>
-            <td style="padding: 8px 12px; font-size: 0.78rem;" class="text-muted">${f.modTime || '-'}</td>
-            <td style="padding: 8px 12px; text-align: right;">
-                <div style="display: flex; gap: 4px; justify-content: flex-end;">
-                    ${f.isDir ? `
-                        <button class="btn btn-outline" style="padding: 2px 6px; font-size: 0.7rem;" onclick="loadVolumeFiles('${escapedPath}')">📂 Abrir</button>
-                    ` : `
-                        <button class="btn btn-outline" style="padding: 2px 6px; font-size: 0.7rem;" onclick="openVolumeFileViewer('${escapedPath}', '${escapedName}')">👁️ Ver/Editar</button>
-                        <button class="btn btn-outline" style="padding: 2px 6px; font-size: 0.7rem;" onclick="downloadVolumeFilePC('${escapedPath}')">📥 Descargar</button>
-                    `}
-                    <button class="btn btn-outline" style="padding: 2px 6px; font-size: 0.7rem; border-color: var(--accent-red); color: var(--accent-red);" onclick="deleteVolumeItem('${escapedPath}', '${escapedName}')">🗑️</button>
-                </div>
-            </td>
-        </tr>
-        `;
-    }).join('');
-}
-
-async function openVolumeFileViewer(filePath, fileName) {
-    document.getElementById('editingFilePath').value = filePath;
-    document.getElementById('volumeFileModalTitle').innerText = `📄 ${fileName} (${filePath})`;
-    const txt = document.getElementById('editingFileContent');
-    txt.value = 'Cargando contenido del archivo...';
-
-    openModal('volumeFileModal');
-
-    try {
-        const res = await fetch(`/api/volumes/read?path=${encodeURIComponent(filePath)}`);
-        if (res.ok) {
-            const data = await res.json();
-            txt.value = data.content || '';
-        } else {
-            const err = await res.text();
-            txt.value = '# Error al leer archivo: ' + err;
-        }
-    } catch (e) {
-        txt.value = '# Error de red: ' + e.message;
-    }
-}
-
-async function saveCurrentEditingFile() {
-    const filePath = document.getElementById('editingFilePath').value;
-    const content = document.getElementById('editingFileContent').value;
-    if (!filePath) return;
-
-    showToast('Guardando Archivo', `Actualizando '${filePath}' en el servidor...`, 'info');
-    try {
-        const res = await fetch('/api/volumes/write', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path: filePath, content: content })
-        });
-        if (res.ok) {
-            showToast('Archivo Guardado 💾', `Actualizado exitosamente`, 'success');
-            closeModal('volumeFileModal');
-            loadVolumeFiles(currentVolumePath);
-        } else {
-            const err = await res.text();
-            showToast('Error al Guardar', err, 'error');
-        }
-    } catch (e) {
-        showToast('Error de Red', e.message, 'error');
-    }
-}
-
-function downloadVolumeFilePC(filePath) {
-    showToast('Descargando Archivo', `Iniciando descarga a tu PC...`, 'info');
-    window.open(`/api/volumes/download?path=${encodeURIComponent(filePath)}`, '_blank');
-}
-
-function downloadCurrentEditingFilePC() {
-    const filePath = document.getElementById('editingFilePath').value;
-    if (filePath) downloadVolumeFilePC(filePath);
-}
-
-async function uploadVolumeFileSelected(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append('dir', currentVolumePath);
-    formData.append('file', file);
-
-    showToast('Subiendo Archivo', `Enviando '${file.name}' a ${currentVolumePath}...`, 'info');
-    try {
-        const res = await fetch('/api/volumes/upload', {
-            method: 'POST',
-            body: formData
-        });
-        if (res.ok) {
-            showToast('Archivo Subido 📤', `'${file.name}' guardado en la nube`, 'success');
-            loadVolumeFiles(currentVolumePath);
-        } else {
-            const err = await res.text();
-            showToast('Error de Carga', err, 'error');
-        }
-    } catch (e) {
-        showToast('Error de Red', e.message, 'error');
-    }
-}
-
-function deleteVolumeItem(filePath, itemName) {
-    requestConfirmation(
-        '🗑️ Eliminar Recurso de Volumen',
-        `¿Estás seguro de eliminar permanentemente '${itemName}' (${filePath})? Esta acción no se puede deshacer.`,
-        async () => {
-            showToast('Eliminando', `Removiendo ${itemName}...`, 'info');
-            try {
-                const res = await fetch(`/api/volumes/delete?path=${encodeURIComponent(filePath)}`, { method: 'DELETE' });
-                if (res.ok) {
-                    showToast('Eliminado 🗑️', `'${itemName}' eliminado`, 'success');
-                    loadVolumeFiles(currentVolumePath);
-                } else {
-                    const err = await res.text();
-                    showToast('Error al Eliminar', err, 'error');
-                }
-            } catch (e) {
-                showToast('Error de Red', e.message, 'error');
-            }
-        }
-    );
-}
-
-function formatBytes(bytes, decimals = 2) {
-    if (!bytes || bytes === 0) return '0 B';
-    const k = 1024;
-    const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-}
-
-/* --- SSL Inspector & Maintenance Mode (503 Drain) --- */
-function openSSLModal() {
-    openModal('sslModal');
-    refreshSSLInspector();
-}
-
-async function refreshSSLInspector() {
-    const tbody = document.getElementById('sslTableBody');
-    if (tbody) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-muted p-2" style="text-align: center;">Inspeccionando certificados TLS...</td></tr>';
-    }
-
-    try {
-        const res = await fetch('/api/ssl/inspect');
-        if (!res.ok) {
-            const err = await res.text();
-            if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="text-muted p-2" style="text-align: center; color:var(--accent-red);">${err}</td></tr>`;
-            return;
-        }
-        const items = await res.json();
-        renderSSLTable(items);
-    } catch (e) {
-        if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="text-muted p-2" style="text-align: center; color:var(--accent-red);">Error de red: ${e.message}</td></tr>`;
-    }
-}
-
-function renderSSLTable(items) {
-    const tbody = document.getElementById('sslTableBody');
-    if (!tbody) return;
-
-    if (!items || items.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-muted p-2" style="text-align: center;">(No hay servicios expuestos con dominio público)</td></tr>';
-        return;
-    }
-
-    tbody.innerHTML = items.map(item => {
-        let badge = '<span class="badge badge-yellow">HTTP Solo</span>';
-        if (item.status === 'active') {
-            badge = `<span class="badge badge-green">🔒 Activo (${item.daysRemaining} días)</span>`;
-        } else if (item.status === 'expiring_soon') {
-            badge = `<span class="badge badge-yellow">⚠️ Por Vencer (${item.daysRemaining} días)</span>`;
-        } else if (item.status === 'expired') {
-            badge = `<span class="badge badge-red">❌ Expirado</span>`;
-        }
-
-        const escapedSvc = item.serviceName.replace(/'/g, "\\'");
-
-        return `
-        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-            <td style="padding: 8px 12px;">
-                <strong>${item.domain}</strong> <small class="text-muted">(${item.serviceName})</small>
-            </td>
-            <td style="padding: 8px 12px;">${badge}</td>
-            <td style="padding: 8px 12px; font-size: 0.78rem;" class="text-muted">${item.issuer || '-'}</td>
-            <td style="padding: 8px 12px; font-size: 0.78rem;" class="text-muted">${item.expiryDate || '-'}</td>
-            <td style="padding: 8px 12px; text-align: right;">
-                <div style="display: flex; gap: 4px; justify-content: flex-end;">
-                    <button class="btn btn-outline" style="padding: 2px 6px; font-size: 0.7rem; border-color: var(--accent-yellow); color: var(--accent-yellow);" onclick="toggleServiceMaintenance('${escapedSvc}', true)">🚧 Modo Mantenimiento 503</button>
-                    <button class="btn btn-outline" style="padding: 2px 6px; font-size: 0.7rem; border-color: var(--accent-green); color: var(--accent-green);" onclick="toggleServiceMaintenance('${escapedSvc}', false)">✅ En Vivo (Normal)</button>
-                </div>
-            </td>
-        </tr>
-        `;
-    }).join('');
-}
-
-function toggleServiceMaintenance(serviceName, enable) {
-    const actionTitle = enable ? '🚧 Activar Modo Mantenimiento (503 Drain)' : '✅ Desactivar Modo Mantenimiento';
-    const msg = enable ? 
-        `¿Estás seguro de activar el Modo Mantenimiento para '${serviceName}'? Traefik responderá 503 Service Unavailable a todas las peticiones entrantes.` : 
-        `¿Estás seguro de restaurar el tráfico en vivo para '${serviceName}'?`;
-
-    requestConfirmation(
-        actionTitle,
-        msg,
-        async () => {
-            showToast('Actualizando Traefik', `Aplicando reglas para '${serviceName}'...`, 'info');
-            try {
-                const res = await fetch('/api/maintenance/toggle', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ serviceName: serviceName, enable: enable })
-                });
-                if (res.ok) {
-                    showToast('Estado Actualizado 🔒', `Regla de mantenimiento aplicada a '${serviceName}'`, 'success');
-                    refreshSSLInspector();
-                } else {
-                    const err = await res.text();
-                    showToast('Error al Aplicar', err, 'error');
-                }
-            } catch (e) {
-                showToast('Error de Red', e.message, 'error');
-            }
-        }
-    );
-}
-
-/* --- Multiple Custom Domains & CNAMEs --- */
-function openDomainModal(serviceName = null) {
-    const select = document.getElementById('domainTargetService');
-    const targetReassignSelect = document.getElementById('reassignTargetServiceSelect');
-    if (select) {
-        if (globalServices && globalServices.length > 0) {
-            const optionsHtml = globalServices.map(s => `<option value="${s.name}">${s.name}</option>`).join('');
-            select.innerHTML = optionsHtml;
-            if (targetReassignSelect) targetReassignSelect.innerHTML = optionsHtml;
-            if (serviceName) select.value = serviceName;
-        } else {
-            select.innerHTML = '<option value="">(No hay servicios activos)</option>';
-            if (targetReassignSelect) targetReassignSelect.innerHTML = '<option value="">(No hay servicios activos)</option>';
-        }
-    }
-    loadServiceDomains();
-    openModal('domainModal');
-}
-
-async function loadServiceDomains() {
-    const serviceName = document.getElementById('domainTargetService')?.value;
-    const tbody = document.getElementById('customDomainsTableBody');
-    if (!serviceName || !tbody) return;
-
-    tbody.innerHTML = '<tr><td colspan="4" class="text-muted p-2" style="text-align: center;">Cargando dominios...</td></tr>';
-    try {
-        const res = await fetch(`/api/domains?service=${encodeURIComponent(serviceName)}`);
-        if (!res.ok) {
-            const err = await res.text();
-            tbody.innerHTML = `<tr><td colspan="4" class="text-muted p-2" style="text-align: center; color:var(--accent-red);">${err}</td></tr>`;
-            return;
-        }
-        const data = await res.json();
-        renderCustomDomainsTable(data.primaryDomain, data.customRules);
-    } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="4" class="text-muted p-2" style="text-align: center; color:var(--accent-red);">Error: ${e.message}</td></tr>`;
-    }
-}
-
-function toggleCustomSSLFields() {
-    const certType = document.getElementById('sslCertType')?.value;
-    const container = document.getElementById('customSSLFilesContainer');
-    if (container) {
-        container.style.display = (certType === 'custom') ? 'block' : 'none';
-    }
-}
-
-async function handleActivateSSLSubmit(event) {
-    event.preventDefault();
-    const domainName = document.getElementById('sslDomainName')?.value?.trim();
-    const serviceName = document.getElementById('domainTargetService')?.value;
-    const certType = document.getElementById('sslCertType')?.value || 'letsencrypt';
-    const redirectTarget = document.getElementById('newRedirectTarget')?.value?.trim() || '';
-    const forceHTTPS = document.getElementById('sslForceHTTPS')?.checked ?? true;
-
-    if (!domainName || !serviceName) {
-        showToast('Campos requeridos', 'Ingresa el nombre del dominio y selecciona un servicio target.', 'error');
-        return;
-    }
-
-    showToast('Activando SSL 🔒', `Configurando certificado HTTPS para ${domainName} y asignando a '${serviceName}'...`, 'info', 5000);
-
-    try {
-        if (certType === 'custom') {
-            const certFile = document.getElementById('sslCertFileInput')?.files?.[0];
-            const keyFile = document.getElementById('sslKeyFileInput')?.files?.[0];
-
-            if (certFile) {
-                const formData = new FormData();
-                formData.append('file', certFile, `ssl_${domainName}.crt`);
-                formData.append('targetPath', `/opt/data/traefik/certs/ssl_${domainName}.crt`);
-                await fetch('/api/volumes/upload', { method: 'POST', body: formData });
             }
 
-            if (keyFile) {
-                const formData = new FormData();
-                formData.append('file', keyFile, `ssl_${domainName}.key`);
-                formData.append('targetPath', `/opt/data/traefik/certs/ssl_${domainName}.key`);
-                await fetch('/api/volumes/upload', { method: 'POST', body: formData });
+            if (!res.ok) {
+                const errText = await res.text();
+                showToast(`Fallo en despliegue: ${errText}`, 'error');
+                return;
             }
-        }
 
-        const res = await fetch('/api/domains', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                serviceName: serviceName,
-                domain: domainName,
-                redirectTarget: redirectTarget,
-                certType: certType,
-                forceHTTPS: forceHTTPS
-            })
-        });
-
-        if (res.ok) {
-            showToast('SSL Activado 🔒', `¡Certificado HTTPS para https://${domainName} activado y asignado a '${serviceName}'!`, 'success', 7000);
-            document.getElementById('sslDomainName').value = '';
-            document.getElementById('newRedirectTarget').value = '';
-            loadServiceDomains();
-        } else {
-            const err = await res.text();
-            showToast('Error al activar SSL', err, 'error', 6000);
-        }
-    } catch (err) {
-        showToast('Error de Red', err.message, 'error', 6000);
-    }
-}
-
-async function handleReassignSSLSubmit(event) {
-    event.preventDefault();
-    const domain = document.getElementById('reassignSSLSelect')?.value;
-    const targetService = document.getElementById('reassignTargetServiceSelect')?.value;
-
-    if (!domain || !targetService) {
-        showToast('Campos Requeridos', 'Selecciona el dominio y el nuevo servicio target', 'error');
-        return;
-    }
-
-    showToast('Reasignando SSL 🔄', `Moviendo SSL de '${domain}' al servicio '${targetService}'...`, 'info', 4000);
-
-    try {
-        const res = await fetch('/api/domains', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                serviceName: targetService,
-                domain: domain,
-                forceHTTPS: true
-            })
-        });
-
-        if (res.ok) {
-            showToast('Reasignación Exitosa ⚡', `Dominio SSL https://${domain} ahora apunta a '${targetService}'`, 'success', 6000);
-            loadServiceDomains();
-        } else {
-            const err = await res.text();
-            showToast('Error de Reasignación', err, 'error');
-        }
-    } catch (e) {
-        showToast('Error de Red', e.message, 'error');
-    }
-}
-
-function renderCustomDomainsTable(primaryDomain, customRules) {
-    const tbody = document.getElementById('customDomainsTableBody');
-    const serviceName = document.getElementById('domainTargetService')?.value || 'Servicio';
-    const reassignSelect = document.getElementById('reassignSSLSelect');
-    if (!tbody) return;
-
-    let rows = [];
-    let domainOptions = [];
-
-    if (primaryDomain) {
-        domainOptions.push(`<option value="${primaryDomain}">${primaryDomain} (${serviceName})</option>`);
-        rows.push(`
-        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); background: rgba(0,255,100,0.02);">
-            <td style="padding: 8px 12px;">
-                <strong>https://${primaryDomain}</strong>
-            </td>
-            <td style="padding: 8px 12px;">
-                <span class="badge badge-green">${serviceName}</span>
-            </td>
-            <td style="padding: 8px 12px;">
-                <span class="badge badge-yellow">🟢 Let's Encrypt</span>
-            </td>
-            <td style="padding: 8px 12px; text-align: right;" class="text-muted">Principal</td>
-        </tr>
-        `);
-    }
-
-    if (customRules && customRules.length > 0) {
-        customRules.forEach(r => {
-            const escapedDom = r.domain.replace(/'/g, "\\'");
-            const certLabel = r.certType === 'custom' ? '🔵 Privado / Custom' : '🟢 Let\'s Encrypt';
-            domainOptions.push(`<option value="${r.domain}">${r.domain} (${serviceName})</option>`);
-            rows.push(`
-            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                <td style="padding: 8px 12px;">
-                    <strong>https://${r.domain}</strong> ${r.redirectTarget ? ` <small class="text-muted">(➔ 301 a ${r.redirectTarget})</small>` : ''}
-                </td>
-                <td style="padding: 8px 12px;">
-                    <span class="badge badge-blue">${serviceName}</span>
-                </td>
-                <td style="padding: 8px 12px;">
-                    <span class="badge badge-yellow">${certLabel}</span>
-                </td>
-                <td style="padding: 8px 12px; text-align: right;">
-                    <button class="btn btn-outline" style="padding: 2px 6px; font-size: 0.7rem; border-color: var(--accent-red); color: var(--accent-red);" onclick="deleteCustomDomain('${escapedDom}')">🗑️ Eliminar</button>
-                </td>
-            </tr>
-            `);
-        });
-    }
-
-    if (reassignSelect) {
-        if (domainOptions.length > 0) {
-            reassignSelect.innerHTML = domainOptions.join('');
-        } else {
-            reassignSelect.innerHTML = '<option value="">(Sin dominios registrados)</option>';
-        }
-    }
-
-    if (rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="text-muted p-2" style="text-align: center;">(No hay dominios SSL o alias configurados)</td></tr>';
-    } else {
-        tbody.innerHTML = rows.join('');
-    }
-}
-
-async function addCustomDomainSubmit() {
-    const serviceName = document.getElementById('domainTargetService')?.value;
-    const domainInput = document.getElementById('newCustomDomain')?.value;
-    const redirectInput = document.getElementById('newRedirectTarget')?.value;
-
-    if (!serviceName || !domainInput) {
-        showToast('Error', 'Ingresa el nombre del servicio y el nuevo dominio', 'error');
-        return;
-    }
-
-    showToast('Vinculando Dominio', `Agregando '${domainInput}' a '${serviceName}'...`, 'info');
-    try {
-        const res = await fetch('/api/domains', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                serviceName: serviceName,
-                domain: domainInput,
-                redirectTarget: redirectInput
-            })
-        });
-        if (res.ok) {
-            showToast('Dominio Vinculado 🌐', `'${domainInput}' agregado a Traefik`, 'success');
-            document.getElementById('newCustomDomain').value = '';
-            document.getElementById('newRedirectTarget').value = '';
-            loadServiceDomains();
-        } else {
-            const err = await res.text();
-            showToast('Error de Vinculación', err, 'error');
-        }
-    } catch (e) {
-        showToast('Error de Red', e.message, 'error');
-    }
-}
-
-function deleteCustomDomain(domainName) {
-    const serviceName = document.getElementById('domainTargetService')?.value;
-    if (!serviceName || !domainName) return;
-
-    requestConfirmation(
-        '🌐 Desvincular Dominio CNAME',
-        `¿Estás seguro de remover '${domainName}' del servicio '${serviceName}'? Traefik dejará de responder para este dominio.`,
-        async () => {
-            showToast('Removiendo', `Desvinculando '${domainName}'...`, 'info');
-            try {
-                const res = await fetch(`/api/domains?service=${encodeURIComponent(serviceName)}&domain=${encodeURIComponent(domainName)}`, { method: 'DELETE' });
-                if (res.ok) {
-                    showToast('Dominio Removido 🌐', `'${domainName}' desvinculado`, 'info');
-                    loadServiceDomains();
-                } else {
-                    const err = await res.text();
-                    showToast('Error al Remover', err, 'error');
-                }
-            } catch (e) {
-                showToast('Error de Red', e.message, 'error');
+            showToast(`¡Aplicación '${depName.value}' desplegada con éxito!`, 'success');
+            deployModal.style.display = 'none';
+            formDeploy.reset();
+            if (selectedServerName) {
+                await loadSwarmStatus(selectedServerName);
+                await loadServiceLinks();
             }
+        } catch (err) {
+            showToast(`Error: ${err.message}`, 'error');
+        } finally {
+            btnSubmitDeploy.disabled = false;
+            btnSubmitDeploy.innerHTML = '<span>Desplegar en Swarm</span>';
         }
-    );
-}
-
-/* --- Docker Swarm Node Management & Workload Placement --- */
-function openNodeManagementModal() {
-    openModal('nodeManagementModal');
-    refreshNodeManagementTable();
-}
-
-async function refreshNodeManagementTable() {
-    const tbody = document.getElementById('nodeManagementTableBody');
-    if (tbody) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-muted p-2" style="text-align: center;">Cargando nodos del clúster...</td></tr>';
-    }
-
-    try {
-        const res = await fetch('/api/nodes');
-        if (!res.ok) {
-            const err = await res.text();
-            if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="text-muted p-2" style="text-align: center; color:var(--accent-red);">${err}</td></tr>`;
-            return;
-        }
-        const nodes = await res.json();
-        renderNodeManagementTable(nodes);
-    } catch (e) {
-        if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="text-muted p-2" style="text-align: center; color:var(--accent-red);">Error: ${e.message}</td></tr>`;
-    }
-}
-
-function renderNodeManagementTable(nodes) {
-    const tbody = document.getElementById('nodeManagementTableBody');
-    if (!tbody) return;
-
-    if (!nodes || nodes.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-muted p-2" style="text-align: center;">(No se detectaron nodos en Swarm)</td></tr>';
-        return;
-    }
-
-    tbody.innerHTML = nodes.map(node => {
-        const id = node.id || node.ID;
-        const hostname = node.hostname || node.Hostname || id;
-        const role = node.role || node.Role || 'worker';
-        const status = node.status || node.Status || 'Ready';
-        const availability = (node.availability || node.Availability || 'active').toLowerCase();
-        const isLeader = node.is_leader || node.IsLeader || false;
-
-        const roleBadge = isLeader ? 
-            '<span class="badge badge-green">👑 Swarm Leader</span>' : 
-            (role === 'manager' ? '<span class="badge badge-blue">⚙️ Manager</span>' : '<span class="badge badge-purple">💻 Worker</span>');
-
-        const statusBadge = status.toLowerCase() === 'ready' ? 
-            '<span class="badge badge-green">Ready ✅</span>' : 
-            `<span class="badge badge-red">${status} ❌</span>`;
-
-        const escapedId = id.replace(/'/g, "\\'");
-        const escapedHost = hostname.replace(/'/g, "\\'");
-
-        return `
-        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-            <td style="padding: 8px 12px;">
-                <strong>${hostname}</strong><br>
-                <small class="text-muted" style="font-size: 0.72rem;">ID: ${id}</small>
-            </td>
-            <td style="padding: 8px 12px;">${roleBadge}</td>
-            <td style="padding: 8px 12px;">${statusBadge}</td>
-            <td style="padding: 8px 12px;">
-                <select class="term-input" style="padding: 2px 6px; font-size: 0.75rem;" onchange="updateNodeAvailability('${escapedId}', this.value)">
-                    <option value="active" ${availability === 'active' ? 'selected' : ''}>Active (Normal)</option>
-                    <option value="pause" ${availability === 'pause' ? 'selected' : ''}>Pause (No New Tasks)</option>
-                    <option value="drain" ${availability === 'drain' ? 'selected' : ''}>Drain (Evacuar Cargas)</option>
-                </select>
-            </td>
-            <td style="padding: 8px 12px; text-align: right;">
-                <div style="display: flex; gap: 4px; justify-content: flex-end;">
-                    ${role === 'worker' ? 
-                        `<button class="btn btn-outline" style="padding: 2px 6px; font-size: 0.7rem; border-color: var(--accent-blue); color: var(--accent-blue);" onclick="updateNodeRole('${escapedId}', 'manager')">⬆️ Promover</button>` : 
-                        (!isLeader ? `<button class="btn btn-outline" style="padding: 2px 6px; font-size: 0.7rem; border-color: var(--accent-yellow); color: var(--accent-yellow);" onclick="updateNodeRole('${escapedId}', 'worker')">⬇️ Degradar</button>` : '')
-                    }
-                    ${!isLeader ? `<button class="btn btn-outline" style="padding: 2px 6px; font-size: 0.7rem; border-color: var(--accent-red); color: var(--accent-red);" onclick="removeNodeConfirm('${escapedId}', '${escapedHost}')">🗑️ Drenar & Remove</button>` : ''}
-                </div>
-            </td>
-        </tr>
-        `;
-    }).join('');
-}
-
-function updateNodeAvailability(nodeId, availability) {
-    showToast('Actualizando Swarm', `Cambiando disponibilidad del nodo a '${availability}'...`, 'info');
-    fetch('/api/nodes/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: nodeId, availability: availability })
-    }).then(res => {
-        if (res.ok) {
-            showToast('Nodo Actualizado 🖥️', `Disponibilidad fijada en '${availability}'`, 'success');
-            refreshNodeManagementTable();
-        } else {
-            res.text().then(err => showToast('Error', err, 'error'));
-        }
-    }).catch(e => showToast('Error de Red', e.message, 'error'));
-}
-
-function updateNodeRole(nodeId, role) {
-    showToast('Actualizando Swarm', `Cambiando rol del nodo a '${role}'...`, 'info');
-    fetch('/api/nodes/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: nodeId, role: role })
-    }).then(res => {
-        if (res.ok) {
-            showToast('Rol Actualizado 👑', `Nodo promovido/degradado a '${role}'`, 'success');
-            refreshNodeManagementTable();
-        } else {
-            res.text().then(err => showToast('Error', err, 'error'));
-        }
-    }).catch(e => showToast('Error de Red', e.message, 'error'));
-}
-
-function removeNodeConfirm(nodeId, hostname) {
-    requestConfirmation(
-        '🗑️ Remover Nodo de Swarm Cluster',
-        `¿Estás seguro de drenar y remover el nodo '${hostname}' (ID: ${nodeId}) del clúster Swarm? Todas las tareas serán migradas a otros nodos.`,
-        async () => {
-            showToast('Removiendo Nodo', `Drenando y eliminando '${hostname}'...`, 'info');
-            try {
-                const res = await fetch(`/api/nodes?id=${encodeURIComponent(nodeId)}`, { method: 'DELETE' });
-                if (res.ok) {
-                    showToast('Nodo Eliminado 🗑️', `'${hostname}' ya no pertenece al clúster`, 'success');
-                    refreshNodeManagementTable();
-                } else {
-                    const err = await res.text();
-                    showToast('Error al Eliminar', err, 'error');
-                }
-            } catch (e) {
-                showToast('Error de Red', e.message, 'error');
-            }
-        }
-    );
-}
-
-function openWorkerProvisionModal() {
-    closeModal('nodeManagementModal');
-    openModal('workerModal');
-}
-
-/* --- Interactive Service Link Topology Diagram --- */
-function openLinkModal() {
-    const srcSelect = document.getElementById('linkSourceSvc');
-    const targetSelect = document.getElementById('linkTargetSvc');
-
-    let allTargets = [];
-    if (globalServices) {
-        globalServices.forEach(s => allTargets.push({ name: s.name, type: '🚀 App' }));
-    }
-    if (globalDatabases) {
-        globalDatabases.forEach(db => allTargets.push({ name: db.name, type: '🗄️ BD ' + db.engine }));
-    }
-
-    if (srcSelect && globalServices) {
-        srcSelect.innerHTML = globalServices.length > 0
-            ? globalServices.map(s => `<option value="${s.name}">${s.name} (App)</option>`).join('')
-            : '<option value="">(No hay servicios activos)</option>';
-    }
-
-    if (targetSelect) {
-        targetSelect.innerHTML = allTargets.length > 0
-            ? allTargets.map(t => `<option value="${t.name}">${t.name} (${t.type})</option>`).join('')
-            : '<option value="">(No hay destinos disponibles)</option>';
-    }
-
-    openModal('linkModal');
-}
-
-function openLinkModalForSource(sourceSvc) {
-    openLinkModal();
-    const srcSelect = document.getElementById('linkSourceSvc');
-    if (srcSelect && sourceSvc) {
-        srcSelect.value = sourceSvc;
-    }
-}
-
-let lastRenderedTopologyHash = '';
-
-async function renderTopologyMap() {
-    const container = document.getElementById('topologyCanvas');
-    if (!container) return;
-
-    if (!globalIsOnline) {
-        container.innerHTML = `
-            <div style="text-align: center; padding: 32px 16px; color: #ef4444; background: rgba(239,68,68,0.03); border: 1px dashed rgba(239,68,68,0.2); border-radius: 6px;">
-                <div style="font-size: 1.4rem; margin-bottom: 6px;">🔌 Topología Desactivada (Offline)</div>
-                <div style="font-size: 0.82rem; color: var(--text-muted);">El mapa de interconexión de red se oculta automáticamente cuando la máquina virtual host está inalcanzable.</div>
-            </div>
-        `;
-        return;
-    }
-
-    try {
-        const linksRes = await fetch('/api/links');
-        const links = linksRes.ok ? await linksRes.json() : [];
-
-        const services = globalServices || [];
-        const dbs = globalDatabases || [];
-
-        const currentTopoHash = JSON.stringify({
-            online: globalIsOnline,
-            svcs: services.map(s => s.name),
-            dbs: dbs.map(d => d.name),
-            links: links
-        });
-
-        if (currentTopoHash === lastRenderedTopologyHash && container.children.length > 0) {
-            return;
-        }
-        lastRenderedTopologyHash = currentTopoHash;
-
-        if (services.length === 0 && dbs.length === 0) {
-            container.innerHTML = `
-                <div style="text-align: center; padding: 20px; color: var(--text-muted);">
-                    <div style="font-size: 1.2rem; margin-bottom: 6px;">🕸️</div>
-                    <div style="font-size: 0.8rem;">No hay servicios ni bases de datos desplegadas en la red.</div>
-                    <button class="btn btn-primary" style="margin-top: 10px; font-size: 0.75rem;" onclick="openModal('deployServiceModal')">+ Desplegar Servicio</button>
-                </div>
-            `;
-            return;
-        }
-
-        let html = `
-        <div class="flowchart-canvas" style="position: relative; overflow: visible; padding: 16px 20px; min-height: 180px;">
-            <!-- SVG Overlay Layer for Flowchart Bezier Lines -->
-            <svg id="flowchartSvg" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 10;"></svg>
-
-            <!-- Flowchart Nodes Grid (Compact & Clean Zoom Layout) -->
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: center; position: relative; z-index: 1;">
-                <!-- Column 1: Services (Origen A) -->
-                <div style="display: flex; flex-direction: column; gap: 12px;">
-                    <div style="font-size: 0.7rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Servicios (Apps)</div>
-        `;
-
-        if (services.length === 0) {
-            html += `<div class="flow-node" style="color: var(--text-muted); font-size: 0.75rem;">(Sin servicios)</div>`;
-        } else {
-            services.forEach(s => {
-                html += `
-                <div class="flow-node" id="node-svc-${s.name}" style="position: relative; background: #18181b; border: 1px solid #27272a; padding: 8px 12px; border-radius: 4px; font-size: 0.8rem;">
-                    <div id="port-in-${s.name}" style="position: absolute; left: -5px; top: 50%; transform: translateY(-50%); width: 8px; height: 8px; background: #3b82f6; border-radius: 50%; border: 1px solid #09090b;"></div>
-                    <div>
-                        <strong style="color: #fafafa; font-size: 0.82rem;">🚀 ${s.name}</strong>
-                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 1px;">Puerto: :${s.port}</div>
-                    </div>
-                    <div id="port-out-${s.name}" style="position: absolute; right: -5px; top: 50%; transform: translateY(-50%); width: 8px; height: 8px; background: #3b82f6; border-radius: 50%; border: 1px solid #09090b;"></div>
-                </div>
-                `;
-            });
-        }
-
-        html += `
-                </div>
-
-                <!-- Column 2: Databases & Targets (Destino B) -->
-                <div style="display: flex; flex-direction: column; gap: 12px;">
-                    <div style="font-size: 0.7rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Bases de Datos &amp; Recursos</div>
-        `;
-
-        if (dbs.length === 0) {
-            html += `<div class="flow-node" style="color: var(--text-muted); font-size: 0.75rem;">(Sin bases de datos)</div>`;
-        } else {
-            dbs.forEach(db => {
-                html += `
-                <div class="flow-node" id="node-db-${db.name}" style="position: relative; background: #18181b; border: 1px solid #27272a; padding: 8px 12px; border-radius: 4px; font-size: 0.8rem;">
-                    <div id="port-in-${db.name}" style="position: absolute; left: -5px; top: 50%; transform: translateY(-50%); width: 8px; height: 8px; background: #22c55e; border-radius: 50%; border: 1px solid #09090b;"></div>
-                    <div>
-                        <strong style="color: #fafafa; font-size: 0.82rem;">🗄️ ${db.name}</strong>
-                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 1px;">:${db.internalPort} (${db.engine})</div>
-                    </div>
-                    <div id="port-out-${db.name}" style="position: absolute; right: -5px; top: 50%; transform: translateY(-50%); width: 8px; height: 8px; background: #22c55e; border-radius: 50%; border: 1px solid #09090b;"></div>
-                </div>
-                `;
-            });
-        }
-
-        html += `
-                </div>
-            </div>
-
-            <!-- Clean Minimal Connections Quick Edit List -->
-            <div style="margin-top: 14px; border-top: 1px solid #27272a; padding-top: 10px; position: relative; z-index: 2;">
-                <div style="font-size: 0.7rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px;">Enlaces Activos (${links.length}) — Haz clic para editar</div>
-                <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-                    ${links.length === 0 ? `
-                        <span style="font-size: 0.75rem; color: var(--text-muted); font-style: italic;">Sin enlaces de red activos.</span>
-                    ` : links.map(l => {
-                        const escapedSrc = l.sourceSvc.replace(/'/g, "\\'");
-                        const escapedTgt = l.targetSvc.replace(/'/g, "\\'");
-                        const escapedEnv = (l.envVarName || 'DATABASE_URL').replace(/'/g, "\\'");
-                        return `
-                            <button class="btn btn-outline" style="padding: 3px 8px; font-size: 0.75rem; background: #18181b; border-color: #27272a;" onclick="openEditLinkModal('${escapedSrc}', '${escapedTgt}', '${escapedEnv}')" title="Editar enlace">
-                                <span>${l.sourceSvc} ➔ ${l.targetSvc}</span>
-                                <span style="color: var(--accent-blue); font-family: var(--font-mono); font-size: 0.7rem; margin-left: 4px;">(${l.envVarName || 'DATABASE_URL'})</span>
-                                <span style="color: var(--text-muted); margin-left: 4px;">✏️</span>
-                            </button>
-                        `;
-                    }).join('')}
-                </div>
-            </div>
-        </div>
-        `;
-
-        container.innerHTML = html;
-
-        setTimeout(() => drawFlowchartConnections(links), 50);
-        setTimeout(() => drawFlowchartConnections(links), 200);
-
-    } catch (err) {
-        container.innerHTML = `<div style="color: var(--accent-red); padding: 8px; text-align: center;">Error al cargar mapa de topología: ${err.message}</div>`;
-    }
-}
-
-let lastFetchedLinks = [];
-
-function drawFlowchartConnections(links) {
-    if (links) lastFetchedLinks = links;
-    else links = lastFetchedLinks;
-
-    const canvas = document.querySelector('.flowchart-canvas') || document.getElementById('topologyCanvas');
-    const svg = document.getElementById('flowchartSvg');
-    if (!canvas || !svg) return;
-
-    const canvasRect = canvas.getBoundingClientRect();
-    let svgPathsHtml = `
-        <defs>
-            <marker id="flowArrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto">
-                <path d="M 0 1 L 8 5 L 0 9 z" fill="#3b82f6"/>
-            </marker>
-        </defs>
-    `;
-
-    if (links && links.length > 0) {
-        links.forEach(l => {
-            const outPort = document.getElementById(`port-out-${l.sourceSvc}`) || document.getElementById(`port-in-${l.sourceSvc}`);
-            const inPort = document.getElementById(`port-in-${l.targetSvc}`) || document.getElementById(`port-out-${l.targetSvc}`);
-
-            if (outPort && inPort) {
-                const r1 = outPort.getBoundingClientRect();
-                const r2 = inPort.getBoundingClientRect();
-
-                const x1 = r1.left + r1.width / 2 - canvasRect.left;
-                const y1 = r1.top + r1.height / 2 - canvasRect.top;
-                const x2 = r2.left + r2.width / 2 - canvasRect.left;
-                const y2 = r2.top + r2.height / 2 - canvasRect.top;
-
-                let pathD = '';
-                if (Math.abs(y1 - y2) < 5) {
-                    pathD = `M ${x1} ${y1} L ${x2} ${y2}`;
-                } else {
-                    const dx = Math.min(Math.abs(x2 - x1) * 0.5, 50);
-                    pathD = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
-                }
-
-                const escapedSrc = l.sourceSvc.replace(/'/g, "\\'");
-                const escapedTgt = l.targetSvc.replace(/'/g, "\\'");
-                const escapedEnv = (l.envVarName || 'DATABASE_URL').replace(/'/g, "\\'");
-
-                svgPathsHtml += `
-                    <g class="flow-connection-group" style="cursor: pointer;" onclick="openEditLinkModal('${escapedSrc}', '${escapedTgt}', '${escapedEnv}')" title="Haz clic en esta línea para editar el enlace '${l.sourceSvc}' ➔ '${l.targetSvc}'">
-                        <path d="${pathD}" stroke="transparent" stroke-width="14" fill="none" style="pointer-events: stroke;"/>
-                        <path d="${pathD}" stroke="#3b82f6" stroke-width="2" fill="none" marker-end="url(#flowArrow)" style="pointer-events: stroke;" class="flow-line"/>
-                        <rect x="${(x1 + x2)/2 - 40}" y="${(y1 + y2)/2 - 10}" width="80" height="18" rx="3" fill="#18181b" stroke="#27272a" style="pointer-events: auto;"/>
-                        <text x="${(x1 + x2)/2}" y="${(y1 + y2)/2 + 3}" fill="#fafafa" font-size="9" font-family="monospace" font-weight="600" text-anchor="middle" style="pointer-events: auto;">ENV: ${l.envVarName || 'LINK'}</text>
-                    </g>
-                `;
-            }
-        });
-    }
-
-    svg.innerHTML = svgPathsHtml;
-}
-
-function openEditLinkModal(sourceSvc, targetSvc, envVarName) {
-    const srcInput = document.getElementById('editLinkSource');
-    const tgtInput = document.getElementById('editLinkTarget');
-    const srcDisp = document.getElementById('editLinkSourceDisplay');
-    const tgtDisp = document.getElementById('editLinkTargetDisplay');
-    const envInput = document.getElementById('editLinkEnvVar');
-
-    if (srcInput) srcInput.value = sourceSvc || '';
-    if (tgtInput) tgtInput.value = targetSvc || '';
-    if (srcDisp) srcDisp.value = sourceSvc || '';
-    if (tgtDisp) tgtDisp.value = targetSvc || '';
-    if (envInput) envInput.value = envVarName || 'DATABASE_URL';
-
-    openModal('editLinkModal');
-}
-
-function deleteLinkFromModalAction() {
-    const sourceSvc = document.getElementById('editLinkSource')?.value;
-    const targetSvc = document.getElementById('editLinkTarget')?.value;
-    closeModal('editLinkModal');
-    if (sourceSvc && targetSvc) {
-        confirmUnlinkService(sourceSvc, targetSvc);
-    }
-}
-
-window.addEventListener('resize', () => {
-    drawFlowchartConnections();
-});
-
-function confirmUnlinkService(sourceSvc, targetSvc) {
-    requestConfirmation(
-        '✂️ Desenlazar Servicios',
-        `¿Desenlazar '${sourceSvc}' de '${targetSvc}' y remover la variable de entorno de Docker Swarm?`,
-        async () => {
-            showToast('Desenlazando...', `Removiendo vínculo entre ${sourceSvc} y ${targetSvc}...`, 'info');
-            try {
-                const res = await fetch(`/api/links?source_svc=${encodeURIComponent(sourceSvc)}&target_svc=${encodeURIComponent(targetSvc)}`, {
-                    method: 'DELETE'
-                });
-
-                if (res.ok) {
-                    showToast('Servicios Desenlazados ✂️', `Se removió el vínculo entre '${sourceSvc}' y '${targetSvc}'`, 'success');
-                    loadDashboardData();
-                } else {
-                    const err = await res.json().catch(() => ({ error: 'Error al desenlazar' }));
-                    showToast('Error al Desenlazar', err.error || err.message, 'error');
-                }
-            } catch (e) {
-                showToast('Error de Red', e.message, 'error');
-            }
-        }
-    );
-}
-
-/* --- Unified Railway / Vercel Resource Inspector --- */
-let currentInspectorTarget = { name: '', type: '', data: null };
-
-async function openResourceInspector(name, type, initialTab = 'metrics') {
-    currentInspectorTarget.name = name;
-    currentInspectorTarget.type = type;
-
-    let targetData = null;
-    if (type === 'service') {
-        targetData = (globalServices || []).find(s => s.name === name);
-    } else {
-        targetData = (globalDatabases || []).find(d => d.name === name);
-    }
-    currentInspectorTarget.data = targetData;
-
-    // Header info
-    const iconEl = document.getElementById('inspectorIcon');
-    const titleEl = document.getElementById('inspectorTitle');
-    const typeBadge = document.getElementById('inspectorTypeBadge');
-    const statusBadge = document.getElementById('inspectorStatusBadge');
-    const subtitleEl = document.getElementById('inspectorSubtitle');
-    const openUrlBtn = document.getElementById('inspectorOpenUrlBtn');
-
-    if (iconEl) iconEl.innerText = type === 'service' ? '🚀' : '🗄️';
-    if (titleEl) titleEl.innerText = name;
-    if (typeBadge) {
-        typeBadge.innerText = type === 'service' ? 'App Service' : `Database (${targetData?.engine || 'DB'})`;
-        typeBadge.className = type === 'service' ? 'badge badge-blue' : 'badge badge-yellow';
-    }
-
-    if (subtitleEl) {
-        if (type === 'service') {
-            const img = targetData?.imageSource || targetData?.image_source || 'custom';
-            const port = targetData?.port || 80;
-            subtitleEl.innerText = `Image: ${img} • Internal Port: ${port}`;
-        } else {
-            const engine = targetData?.engine || 'postgres';
-            const port = targetData?.internalPort || targetData?.internal_port || 5432;
-            subtitleEl.innerText = `Engine: ${engine} • Internal Port: ${port}`;
-        }
-    }
-
-    // Open URL Button
-    if (openUrlBtn) {
-        if (type === 'service' && targetData && targetData.domain) {
-            const proto = targetData.enableSSL ? 'https' : 'http';
-            openUrlBtn.href = `${proto}://${targetData.domain}`;
-            openUrlBtn.style.display = 'inline-flex';
-        } else {
-            openUrlBtn.style.display = 'none';
-        }
-    }
-
-    // Populate Config tab inputs
-    const cfgName = document.getElementById('inspCfgName');
-    const cfgImage = document.getElementById('inspCfgImage');
-    const cfgPort = document.getElementById('inspCfgPort');
-    const cfgDomain = document.getElementById('inspCfgDomain');
-    const cfgHealth = document.getElementById('inspCfgHealth');
-    const cfgExpose = document.getElementById('inspCfgExpose');
-    const cfgSSL = document.getElementById('inspCfgSSL');
-
-    if (cfgName) cfgName.value = name;
-    if (cfgImage) cfgImage.value = targetData?.imageSource || targetData?.image_source || targetData?.engine || '';
-    if (cfgPort) cfgPort.value = targetData?.port || targetData?.internalPort || targetData?.internal_port || 80;
-    if (cfgDomain) cfgDomain.value = targetData?.domain || '';
-    if (cfgHealth) cfgHealth.value = targetData?.healthcheckCmd || targetData?.healthcheck_cmd || '';
-    if (cfgExpose) cfgExpose.checked = targetData ? !!targetData.expose : true;
-    if (cfgSSL) cfgSSL.checked = targetData ? (targetData.enableSSL !== undefined ? targetData.enableSSL : (targetData.enable_ssl !== undefined ? targetData.enable_ssl : true)) : true;
-
-    // Tab visibility for DB vs Service
-    const btnRollback = document.getElementById('tabBtnRollback');
-    const btnBackups = document.getElementById('tabBtnBackups');
-
-    if (btnRollback) btnRollback.style.display = type === 'service' ? 'inline-block' : 'none';
-    if (btnBackups) btnBackups.style.display = type === 'database' ? 'inline-block' : 'none';
-
-    // Reset log container state so logs are not fetched or shown automatically
-    const logBox = document.getElementById('inspLogContent');
-    if (logBox && initialTab !== 'logs') {
-        logBox.innerText = `[Selecciona la pestaña '📜 Logs' para transmitir los registros de ${name}]`;
-    }
-
-    switchInspectorTab(initialTab);
-    fetchLiveContainerStats(name);
-    openModal('resourceInspectorModal');
-}
-
-function switchInspectorTab(tabName) {
-    const tabs = ['metrics', 'logs', 'envs', 'rollback', 'backups', 'config'];
-    tabs.forEach(t => {
-        const btn = document.getElementById(`tabBtn${t.charAt(0).toUpperCase() + t.slice(1)}`);
-        const pane = document.getElementById(`pane${t.charAt(0).toUpperCase() + t.slice(1)}`);
-        if (btn) btn.classList.toggle('active', t === tabName);
-        if (pane) pane.classList.toggle('active', t === tabName);
     });
 
-    // Load data ONLY for the explicitly activated tab
-    const name = currentInspectorTarget.name;
-    if (!name) return;
+    // --- Modal: Deploy Database ---
+    function setDBMode(mode) {
+        dbDeployMode = mode;
+        tabDBLocal.classList.toggle('active', mode === 'single-node');
+        tabDBNode.classList.toggle('active', mode === 'multi-node');
+        tabDBExternal.classList.toggle('active', mode === 'external');
 
-    if (tabName === 'metrics') loadInspectorMetrics();
-    else if (tabName === 'logs') loadInspectorLogs();
-    else if (tabName === 'envs') loadInspectorEnvs();
-    else if (tabName === 'backups') loadInspectorBackups();
-}
-
-async function loadInspectorMetrics(isManual = false) {
-    const target = currentInspectorTarget;
-    if (!target.name) return;
-
-    if (isManual) {
-        showToast('Validando Conexión 🔄', `Verificando estado SSH y Swarm para '${target.name}'...`, 'info', 3000);
+        if (mode === 'single-node') {
+            dbUrlField.style.display = 'none';
+            dbPathField.style.display = 'flex';
+            dbPortField.style.display = 'flex';
+            dbTargetNodeField.style.display = 'none';
+            btnSubmitDBText.textContent = 'Crear BD Local';
+            return;
+        }
+        if (mode === 'multi-node') {
+            dbUrlField.style.display = 'none';
+            dbPathField.style.display = 'flex';
+            dbPortField.style.display = 'flex';
+            dbTargetNodeField.style.display = 'flex';
+            btnSubmitDBText.textContent = 'Crear en Nodo Dedicado';
+            return;
+        }
+        if (mode === 'external') {
+            dbUrlField.style.display = 'flex';
+            dbPathField.style.display = 'none';
+            dbPortField.style.display = 'none';
+            dbTargetNodeField.style.display = 'none';
+            btnSubmitDBText.textContent = 'Registrar BD Externa';
+            return;
+        }
     }
 
-    const replEl = document.getElementById('inspMetricReplicas');
-    const ramEl = document.getElementById('inspMetricRam');
-    const portEl = document.getElementById('inspMetricPort');
-    const exposeEl = document.getElementById('inspMetricExpose');
-    const statusBadge = document.getElementById('inspectorStatusBadge');
+    tabDBLocal.addEventListener('click', () => setDBMode('single-node'));
+    tabDBNode.addEventListener('click', () => setDBMode('multi-node'));
+    tabDBExternal.addEventListener('click', () => setDBMode('external'));
 
-    try {
-        const res = await fetch(`/api/observability/metrics?service=${encodeURIComponent(target.name)}`);
-        if (res.ok) {
-            const data = await res.json();
-            const points = data.points || [];
-            const lastPoint = points.length > 0 ? points[points.length - 1] : null;
+    dbEngine.addEventListener('change', () => {
+        dbPort.value = getDefaultPort(dbEngine.value);
+    });
 
-            if (lastPoint && (lastPoint.cpu > 0 || lastPoint.memory > 0)) {
-                if (replEl) replEl.innerText = '1/1 Active (Swarm)';
-                if (ramEl) ramEl.innerText = `${lastPoint.memory} MB (Live)`;
-                if (statusBadge) {
-                    statusBadge.innerText = '● Running';
-                    statusBadge.className = 'badge badge-green';
-                }
-            } else {
-                if (replEl) replEl.innerText = '0/0 Replicas (Offline)';
-                if (ramEl) ramEl.innerText = '0.0 MB (Offline)';
-                if (statusBadge) {
-                    statusBadge.innerText = '● Offline / Detenido';
-                    statusBadge.className = 'badge badge-red';
-                }
+    btnOpenDeployDBModal.addEventListener('click', () => {
+        formDeployDB.reset();
+        setDBMode('single-node');
+        dbPort.value = getDefaultPort(dbEngine.value);
+        dbModal.style.display = 'flex';
+    });
+    btnCloseDBModal.addEventListener('click', () => { formDeployDB.reset(); dbModal.style.display = 'none'; });
+    btnCancelDB.addEventListener('click', () => { formDeployDB.reset(); dbModal.style.display = 'none'; });
+    dbModal.addEventListener('click', (e) => {
+        if (e.target === dbModal) { formDeployDB.reset(); dbModal.style.display = 'none'; }
+    });
+
+    formDeployDB.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        btnSubmitDB.disabled = true;
+        btnSubmitDBText.textContent = 'Creando...';
+
+        try {
+            const payload = {
+                name: dbName.value.trim(),
+                engine: dbEngine.value,
+                deployType: dbDeployMode,
+                externalUrl: dbExternalURL.value.trim(),
+                volumeHostPath: dbVolumePath.value.trim(),
+                internalPort: parseInt(dbPort.value || getDefaultPort(dbEngine.value), 10),
+                targetNode: dbTargetNode.value.trim()
+            };
+
+            const res = await fetch('/api/deploy-db', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) {
+                const errText = await res.text();
+                showToast(`Error: ${errText}`, 'error');
+                return;
             }
-        } else {
-            if (replEl) replEl.innerText = '0/0 (Host Inalcanzable)';
-            if (ramEl) ramEl.innerText = '0.0 MB';
-            if (statusBadge) {
-                statusBadge.innerText = '● Offline';
-                statusBadge.className = 'badge badge-red';
+
+            showToast(`¡Base de datos '${payload.name}' creada exitosamente!`, 'success');
+            dbModal.style.display = 'none';
+            formDeployDB.reset();
+            if (selectedServerName) {
+                await loadSwarmStatus(selectedServerName);
+            }
+        } catch (err) {
+            showToast(`Error: ${err.message}`, 'error');
+        } finally {
+            btnSubmitDB.disabled = false;
+            btnSubmitDBText.textContent = 'Crear Base de Datos';
+        }
+    });
+
+    // --- Modal: Service Linking ---
+    btnOpenLinkModal.addEventListener('click', () => { formLink.reset(); linkModal.style.display = 'flex'; });
+    btnCloseLinkModal.addEventListener('click', () => { formLink.reset(); linkModal.style.display = 'none'; });
+    btnCancelLink.addEventListener('click', () => { formLink.reset(); linkModal.style.display = 'none'; });
+    linkModal.addEventListener('click', (e) => {
+        if (e.target === linkModal) { formLink.reset(); linkModal.style.display = 'none'; }
+    });
+
+    formLink.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        btnSubmitLink.disabled = true;
+        btnSubmitLink.innerHTML = '<span>Conectando...</span>';
+
+        try {
+            const res = await fetch('/api/links', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sourceSvc: linkFrom.value.trim(),
+                    targetSvc: linkTo.value.trim(),
+                    envVarName: linkVar.value.trim() || 'DATABASE_URL'
+                })
+            });
+
+            if (!res.ok) {
+                const errText = await res.text();
+                showToast(`Error: ${errText}`, 'error');
+                return;
+            }
+
+            showToast(`¡Enlace creado! '${linkFrom.value}' conectado a '${linkTo.value}'`, 'success');
+            linkModal.style.display = 'none';
+            formLink.reset();
+            await loadServiceLinks();
+        } catch (err) {
+            showToast(`Error: ${err.message}`, 'error');
+        } finally {
+            btnSubmitLink.disabled = false;
+            btnSubmitLink.innerHTML = '<span>🔗 Conectar</span>';
+        }
+    });
+
+    // --- Modal: Edit Service ---
+    function openEditServiceModal(name, expose, domain) {
+        formEditService.reset();
+        editServiceName.value = name;
+        editServiceTitle.textContent = `Ajustes: ${name}`;
+        editServiceExpose.value = expose ? 'true' : 'false';
+        editServiceDomain.value = domain || '';
+        editDomainField.style.display = expose ? 'flex' : 'none';
+        if (editDomainDnsFeedback) {
+            editDomainDnsFeedback.style.display = 'none';
+            editDomainDnsFeedback.innerHTML = '';
+            if (expose && domain) {
+                checkDomainDnsDebounced(domain, editDomainDnsFeedback);
             }
         }
-    } catch (e) {
-        if (replEl) replEl.innerText = '0/0 (Error de Red)';
-        if (ramEl) ramEl.innerText = '0.0 MB';
+        editServiceModal.style.display = 'flex';
     }
 
-    if (portEl) {
-        const p = target.data?.port || target.data?.internalPort || target.data?.internal_port || 80;
-        portEl.innerText = `${p} / Internal`;
-    }
-    if (exposeEl) {
-        exposeEl.innerText = target.data?.domain ? `Público (https://${target.data.domain})` : 'Privado (Cluster Overlay)';
-    }
-}
-
-async function loadInspectorLogs() {
-    const name = currentInspectorTarget.name;
-    const logBox = document.getElementById('inspLogContent');
-    const linesSelect = document.getElementById('inspLogLinesSelect');
-    if (!name || !logBox) return;
-
-    const lines = linesSelect ? linesSelect.value : '100';
-    logBox.innerText = `[Transmitiendo logs de ${name}...]`;
-
-    try {
-        const res = await fetch(`/api/logs?name=${encodeURIComponent(name)}&service=${encodeURIComponent(name)}&lines=${lines}`);
-        if (res.ok) {
-            let logsText = '';
-            try {
-                const data = await res.json();
-                logsText = data.logs || (typeof data === 'string' ? data : JSON.stringify(data, null, 2));
-            } catch (e) {
-                logsText = await res.text();
-            }
-            if (typeof logsText !== 'string') {
-                logsText = JSON.stringify(logsText, null, 2);
-            }
-            lastFetchedLogsRaw = logsText || `[Sin logs recientes para ${name}]`;
-            filterInspectorLogs();
-        } else {
-            const errText = await res.text().catch(() => 'Error al obtener logs');
-            logBox.innerText = `[Error al obtener logs de ${name}: ${errText}]`;
+    editServiceExpose.addEventListener('change', () => {
+        const isPublic = editServiceExpose.value === 'true';
+        editDomainField.style.display = isPublic ? 'flex' : 'none';
+        if (!isPublic && editDomainDnsFeedback) {
+            editDomainDnsFeedback.style.display = 'none';
+        } else if (isPublic && editDomainDnsFeedback && editServiceDomain.value) {
+            checkDomainDnsDebounced(editServiceDomain.value, editDomainDnsFeedback);
         }
-    } catch (e) {
-        logBox.innerText = `[Error conectando a logs: ${e.message}]`;
-    }
-}
+    });
 
-async function loadInspectorEnvs() {
-    const name = currentInspectorTarget.name;
-    const txt = document.getElementById('inspEnvTextarea');
-    if (!name || !txt) return;
-
-    txt.value = '# Cargando variables de entorno...';
-    try {
-        const res = await fetch(`/api/env?service=${encodeURIComponent(name)}`);
-        if (res.ok) {
-            const data = await res.json();
-            txt.value = data.rawContent || '';
-        } else {
-            txt.value = '# No hay variables configuradas';
-        }
-    } catch (e) {
-        txt.value = '# Error: ' + e.message;
-    }
-}
-
-async function saveInspectorEnvs() {
-    const name = currentInspectorTarget.name;
-    const txt = document.getElementById('inspEnvTextarea');
-    if (!name || !txt) return;
-
-    showToast('Guardando...', `Inyectando variables en Swarm para ${name}...`, 'info');
-    try {
-        const res = await fetch('/api/env', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                serviceName: name,
-                rawEnvContent: txt.value
-            })
+    if (editServiceDomain && editDomainDnsFeedback) {
+        editServiceDomain.addEventListener('input', (e) => {
+            checkDomainDnsDebounced(e.target.value, editDomainDnsFeedback);
         });
-
-        if (res.ok) {
-            showToast('Variables Guardadas 🔑', `Se inyectaron las variables en '${name}'`, 'success');
-        } else {
-            const err = await res.json().catch(() => ({ error: 'Error al guardar .env' }));
-            showToast('Error', err.error || 'Error al guardar', 'error');
-        }
-    } catch (e) {
-        showToast('Error de Red', e.message, 'error');
     }
-}
 
-function importInspectorEnvFile(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        const txt = document.getElementById('inspEnvTextarea');
-        if (txt) {
-            txt.value = e.target.result;
-            showToast('Archivo Cargado', `Importado '${file.name}' al editor. Presiona Guardar.`, 'info');
+    btnCloseEditServiceModal.addEventListener('click', () => {
+        formEditService.reset();
+        if (editDomainDnsFeedback) editDomainDnsFeedback.style.display = 'none';
+        editServiceModal.style.display = 'none';
+    });
+    btnCancelEditService.addEventListener('click', () => {
+        formEditService.reset();
+        if (editDomainDnsFeedback) editDomainDnsFeedback.style.display = 'none';
+        editServiceModal.style.display = 'none';
+    });
+    editServiceModal.addEventListener('click', (e) => {
+        if (e.target === editServiceModal) {
+            formEditService.reset();
+            if (editDomainDnsFeedback) editDomainDnsFeedback.style.display = 'none';
+            editServiceModal.style.display = 'none';
         }
-    };
-    reader.readAsText(file);
-}
+    });
 
-async function triggerInspectorRollback() {
-    const name = currentInspectorTarget.name;
-    if (!name) return;
+    formEditService.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        btnSubmitEditService.disabled = true;
 
-    requestConfirmation(
-        '⚠️ Rollback de Servicio',
-        `¿Revertir inmediatamente '${name}' a la versión previa en Swarm?`,
-        async () => {
-            showToast('Ejecutando Rollback...', `Revirtiendo ${name}...`, 'info');
-            try {
-                const res = await fetch('/api/services/rollback', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ serviceName: name })
-                });
+        const name = editServiceName.value;
+        const expose = editServiceExpose.value === 'true';
+        const domain = editServiceDomain.value.trim();
+        const port = parseInt(editServicePort.value || '80', 10);
 
-                if (res.ok) {
-                    showToast('Rollback Exitoso ⏪', `'${name}' revertido a versión previa`, 'success');
+        try {
+            let svc = { name, expose, domain, port };
+            const getRes = await fetch(`/api/services/${encodeURIComponent(name)}`);
+            if (getRes.ok) {
+                const existing = await getRes.json();
+                svc = { ...existing, expose, domain, port };
+            }
+
+            const updateRes = await fetch(`/api/services/${encodeURIComponent(name)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(svc)
+            });
+
+            if (!updateRes.ok) {
+                const errText = await updateRes.text();
+                showToast(`Error: ${errText}`, 'error');
+                return;
+            }
+
+            showToast(`¡Servicio '${name}' actualizado!`, 'success');
+            editServiceModal.style.display = 'none';
+            if (selectedServerName) {
+                await loadSwarmStatus(selectedServerName);
+            }
+        } catch (err) {
+            showToast(`Error: ${err.message}`, 'error');
+        } finally {
+            btnSubmitEditService.disabled = false;
+        }
+    });
+
+    // --- Modal: Cloud Worker ---
+    if (btnOpenWorkerModal) {
+        btnOpenWorkerModal.addEventListener('click', () => {
+            if (formWorker) formWorker.reset();
+            const current = servers.find(s => s.name === selectedServerName) || activeServer;
+            if (current) {
+                if (current.cloudProvider === 'digitalocean') {
+                    workerProvider.value = 'digitalocean';
+                    workerApiKey.value = current.doApiToken || '';
+                    workerRegion.value = 'nyc1';
+                    workerPlan.value = 's-1vcpu-1gb';
                 } else {
-                    const err = await res.json().catch(() => ({ error: 'Error en rollback' }));
-                    showToast('Error', err.error || err.message, 'error');
-                }
-            } catch (e) {
-                showToast('Error de Red', e.message, 'error');
-            }
-        }
-    );
-}
-
-async function loadInspectorBackups() {
-    const name = currentInspectorTarget.name;
-    const list = document.getElementById('inspBackupsList');
-    if (!name || !list) return;
-
-    list.innerHTML = '<div class="text-muted p-2">Cargando snapshots...</div>';
-    try {
-        const res = await fetch('/api/backups');
-        if (!res.ok) return;
-        const backups = await res.json();
-        const filtered = (backups || []).filter(b => b.targetName === name || b.target_name === name);
-
-        if (filtered.length === 0) {
-            list.innerHTML = `<div class="text-muted p-2" style="font-size:0.85rem">No hay respaldos registrados para '${name}'. Presiona "+ Crear Snapshot" para generar uno.</div>`;
-            return;
-        }
-
-        list.innerHTML = filtered.map(b => {
-            const sizeMb = ((b.sizeBytes || b.size_bytes || 0) / (1024 * 1024)).toFixed(2);
-            return `
-                <div class="endpoint-item">
-                    <div>
-                        <strong>📦 ${b.filename || 'backup.sql.gz'}</strong>
-                        <div class="text-muted" style="font-size:0.75rem;">${b.createdAt || b.created_at || ''} • ${sizeMb} MB • Status: ${b.status || 'completed'}</div>
-                    </div>
-                    <div style="display:flex; gap:6px;">
-                        <a href="/api/backups/download?id=${b.id}" class="btn btn-outline" style="padding:2px 8px; font-size:0.72rem;">📥 Descargar</a>
-                        <button class="btn btn-danger" style="padding:2px 8px; font-size:0.72rem;" onclick="restoreBackupAction(${b.id})">🔄 Restaurar</button>
-                    </div>
-                </div>
-            `;
-        }).join('');
-    } catch (e) {
-        list.innerHTML = `<div class="text-muted p-2">Error cargando respaldos: ${e.message}</div>`;
-    }
-}
-
-async function createInspectorSnapshot() {
-    const name = currentInspectorTarget.name;
-    const type = currentInspectorTarget.type;
-    if (!name) return;
-
-    showToast('Generando Snapshot...', `Iniciando backup de ${name}...`, 'info');
-    try {
-        const res = await fetch('/api/backups', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                targetName: name,
-                targetType: type === 'database' ? 'database' : 'volume'
-            })
-        });
-
-        if (res.ok) {
-            showToast('Snapshot Creado 💾', `Backup guardado exitosamente para '${name}'`, 'success');
-            loadInspectorBackups();
-            loadBackups();
-        } else {
-            const err = await res.json().catch(() => ({ error: 'Error al crear backup' }));
-            showToast('Error', err.error || 'Fallo al crear snapshot', 'error');
-        }
-    } catch (e) {
-        showToast('Error de Red', e.message, 'error');
-    }
-}
-
-async function deleteDBAction(name) {
-    if (!name) return;
-    showToast('Eliminando Base de Datos', `Removiendo ${name}...`, 'info');
-    try {
-        const res = await fetch(`/api/databases?name=${encodeURIComponent(name)}`, {
-            method: 'DELETE'
-        });
-        await fetch(`/api/services?name=${encodeURIComponent(name)}`, {
-            method: 'DELETE'
-        }).catch(() => {});
-
-        if (res.ok) {
-            showToast('Base de Datos Eliminada 🗑️', `Se eliminó '${name}' correctamente.`, 'success');
-            loadDashboardData(true);
-        } else {
-            const err = await res.text();
-            showToast('Error al Eliminar', err, 'error');
-        }
-    } catch (err) {
-        showToast('Error de Conexión', err.message, 'error');
-    }
-}
-
-async function deleteCurrentInspectorResource() {
-    const name = currentInspectorTarget.name;
-    const type = currentInspectorTarget.type;
-    if (!name) return;
-
-    requestConfirmation(
-        `🗑️ Eliminar ${type === 'service' ? 'Servicio' : 'Base de Datos'}`,
-        `¿Estás seguro de eliminar '${name}'? Se removerán contenedores e instancias en Swarm.`,
-        async () => {
-            closeModal('resourceInspectorModal');
-            if (type === 'service') {
-                deleteServiceAction(name);
-            } else {
-                deleteDBAction(name);
-            }
-        }
-    );
-}
-
-async function saveInspectorConfig(event) {
-    event.preventDefault();
-    const name = currentInspectorTarget.name;
-    const type = currentInspectorTarget.type;
-
-    const img = document.getElementById('inspCfgImage')?.value.trim();
-    const port = parseInt(document.getElementById('inspCfgPort')?.value.trim() || '80', 10);
-    const domain = document.getElementById('inspCfgDomain')?.value.trim();
-    const health = document.getElementById('inspCfgHealth')?.value.trim();
-    const expose = document.getElementById('inspCfgExpose')?.checked;
-    const enableSSL = document.getElementById('inspCfgSSL')?.checked;
-
-    showToast('Guardando Configuración...', `Actualizando ${name}...`, 'info');
-
-    try {
-        const endpoint = type === 'service' ? `/api/services/${encodeURIComponent(name)}` : `/api/databases/${encodeURIComponent(name)}`;
-        const payload = type === 'service' ? {
-            name: name,
-            imageSource: img,
-            port: port,
-            domain: domain,
-            expose: expose !== undefined ? expose : !!domain,
-            enableSSL: enableSSL !== undefined ? enableSSL : true,
-            healthcheckCmd: health
-        } : {
-            name: name,
-            engine: img,
-            internalPort: port,
-            externalURL: domain
-        };
-
-        const res = await fetch(endpoint, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-
-        if (res.ok) {
-            showToast('Configuración Actualizada ⚙️', `Se guardaron los cambios para '${name}'`, 'success');
-            loadDashboardData();
-        } else {
-            showToast('Error', 'Fallo al actualizar configuración', 'error');
-        }
-    } catch (e) {
-        showToast('Error de Red', e.message, 'error');
-    }
-}
-
-async function toggleServiceVisibility(serviceName) {
-    const service = (globalServices || []).find(s => s.name === serviceName);
-    if (!service) return;
-
-    const newExpose = !service.expose;
-    showToast('Cambiando Visibilidad...', `${newExpose ? 'Exponiendo' : 'Ocultando'} ${serviceName}...`, 'info');
-
-    try {
-        const res = await fetch(`/api/services/${encodeURIComponent(serviceName)}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: service.name,
-                imageSource: service.imageSource || service.image_source,
-                port: service.port,
-                domain: service.domain,
-                expose: newExpose,
-                enableSSL: service.enableSSL !== undefined ? service.enableSSL : true,
-                healthcheckCmd: service.healthcheckCmd
-            })
-        });
-
-        if (res.ok) {
-            showToast('Visibilidad Actualizada 🌐', `'${serviceName}' ahora es ${newExpose ? 'PÚBLICO' : 'PRIVADO'}`, 'success');
-            loadDashboardData();
-            if (currentInspectorTarget.name === serviceName) {
-                openResourceInspector(serviceName, 'service');
-            }
-        } else {
-            showToast('Error', 'No se pudo cambiar la visibilidad', 'error');
-        }
-    } catch (e) {
-        showToast('Error de Red', e.message, 'error');
-    }
-}
-
-/* --- Real-Time Catalog Search Filter --- */
-function filterCatalogList() {
-    const input = document.getElementById('catalogSearchInput');
-    if (!input) return;
-
-    const query = input.value.toLowerCase().trim();
-    if (!query) {
-        renderCatalog(globalServices, globalDatabases);
-        return;
-    }
-
-    const filteredServices = (globalServices || []).filter(s =>
-        s.name.toLowerCase().includes(query) ||
-        (s.imageSource && s.imageSource.toLowerCase().includes(query)) ||
-        (s.domain && s.domain.toLowerCase().includes(query))
-    );
-
-    const filteredDBs = (globalDatabases || []).filter(d =>
-        d.name.toLowerCase().includes(query) ||
-        (d.engine && d.engine.toLowerCase().includes(query))
-    );
-
-    renderCatalog(filteredServices, filteredDBs);
-}
-
-/* --- Advanced Log Grep, Filter & Download --- */
-let lastFetchedLogsRaw = '';
-
-function filterInspectorLogs() {
-    const logBox = document.getElementById('inspLogContent');
-    const grepInput = document.getElementById('inspLogGrepInput');
-    const levelSelect = document.getElementById('inspLogLevelSelect');
-    if (!logBox || !lastFetchedLogsRaw) return;
-
-    const grep = grepInput ? grepInput.value.toLowerCase().trim() : '';
-    const level = levelSelect ? levelSelect.value : 'all';
-
-    let lines = lastFetchedLogsRaw.split('\n');
-
-    if (level === 'error') {
-        lines = lines.filter(l => /error|err|fatal|panic|fail|exception/i.test(l));
-    } else if (level === 'warn') {
-        lines = lines.filter(l => /warn|warning/i.test(l));
-    } else if (level === 'info') {
-        lines = lines.filter(l => /info|debug|trace/i.test(l));
-    }
-
-    if (grep) {
-        lines = lines.filter(l => l.toLowerCase().includes(grep));
-    }
-
-    logBox.innerText = lines.join('\n') || '[No se encontraron coincidencias para los filtros especificados]';
-    logBox.scrollTop = logBox.scrollHeight;
-}
-
-function downloadInspectorLogs() {
-    const name = currentInspectorTarget.name || 'service';
-    const logBox = document.getElementById('inspLogContent');
-    if (!logBox || !logBox.innerText) {
-        showToast('Advertencia', 'No hay logs disponibles para descargar', 'warning');
-        return;
-    }
-
-    const blob = new Blob([logBox.innerText], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${name}-logs-${new Date().toISOString().slice(0, 10)}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast('Logs Descargados 📥', `Guardado '${a.download}' en tu equipo`, 'success');
-}
-
-/* --- Environment Variables Secret Masking & Table Mode --- */
-let isEnvMasked = false;
-let isEnvTableMode = false;
-
-function toggleEnvSecretMasking() {
-    isEnvMasked = !isEnvMasked;
-    const btn = document.getElementById('btnToggleEnvMask');
-    if (btn) btn.innerText = isEnvMasked ? '👁️ Revelar Secretos' : '👁️ Ocultar Secretos';
-
-    const txt = document.getElementById('inspEnvTextarea');
-    if (!txt) return;
-
-    let content = txt.value;
-    if (isEnvMasked) {
-        content = content.split('\n').map(line => {
-            if (line.includes('=') && !line.startsWith('#')) {
-                const parts = line.split('=');
-                const key = parts[0].trim();
-                const val = parts.slice(1).join('=');
-                if (/pass|secret|key|token|auth|url/i.test(key)) {
-                    return `${key}=••••••••••••`;
+                    workerProvider.value = 'vultr';
+                    workerApiKey.value = current.vultrApiToken || '';
+                    workerRegion.value = 'mex';
+                    workerPlan.value = 'vc2-1c-1gb';
                 }
             }
-            return line;
-        }).join('\n');
-    } else {
-        loadInspectorEnvs();
-        return;
+            workerLogsBox.style.display = 'none';
+            workerLogsContent.innerHTML = '';
+            workerModal.style.display = 'flex';
+        });
     }
-    txt.value = content;
-}
 
-function toggleEnvEditorMode() {
-    isEnvTableMode = !isEnvTableMode;
-    const btn = document.getElementById('btnToggleEnvMode');
-    const rawContainer = document.getElementById('envRawEditorContainer');
-    const tableContainer = document.getElementById('envTableEditorContainer');
-    const txt = document.getElementById('inspEnvTextarea');
-
-    if (btn) btn.innerText = isEnvTableMode ? '⇄ Modo Raw (.env)' : '⇄ Modo Tabla';
-
-    if (isEnvTableMode) {
-        if (rawContainer) rawContainer.style.display = 'none';
-        if (tableContainer) tableContainer.style.display = 'block';
-
-        const tbody = document.getElementById('envTableBody');
-        if (tbody && txt) {
-            const lines = txt.value.split('\n').filter(l => l.includes('=') && !l.startsWith('#'));
-            if (lines.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="2" class="text-muted p-2">Sin variables definidas</td></tr>';
-            } else {
-                tbody.innerHTML = lines.map(l => {
-                    const parts = l.split('=');
-                    const key = parts[0].trim();
-                    const val = parts.slice(1).join('=').trim();
-                    return `
-                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                            <td style="padding: 6px; font-family: var(--font-mono); color: #60a5fa;"><strong>${key}</strong></td>
-                            <td style="padding: 6px; font-family: var(--font-mono); color: var(--text-primary);">${val}</td>
-                        </tr>
-                    `;
-                }).join('');
-            }
-        }
-    } else {
-        if (rawContainer) rawContainer.style.display = 'block';
-        if (tableContainer) tableContainer.style.display = 'none';
+    if (btnSidebarOpenWorker) {
+        btnSidebarOpenWorker.addEventListener('click', () => {
+            if (btnOpenWorkerModal) btnOpenWorkerModal.click();
+            serverPopover.style.display = 'none';
+        });
     }
-}
 
-/* --- Enterprise Extensions: Audit Logs, Private Registries & Live Stats --- */
-
-async function openAuditLogsModal() {
-    openModal('auditLogsModal');
-    loadAuditLogs();
-}
-
-async function loadAuditLogs() {
-    const container = document.getElementById('auditLogsContainer');
-    if (!container) return;
-
-    container.innerHTML = '<div class="text-muted p-2">Cargando registros de auditoría...</div>';
-    try {
-        const res = await fetch('/api/audit-logs');
-        if (!res.ok) return;
-        const logs = await res.json();
-
-        if (!logs || logs.length === 0) {
-            container.innerHTML = '<div class="text-muted p-2" style="font-size:0.85rem;">No hay eventos de auditoría registrados.</div>';
-            return;
-        }
-
-        container.innerHTML = `
-            <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
-                <thead>
-                    <tr style="border-bottom: 1px solid var(--card-border); color: #94a3b8; text-align: left;">
-                        <th style="padding: 8px;">Hora</th>
-                        <th style="padding: 8px;">Acción</th>
-                        <th style="padding: 8px;">Recurso</th>
-                        <th style="padding: 8px;">Detalles</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${logs.map(l => `
-                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); font-family: var(--font-mono);">
-                            <td style="padding: 8px; color: #64748b; white-space: nowrap;">${new Date(l.timestamp).toLocaleString()}</td>
-                            <td style="padding: 8px;"><span class="badge ${l.action === 'DELETE' ? 'badge-red' : (l.action === 'DEPLOY' ? 'badge-green' : 'badge-blue')}">${l.action}</span></td>
-                            <td style="padding: 8px; color: #f4f4f5;"><strong>${l.resourceName || l.resource_name || ''}</strong></td>
-                            <td style="padding: 8px; color: #94a3b8;">${l.details}</td>
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
-        `;
-    } catch (e) {
-        container.innerHTML = `<div class="text-muted p-2">Error cargando auditoría: ${e.message}</div>`;
+    if (btnCloseWorkerModal) btnCloseWorkerModal.addEventListener('click', () => { workerModal.style.display = 'none'; });
+    if (btnCancelWorker) btnCancelWorker.addEventListener('click', () => { workerModal.style.display = 'none'; });
+    if (workerModal) {
+        workerModal.addEventListener('click', (e) => {
+            if (e.target === workerModal) workerModal.style.display = 'none';
+        });
     }
-}
 
-async function openRegistriesModal() {
-    openModal('registriesModal');
-    loadRegistries();
-}
-
-async function loadRegistries() {
-    const list = document.getElementById('registriesList');
-    if (!list) return;
-
-    list.innerHTML = '<div class="text-muted p-2">Cargando credenciales registradas...</div>';
-    try {
-        const res = await fetch('/api/registries');
-        if (!res.ok) return;
-        const regs = await res.json();
-
-        if (!regs || regs.length === 0) {
-            list.innerHTML = '<div class="text-muted p-2" style="font-size:0.85rem;">No hay registros de Docker configurados. Llena el formulario arriba para autenticar tu servidor Host por SSH.</div>';
-            return;
-        }
-
-        list.innerHTML = regs.map(r => `
-            <div class="endpoint-item" style="display:flex; justify-content:space-between; align-items:center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                <div>
-                    <strong>🔐 ${r.server}</strong>
-                    <div class="text-muted" style="font-size:0.75rem;">Usuario: ${r.username} • Estado: Autenticado en Host</div>
-                </div>
-                <button class="btn btn-danger" style="padding: 2px 8px; font-size: 0.72rem;" onclick="deleteRegistryAction(${r.id})">🗑️ Remover</button>
-            </div>
-        `).join('');
-    } catch (e) {
-        list.innerHTML = `<div class="text-muted p-2">Error cargando registros: ${e.message}</div>`;
-    }
-}
-
-async function deleteRegistryAction(id) {
-    if (!id) return;
-    try {
-        const res = await fetch(`/api/registries?id=${id}`, { method: 'DELETE' });
-        if (res.ok) {
-            showToast('Registro Removido', 'Credenciales eliminadas correctamente.', 'success');
-            loadRegistries();
-        }
-    } catch (e) {
-        showToast('Error', e.message, 'error');
-    }
-}
-
-// Live container stats loader in inspector modal
-async function fetchLiveContainerStats(name) {
-    if (!name) return;
-    try {
-        const res = await fetch(`/api/stats?name=${encodeURIComponent(name)}`);
-        if (!res.ok) return;
-        const stats = await res.json();
-
-        const cpuEl = document.getElementById('inspStatCpu');
-        const memEl = document.getElementById('inspStatMem');
-        const netEl = document.getElementById('inspStatNet');
-        const blockEl = document.getElementById('inspStatBlock');
-        const badgeEl = document.getElementById('inspStatsCpuBadge');
-
-        if (cpuEl) cpuEl.innerText = stats.cpu || '0.1%';
-        if (memEl) memEl.innerText = stats.memUsage || '34MB / 2GB';
-        if (netEl) netEl.innerText = stats.netIo || '1kB / 1kB';
-        if (blockEl) blockEl.innerText = stats.blockIo || '0B / 0B';
-        if (badgeEl) badgeEl.innerText = `CPU: ${stats.cpu || '0%'}`;
-    } catch (e) {
-        console.warn('Error leyendo live stats:', e);
-    }
-}
-
-/* --- SSH Keys UI Manager --- */
-async function openSSHKeysModal() {
-    openModal('sshKeysModal');
-    loadSSHKeys();
-}
-
-async function loadSSHKeys() {
-    const container = document.getElementById('sshKeysList');
-    if (!container) return;
-
-    container.innerHTML = '<div class="text-muted p-2">Cargando llaves SSH desde el VPS...</div>';
-    try {
-        const res = await fetch('/api/ssh-keys');
-        if (!res.ok) {
-            container.innerHTML = '<div class="text-muted p-2" style="color:var(--danger-color);">Error consultando llaves SSH.</div>';
-            return;
-        }
-        const keys = await res.json();
-        if (!keys || keys.length === 0) {
-            container.innerHTML = '<div class="text-muted p-2">No hay llaves SSH registradas en authorized_keys.</div>';
-            return;
-        }
-
-        container.innerHTML = keys.map((k, idx) => {
-            const isProtected = k.protected || k.is_vultr_key;
-            const badgeHtml = isProtected
-                ? '<span style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 600;">🔒 PROTEGIDA (Vultr Master)</span>'
-                : '<span style="background: rgba(52, 211, 153, 0.2); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.4); padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 600;">🟢 Desarrollador / Eliminable</span>';
-            
-            const btnHtml = isProtected
-                ? '<button class="btn btn-outline" disabled style="opacity: 0.5; cursor: not-allowed; font-size: 0.75rem;">🔒 Llave Maestra</button>'
-                : `<button class="btn btn-outline" style="color: #f87171; border-color: rgba(239, 68, 68, 0.5); font-size: 0.75rem;" onclick="deleteSSHKey('${k.fingerprint}')">🗑️ Revocar Acceso</button>`;
-
-            return `
-                <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--card-border); gap: 8px;">
-                    <div style="overflow: hidden;">
-                        <div style="font-weight: 600; font-size: 0.85rem; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
-                            ${idx + 1}. ${k.comment || 'Llave sin comentario'} ${badgeHtml}
-                        </div>
-                        <div style="font-size: 0.72rem; color: var(--text-muted); font-family: monospace; text-overflow: ellipsis; overflow: hidden;">
-                            Fingerprint: ${k.fingerprint || 'N/A'} | Tipo: ${k.type || 'ssh-rsa'}
-                        </div>
-                    </div>
-                    <div>${btnHtml}</div>
-                </div>
-            `;
-        }).join('');
-    } catch (e) {
-        container.innerHTML = `<div class="text-muted p-2" style="color:var(--danger-color);">Error: ${e.message}</div>`;
-    }
-}
-
-async function deleteSSHKey(fingerprint) {
-    if (!fingerprint) return;
-    if (!confirm(`¿Estás seguro de que deseas revocar el acceso SSH a la llave con fingerprint '${fingerprint}'?`)) return;
-
-    try {
-        const res = await fetch(`/api/ssh-keys?fp=${encodeURIComponent(fingerprint)}`, { method: 'DELETE' });
-        const data = await res.json();
-        if (res.ok) {
-            showToast('Acceso Revocado', 'La llave SSH de desarrollador fue eliminada de authorized_keys.', 'success');
-            loadSSHKeys();
-        } else {
-            showToast('Acceso Protegido', data.error || 'No se pudo eliminar la llave', 'error');
-        }
-    } catch (e) {
-        showToast('Error', e.message, 'error');
-    }
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-    const formAddSSHKey = document.getElementById('formAddSSHKey');
-    if (formAddSSHKey) {
-        formAddSSHKey.addEventListener('submit', async (e) => {
+    if (formWorker) {
+        formWorker.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const publicKey = document.getElementById('newSSHPublicKey').value.trim();
-            if (!publicKey) return;
+            btnSubmitWorker.disabled = true;
+            btnSubmitWorkerText.textContent = 'Aprovisionando...';
+            workerLogsBox.style.display = 'block';
+            workerLogsContent.innerHTML = '<span style="color:var(--brand-primary); font-weight:700;">⚡ Conectando con orquestador cloud...</span><br>';
+
+            const payload = {
+                nodeName: workerName.value.trim(),
+                provider: workerProvider.value,
+                apiKey: workerApiKey.value.trim(),
+                region: workerRegion.value.trim(),
+                plan: workerPlan.value.trim(),
+                labelType: workerLabel.value
+            };
 
             try {
-                const res = await fetch('/api/ssh-keys', {
+                const response = await fetch('/api/workers', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ publicKey })
+                    body: JSON.stringify(payload)
                 });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast('Llave Autorizada', 'La llave SSH del desarrollador fue añadida en caliente.', 'success');
-                    document.getElementById('newSSHPublicKey').value = '';
-                    loadSSHKeys();
-                } else {
-                    showToast('Error', data.error || 'No se pudo añadir la llave', 'error');
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    workerLogsContent.innerHTML += `<span style="color:var(--status-offline);">✕ Error: ${escapeHtml(errorText)}</span><br>`;
+                    return;
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const rawLine of lines) {
+                        let line = rawLine.trim();
+                        if (!line) continue;
+                        if (line.startsWith('data: ')) line = line.substring(6).trim();
+
+                        try {
+                            const event = JSON.parse(line);
+                            const eventType = event.t || event.type;
+                            const msg = event.m || event.message || (event.d && event.d.message) || '';
+
+                            if (eventType === 'step') {
+                                workerLogsContent.innerHTML += `<span style="color:var(--brand-primary); font-weight:700;">${escapeHtml(msg)}</span><br>`;
+                            } else if (eventType === 'log') {
+                                workerLogsContent.innerHTML += `<span style="color:var(--text-secondary);">${escapeHtml(msg)}</span><br>`;
+                            } else if (eventType === 'error') {
+                                workerLogsContent.innerHTML += `<span style="color:var(--status-offline); font-weight:700;">✕ ${escapeHtml(msg)}</span><br>`;
+                            } else if (eventType === 'done') {
+                                workerLogsContent.innerHTML += `<span style="color:var(--status-online); font-weight:800;">🎉 ${escapeHtml(msg || 'Worker provisionado con éxito!')}</span><br>`;
+                                showToast(`¡Worker ${payload.nodeName} listo y unido al clúster!`, 'success');
+                                setTimeout(async () => {
+                                    workerModal.style.display = 'none';
+                                    await loadHubState();
+                                    if (selectedServerName) await loadSwarmStatus(selectedServerName);
+                                }, 1500);
+                            }
+                            workerLogsBox.scrollTop = workerLogsBox.scrollHeight;
+                        } catch (errJson) {
+                            console.error('Error parseando stream:', errJson);
+                        }
+                    }
                 }
             } catch (err) {
-                showToast('Error', err.message, 'error');
+                workerLogsContent.innerHTML += `<span style="color:var(--status-offline);">✕ Error de red: ${escapeHtml(err.message)}</span><br>`;
+            } finally {
+                btnSubmitWorker.disabled = false;
+                btnSubmitWorkerText.textContent = 'Crear y Unir al Clúster';
             }
         });
     }
+
+    // --- Modal: Visor de Logs en Tiempo Real ---
+    function openLogsModal(serviceName) {
+        if (!logsModal) return;
+        currentLogsServiceName = serviceName;
+        if (logsServiceNameTitle) logsServiceNameTitle.textContent = serviceName;
+        if (logsSearchInput) logsSearchInput.value = '';
+        if (logsTerminalContent) logsTerminalContent.textContent = 'Consultando logs del contenedor...';
+        logsModal.style.display = 'flex';
+        fetchAndRenderLogs(false);
+        startLogsPolling();
+    }
+
+    function closeLogsModal() {
+        stopLogsPolling();
+        if (logsModal) logsModal.style.display = 'none';
+        currentLogsServiceName = '';
+        rawLogsText = '';
+    }
+
+    function startLogsPolling() {
+        stopLogsPolling();
+        if (logsLiveToggle && logsLiveToggle.checked) {
+            logsPollTimer = setInterval(() => {
+                if (logsModal && logsModal.style.display !== 'none' && currentLogsServiceName) {
+                    fetchAndRenderLogs(true);
+                } else {
+                    stopLogsPolling();
+                }
+            }, 3000);
+        }
+    }
+
+    function stopLogsPolling() {
+        if (logsPollTimer) {
+            clearInterval(logsPollTimer);
+            logsPollTimer = null;
+        }
+    }
+
+    function renderFilteredLogs() {
+        if (!logsTerminalContent) return;
+        const query = (logsSearchInput ? logsSearchInput.value : '').trim().toLowerCase();
+        if (!rawLogsText) {
+            logsTerminalContent.textContent = '(Sin registros recibidos)';
+            if (logsLineCount) logsLineCount.textContent = '0 líneas';
+            return;
+        }
+
+        const lines = rawLogsText.split('\n');
+        if (logsLineCount) {
+            logsLineCount.textContent = `${lines.length} líneas`;
+        }
+
+        if (!query) {
+            logsTerminalContent.textContent = rawLogsText;
+        } else {
+            const matched = lines.filter(line => line.toLowerCase().includes(query));
+            if (matched.length === 0) {
+                logsTerminalContent.innerHTML = `<span style="color:var(--text-muted); font-style:italic;">No se encontraron registros para "${escapeHtml(query)}"</span>`;
+                return;
+            }
+            const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`(${escapedQuery})`, 'gi');
+            const highlighted = matched.map(line => {
+                return escapeHtml(line).replace(regex, '<mark>$1</mark>');
+            }).join('\n');
+            logsTerminalContent.innerHTML = highlighted;
+        }
+
+        if (logsAutoscrollToggle && logsAutoscrollToggle.checked && logsTerminalViewport) {
+            logsTerminalViewport.scrollTop = logsTerminalViewport.scrollHeight;
+        }
+    }
+
+    async function fetchAndRenderLogs(isPoll) {
+        if (!currentLogsServiceName) return;
+        const lines = logsTailSelect ? logsTailSelect.value : '100';
+
+        try {
+            const res = await fetch(`/api/logs?name=${encodeURIComponent(currentLogsServiceName)}&lines=${encodeURIComponent(lines)}`);
+            if (res.ok) {
+                const data = await res.json();
+                rawLogsText = (data && typeof data.logs === 'string') ? data.logs : '';
+                renderFilteredLogs();
+                if (logsLastUpdate) logsLastUpdate.textContent = `Actualizado: ${new Date().toLocaleTimeString()}`;
+                if (logsStatusDot) logsStatusDot.className = 'ops-status-dot status-online logs-live-pulse';
+            } else {
+                const errText = await res.text();
+                if (!isPoll && logsTerminalContent) {
+                    logsTerminalContent.textContent = `Error al consultar logs: ${errText}`;
+                }
+                if (logsStatusDot) logsStatusDot.className = 'ops-status-dot status-offline';
+            }
+        } catch (err) {
+            if (!isPoll && logsTerminalContent) {
+                logsTerminalContent.textContent = `Fallo de conexión: ${err.message}`;
+            }
+            if (logsStatusDot) logsStatusDot.className = 'ops-status-dot status-offline';
+        }
+    }
+
+    if (btnCloseLogsModal) btnCloseLogsModal.addEventListener('click', closeLogsModal);
+    if (btnDismissLogs) btnDismissLogs.addEventListener('click', closeLogsModal);
+    if (logsModal) {
+        logsModal.addEventListener('click', (e) => {
+            if (e.target === logsModal) closeLogsModal();
+        });
+    }
+
+    if (btnRefreshLogs) {
+        btnRefreshLogs.addEventListener('click', () => fetchAndRenderLogs(false));
+    }
+
+    if (logsTailSelect) {
+        logsTailSelect.addEventListener('change', () => fetchAndRenderLogs(false));
+    }
+
+    if (logsLiveToggle) {
+        logsLiveToggle.addEventListener('change', () => {
+            if (logsLiveToggle.checked) {
+                startLogsPolling();
+            } else {
+                stopLogsPolling();
+            }
+        });
+    }
+
+    if (logsSearchInput) {
+        logsSearchInput.addEventListener('input', debounce(() => renderFilteredLogs(), 120));
+    }
+
+    if (btnCopyLogs) {
+        btnCopyLogs.addEventListener('click', async () => {
+            if (!rawLogsText) {
+                showToast('No hay logs para copiar', 'info');
+                return;
+            }
+            const ok = await copyToClipboard(rawLogsText);
+            if (ok) {
+                showToast('Logs copiados al portapapeles', 'success');
+            } else {
+                showToast('No se pudo copiar automáticamente', 'error');
+            }
+        });
+    }
+
+    if (btnDownloadLogs) {
+        btnDownloadLogs.addEventListener('click', () => {
+            if (!rawLogsText) {
+                showToast('No hay logs para descargar', 'info');
+                return;
+            }
+            const blob = new Blob([rawLogsText], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${currentLogsServiceName || 'service'}_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.log`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            showToast('Descarga iniciada', 'success');
+        });
+    }
+
+    // --- Reinicio Rápido de Servicios / Contenedores / Bases de Datos ---
+    async function restartServiceOrContainer(name, btnElement) {
+        if (!name) return;
+        if (!confirm(`¿Estás seguro de reiniciar el servicio/contenedor '${name}'?`)) return;
+
+        let originalContent = '';
+        if (btnElement) {
+            btnElement.disabled = true;
+            originalContent = btnElement.innerHTML;
+            btnElement.innerHTML = '<span>⏳...</span>';
+        }
+
+        showToast(`Reiniciando '${name}' en Docker...`, 'info');
+
+        try {
+            const res = await fetch('/api/services/restart', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name })
+            });
+
+            if (!res.ok) {
+                const errText = await res.text();
+                showToast(`Error al reiniciar: ${errText}`, 'error');
+                return;
+            }
+
+            const data = await res.json();
+            const typeLabel = data.type === 'swarm_service' ? 'Servicio Swarm' :
+                             data.type === 'systemd_service' ? 'Servicio Host' : 'Contenedor';
+            showToast(`¡${typeLabel} '${name}' reiniciado correctamente!`, 'success');
+
+            if (selectedServerName) {
+                await loadSwarmStatus(selectedServerName);
+            }
+        } catch (err) {
+            showToast(`Fallo de conexión: ${err.message}`, 'error');
+        } finally {
+            if (btnElement) {
+                btnElement.disabled = false;
+                btnElement.innerHTML = originalContent;
+            }
+        }
+    }
+
+    if (btnRestartFromLogs) {
+        btnRestartFromLogs.addEventListener('click', async () => {
+            if (currentLogsServiceName) {
+                await restartServiceOrContainer(currentLogsServiceName, btnRestartFromLogs);
+                fetchAndRenderLogs(false);
+            }
+        });
+    }
+
+    // --- Backup Manual de Bases de Datos ---
+    async function triggerDatabaseBackup(name, engine, btnElement) {
+        if (!name) return;
+        if (!confirm(`¿Generar snapshot de respaldo para la base de datos '${name}' (${engine || 'postgres'}) ahora?`)) return;
+
+        let originalContent = '';
+        if (btnElement) {
+            btnElement.disabled = true;
+            originalContent = btnElement.innerHTML;
+            btnElement.innerHTML = '<span>⏳ Respaldando...</span>';
+        }
+
+        showToast(`Generando respaldo de '${name}'...`, 'info');
+
+        try {
+            const res = await fetch('/api/databases/backup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    targetName: name,
+                    targetType: 'database',
+                    engine: engine || 'postgres'
+                })
+            });
+
+            if (!res.ok) {
+                const errText = await res.text();
+                showToast(`Error al crear respaldo: ${errText}`, 'error');
+                return;
+            }
+
+            const backup = await res.json();
+            const filename = backup.filename || backup.Filename || `${name}.sql.gz`;
+            const backupId = backup.id || backup.ID;
+
+            showToast(`¡Respaldo '${filename}' generado con éxito!`, 'success');
+
+            if (backupId) {
+                const downloadLink = document.createElement('a');
+                downloadLink.href = `/api/backups/download?id=${backupId}`;
+                downloadLink.download = filename;
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+                showToast(`Descarga de '${filename}' iniciada`, 'info');
+            }
+        } catch (err) {
+            showToast(`Fallo de conexión: ${err.message}`, 'error');
+        } finally {
+            if (btnElement) {
+                btnElement.disabled = false;
+                btnElement.innerHTML = originalContent;
+            }
+        }
+    }
+
+    // --- Modal: Gestor de Variables de Entorno (.env) ---
+    function openEnvModal(serviceName) {
+        if (!envModal) return;
+        currentEnvServiceName = serviceName;
+        currentEnvMode = 'table';
+        if (envModalServiceName) envModalServiceName.textContent = serviceName;
+        if (envModalStatus) envModalStatus.textContent = '';
+        if (envTabTable) envTabTable.classList.add('active');
+        if (envTabRaw) envTabRaw.classList.remove('active');
+        if (envTableView) envTableView.style.display = 'block';
+        if (envRawView) envRawView.style.display = 'none';
+
+        if (envTableBody) {
+            envTableBody.innerHTML = `<tr><td colspan="3" class="t-td-empty">Consultando variables de '${escapeHtml(serviceName)}'...</td></tr>`;
+        }
+        if (envRawTextarea) envRawTextarea.value = '';
+
+        envModal.style.display = 'flex';
+        fetchAndRenderEnvVars(serviceName);
+    }
+
+    function closeEnvModal() {
+        if (envModal) envModal.style.display = 'none';
+        currentEnvServiceName = '';
+    }
+
+    async function fetchAndRenderEnvVars(serviceName) {
+        try {
+            const res = await fetch(`/api/env?service=${encodeURIComponent(serviceName)}`);
+            if (!res.ok) {
+                if (envTableBody) {
+                    envTableBody.innerHTML = `<tr><td colspan="3" class="t-td-empty">Sin variables configuradas aún. Pulsa '+ Agregar Variable'.</td></tr>`;
+                }
+                return;
+            }
+            const data = await res.json();
+            const raw = data.rawContent || '';
+            if (envRawTextarea) envRawTextarea.value = raw;
+            renderEnvTableFromRaw(raw);
+        } catch (err) {
+            if (envTableBody) {
+                envTableBody.innerHTML = `<tr><td colspan="3" class="t-td-empty" style="color:var(--status-offline);">Error de conexión: ${escapeHtml(err.message)}</td></tr>`;
+            }
+        }
+    }
+
+    function isSensitiveKey(key) {
+        const k = (key || '').toUpperCase();
+        return k.includes('PASS') || k.includes('SECRET') || k.includes('KEY') || k.includes('TOKEN') || k.includes('AUTH') || k.includes('PRIVATE');
+    }
+
+    function renderEnvTableFromRaw(rawContent) {
+        if (!envTableBody) return;
+        envTableBody.innerHTML = '';
+
+        const lines = (rawContent || '').split('\n');
+        let count = 0;
+
+        lines.forEach(line => {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('#')) return;
+            const idx = trimmed.indexOf('=');
+            if (idx === -1) return;
+
+            const key = trimmed.slice(0, idx).trim();
+            let val = trimmed.slice(idx + 1).trim();
+            if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+                val = val.slice(1, -1);
+            }
+
+            createEnvTableRow(key, val);
+            count++;
+        });
+
+        if (count === 0) {
+            envTableBody.innerHTML = `<tr><td colspan="3" class="t-td-empty">Sin variables configuradas. Pulsa '+ Agregar Variable'.</td></tr>`;
+        }
+    }
+
+    function createEnvTableRow(key, val) {
+        if (!envTableBody) return;
+
+        const emptyTr = envTableBody.querySelector('.t-td-empty');
+        if (emptyTr) emptyTr.parentElement.remove();
+
+        const tr = document.createElement('tr');
+        const sensitive = isSensitiveKey(key);
+
+        tr.innerHTML = `
+            <td>
+                <input type="text" class="env-key-input" placeholder="VARIABLE_NAME" value="${escapeHtml(key || '')}" spellcheck="false">
+            </td>
+            <td>
+                <div class="env-val-wrap">
+                    <input type="${sensitive ? 'password' : 'text'}" class="env-val-input" placeholder="valor" value="${escapeHtml(val || '')}" spellcheck="false">
+                    <button type="button" class="env-toggle-mask" title="${sensitive ? 'Mostrar valor' : 'Ocultar valor'}">
+                        ${sensitive ? '👁️' : '🔒'}
+                    </button>
+                </div>
+            </td>
+            <td style="text-align: center;">
+                <button type="button" class="env-del-btn" title="Eliminar variable">✕</button>
+            </td>
+        `;
+
+        const maskBtn = tr.querySelector('.env-toggle-mask');
+        const valInput = tr.querySelector('.env-val-input');
+        maskBtn.addEventListener('click', () => {
+            const isPass = valInput.type === 'password';
+            valInput.type = isPass ? 'text' : 'password';
+            maskBtn.textContent = isPass ? '🔒' : '👁️';
+            maskBtn.title = isPass ? 'Ocultar valor' : 'Mostrar valor';
+        });
+
+        const delBtn = tr.querySelector('.env-del-btn');
+        delBtn.addEventListener('click', () => {
+            tr.remove();
+            if (envTableBody.children.length === 0) {
+                envTableBody.innerHTML = `<tr><td colspan="3" class="t-td-empty">Sin variables configuradas. Pulsa '+ Agregar Variable'.</td></tr>`;
+            }
+        });
+
+        envTableBody.appendChild(tr);
+    }
+
+    function collectEnvFromTable() {
+        if (!envTableBody) return '';
+        const rows = envTableBody.querySelectorAll('tr');
+        const lines = [];
+
+        rows.forEach(tr => {
+            const keyInput = tr.querySelector('.env-key-input');
+            const valInput = tr.querySelector('.env-val-input');
+            if (keyInput && valInput) {
+                const k = keyInput.value.trim();
+                const v = valInput.value.trim();
+                if (k) {
+                    lines.push(`${k}=${v}`);
+                }
+            }
+        });
+
+        return lines.join('\n');
+    }
+
+    if (envTabTable) {
+        envTabTable.addEventListener('click', () => {
+            if (currentEnvMode === 'raw') {
+                renderEnvTableFromRaw(envRawTextarea.value);
+            }
+            currentEnvMode = 'table';
+            envTabTable.classList.add('active');
+            envTabRaw.classList.remove('active');
+            envTableView.style.display = 'block';
+            envRawView.style.display = 'none';
+        });
+    }
+
+    if (envTabRaw) {
+        envTabRaw.addEventListener('click', () => {
+            if (currentEnvMode === 'table') {
+                envRawTextarea.value = collectEnvFromTable();
+            }
+            currentEnvMode = 'raw';
+            envTabRaw.classList.add('active');
+            envTabTable.classList.remove('active');
+            envRawView.style.display = 'block';
+            envTableView.style.display = 'none';
+        });
+    }
+
+    if (btnAddEnvRow) {
+        btnAddEnvRow.addEventListener('click', () => {
+            if (currentEnvMode === 'raw') {
+                envTabTable.click();
+            }
+            createEnvTableRow('', '');
+            const inputs = envTableBody.querySelectorAll('.env-key-input');
+            if (inputs.length > 0) {
+                inputs[inputs.length - 1].focus();
+            }
+        });
+    }
+
+    if (btnCopyEnv) {
+        btnCopyEnv.addEventListener('click', async () => {
+            const textToCopy = currentEnvMode === 'raw' ? envRawTextarea.value : collectEnvFromTable();
+            if (!textToCopy) {
+                showToast('No hay variables para copiar', 'info');
+                return;
+            }
+            const ok = await copyToClipboard(textToCopy);
+            if (ok) {
+                showToast('Variables .env copiadas al portapapeles', 'success');
+            } else {
+                showToast('No se pudo copiar automáticamente', 'error');
+            }
+        });
+    }
+
+    if (btnSaveEnv) {
+        btnSaveEnv.addEventListener('click', async () => {
+            if (!currentEnvServiceName) return;
+            const content = currentEnvMode === 'raw' ? envRawTextarea.value : collectEnvFromTable();
+
+            btnSaveEnv.disabled = true;
+            const originalText = btnSaveEnv.innerHTML;
+            btnSaveEnv.innerHTML = '<span>⏳ Guardando...</span>';
+            if (envModalStatus) envModalStatus.textContent = 'Actualizando servicio en Swarm...';
+
+            try {
+                const res = await fetch('/api/env', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        serviceName: currentEnvServiceName,
+                        rawContent: content
+                    })
+                });
+
+                if (!res.ok) {
+                    const errText = await res.text();
+                    showToast(`Error al guardar variables: ${errText}`, 'error');
+                    if (envModalStatus) envModalStatus.textContent = `Error: ${errText}`;
+                    return;
+                }
+
+                showToast(`¡Variables de entorno de '${currentEnvServiceName}' actualizadas!`, 'success');
+                closeEnvModal();
+                if (selectedServerName) {
+                    await loadSwarmStatus(selectedServerName);
+                }
+            } catch (err) {
+                showToast(`Fallo de conexión: ${err.message}`, 'error');
+                if (envModalStatus) envModalStatus.textContent = `Fallo: ${err.message}`;
+            } finally {
+                btnSaveEnv.disabled = false;
+                btnSaveEnv.innerHTML = originalText;
+            }
+        });
+    }
+
+    if (btnCloseEnvModal) btnCloseEnvModal.addEventListener('click', closeEnvModal);
+    if (btnCancelEnv) btnCancelEnv.addEventListener('click', closeEnvModal);
+    if (envModal) {
+        envModal.addEventListener('click', (e) => {
+            if (e.target === envModal) closeEnvModal();
+        });
+    }
+
+    const btnEditServiceOpenEnv = document.getElementById('btnEditServiceOpenEnv');
+    if (btnEditServiceOpenEnv) {
+        btnEditServiceOpenEnv.addEventListener('click', () => {
+            const name = editServiceName.value;
+            editServiceModal.style.display = 'none';
+            if (name) openEnvModal(name);
+        });
+    }
+
+    // ==========================================================================
+    // --- Modal: Explorador de Volúmenes y Archivos Persistentes (/opt/data) ---
+    // ==========================================================================
+    const volumeModal = document.getElementById('volumeModal');
+    const btnCloseVolumeModal = document.getElementById('btnCloseVolumeModal');
+    const btnCloseVolumeModalBottom = document.getElementById('btnCloseVolumeModalBottom');
+    const btnDeskVolumes = document.getElementById('btnDeskVolumes');
+    const volumeBreadcrumbs = document.getElementById('volumeBreadcrumbs');
+    const btnVolumeNewFolder = document.getElementById('btnVolumeNewFolder');
+    const volumeFileInput = document.getElementById('volumeFileInput');
+    const btnVolumeRefresh = document.getElementById('btnVolumeRefresh');
+    const volumeSearchInput = document.getElementById('volumeSearchInput');
+    const volumePathDisplay = document.getElementById('volumePathDisplay');
+    const volumeFilesView = document.getElementById('volumeFilesView');
+    const volumeTableBody = document.getElementById('volumeTableBody');
+    const volumeEditorView = document.getElementById('volumeEditorView');
+    const btnVolumeBackToList = document.getElementById('btnVolumeBackToList');
+    const volumeEditorFilePath = document.getElementById('volumeEditorFilePath');
+    const btnVolumeEditorDownload = document.getElementById('btnVolumeEditorDownload');
+    const btnVolumeEditorSave = document.getElementById('btnVolumeEditorSave');
+    const volumeEditorTextarea = document.getElementById('volumeEditorTextarea');
+    const volumeModalStatus = document.getElementById('volumeModalStatus');
+
+    let currentVolumePath = '/opt/data';
+    let currentVolumeFiles = [];
+    let currentEditingFilePath = '';
+
+    function formatFileSize(bytes) {
+        if (!bytes || bytes <= 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function getFileIcon(name, isDir) {
+        if (isDir) return '📁';
+        const ext = name.split('.').pop().toLowerCase();
+        switch (ext) {
+            case 'sql': return '🗄️';
+            case 'gz':
+            case 'tar':
+            case 'zip': return '🗜️';
+            case 'json':
+            case 'yaml':
+            case 'yml':
+            case 'conf':
+            case 'toml': return '⚙️';
+            case 'log': return '📜';
+            case 'env': return '🔑';
+            case 'sh': return '💻';
+            default: return '📄';
+        }
+    }
+
+    function openVolumeModal(initialPath) {
+        if (!volumeModal) return;
+        currentVolumePath = initialPath || '/opt/data';
+        if (volumeSearchInput) volumeSearchInput.value = '';
+        if (volumeFilesView) volumeFilesView.style.display = 'block';
+        if (volumeEditorView) volumeEditorView.style.display = 'none';
+        volumeModal.style.display = 'flex';
+        fetchAndRenderVolumeFiles(currentVolumePath);
+    }
+
+    function closeVolumeModal() {
+        if (volumeModal) volumeModal.style.display = 'none';
+        currentEditingFilePath = '';
+    }
+
+    function renderVolumeBreadcrumbs(targetPath) {
+        if (!volumeBreadcrumbs) return;
+        volumeBreadcrumbs.innerHTML = '';
+
+        const base = '/opt/data';
+        let rel = targetPath.startsWith(base) ? targetPath.slice(base.length) : targetPath;
+        if (rel.startsWith('/')) rel = rel.slice(1);
+        const parts = rel ? rel.split('/').filter(Boolean) : [];
+
+        const rootCrumb = document.createElement('span');
+        rootCrumb.className = `breadcrumb-crumb ${parts.length === 0 ? 'active' : ''}`;
+        rootCrumb.textContent = '🏠 /opt/data';
+        rootCrumb.addEventListener('click', () => {
+            if (currentVolumePath !== base) {
+                currentVolumePath = base;
+                fetchAndRenderVolumeFiles(base);
+            }
+        });
+        volumeBreadcrumbs.appendChild(rootCrumb);
+
+        let accumulated = base;
+        parts.forEach((p, idx) => {
+            const sep = document.createElement('span');
+            sep.className = 'breadcrumb-sep';
+            sep.textContent = '/';
+            volumeBreadcrumbs.appendChild(sep);
+
+            accumulated += '/' + p;
+            const crumb = document.createElement('span');
+            const isLast = idx === parts.length - 1;
+            crumb.className = `breadcrumb-crumb ${isLast ? 'active' : ''}`;
+            crumb.textContent = p;
+            const target = accumulated;
+            if (!isLast) {
+                crumb.addEventListener('click', () => {
+                    currentVolumePath = target;
+                    fetchAndRenderVolumeFiles(target);
+                });
+            }
+            volumeBreadcrumbs.appendChild(crumb);
+        });
+    }
+
+    async function fetchAndRenderVolumeFiles(targetPath) {
+        if (!volumeTableBody) return;
+        renderVolumeBreadcrumbs(targetPath);
+        if (volumePathDisplay) volumePathDisplay.textContent = targetPath;
+        if (volumeModalStatus) volumeModalStatus.textContent = 'Explorando directorio remoto...';
+
+        volumeTableBody.innerHTML = '<tr><td colspan="4" class="t-td-empty">Explorando directorio remoto...</td></tr>';
+
+        try {
+            const srvParam = selectedServerName ? `&server=${encodeURIComponent(selectedServerName)}` : '';
+            const res = await fetch(`/api/volumes/files?path=${encodeURIComponent(targetPath)}${srvParam}`);
+            if (!res.ok) {
+                const errText = await res.text();
+                throw new Error(errText || 'Error al obtener archivos');
+            }
+            const items = await res.json();
+            currentVolumeFiles = Array.isArray(items) ? items : [];
+
+            // Carpetas primero, luego archivos alfabéticos
+            currentVolumeFiles.sort((a, b) => {
+                if (a.isDir && !b.isDir) return -1;
+                if (!a.isDir && b.isDir) return 1;
+                return a.name.localeCompare(b.name);
+            });
+
+            renderVolumeTableRows(currentVolumeFiles);
+            if (volumeModalStatus) {
+                const dirs = currentVolumeFiles.filter(f => f.isDir).length;
+                const files = currentVolumeFiles.filter(f => !f.isDir).length;
+                volumeModalStatus.textContent = `${dirs} carpetas, ${files} archivos en ${targetPath}`;
+            }
+        } catch (err) {
+            console.error('Error cargando archivos de volumen:', err);
+            volumeTableBody.innerHTML = `<tr><td colspan="4" class="t-td-empty" style="color:var(--status-offline);">Error: ${escapeHtml(err.message)}</td></tr>`;
+            if (volumeModalStatus) volumeModalStatus.textContent = `Error: ${err.message}`;
+        }
+    }
+
+    function renderVolumeTableRows(items) {
+        if (!volumeTableBody) return;
+        volumeTableBody.innerHTML = '';
+
+        if (!items || items.length === 0) {
+            volumeTableBody.innerHTML = '<tr><td colspan="4" class="t-td-empty">Directorio vacío. Puedes crear carpetas o subir archivos.</td></tr>';
+            return;
+        }
+
+        items.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.className = 'volume-item-row';
+
+            const icon = getFileIcon(item.name, item.isDir);
+            const sizeStr = item.isDir ? '—' : formatFileSize(item.size);
+            const nameClass = item.isDir ? 'volume-item-folder' : 'volume-item-file';
+
+            tr.innerHTML = `
+                <td>
+                    <div class="volume-item-name">
+                        <span>${icon}</span>
+                        <span class="${nameClass}" data-path="${escapeHtml(item.path)}" data-dir="${item.isDir}">${escapeHtml(item.name)}</span>
+                    </div>
+                </td>
+                <td style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-secondary);">${escapeHtml(sizeStr)}</td>
+                <td style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted);">${escapeHtml(item.modTime || '—')}</td>
+                <td style="text-align:right;">
+                    <div style="display:flex; justify-content:flex-end; gap:4px;">
+                        ${!item.isDir ? `
+                            <button type="button" class="mini-btn btn-vol-read" data-path="${escapeHtml(item.path)}" title="Ver o editar texto">
+                                👁️
+                            </button>
+                            <button type="button" class="mini-btn btn-vol-dl" data-path="${escapeHtml(item.path)}" title="Descargar archivo">
+                                ⬇️
+                            </button>
+                        ` : ''}
+                        <button type="button" class="mini-btn btn-vol-del" data-path="${escapeHtml(item.path)}" data-name="${escapeHtml(item.name)}" style="color:var(--status-offline);" title="Eliminar">
+                            🗑️
+                        </button>
+                    </div>
+                </td>
+            `;
+
+            if (item.isDir) {
+                const folderLink = tr.querySelector('.volume-item-folder');
+                if (folderLink) {
+                    folderLink.addEventListener('click', () => {
+                        currentVolumePath = item.path;
+                        fetchAndRenderVolumeFiles(item.path);
+                    });
+                }
+            }
+
+            volumeTableBody.appendChild(tr);
+        });
+
+        volumeTableBody.querySelectorAll('.btn-vol-read').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const path = btn.getAttribute('data-path');
+                if (path) openVolumeFileEditor(path);
+            });
+        });
+
+        volumeTableBody.querySelectorAll('.btn-vol-dl').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const path = btn.getAttribute('data-path');
+                if (path) {
+                    const srvParam = selectedServerName ? `&server=${encodeURIComponent(selectedServerName)}` : '';
+                    window.location.href = `/api/volumes/download?path=${encodeURIComponent(path)}${srvParam}`;
+                }
+            });
+        });
+
+        volumeTableBody.querySelectorAll('.btn-vol-del').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const path = btn.getAttribute('data-path');
+                const name = btn.getAttribute('data-name');
+                if (!path) return;
+                if (!confirm(`¿Estás seguro de eliminar permanentemente "${name}" del VPS?`)) return;
+
+                try {
+                    btn.disabled = true;
+                    const srvParam = selectedServerName ? `&server=${encodeURIComponent(selectedServerName)}` : '';
+                    const res = await fetch(`/api/volumes/delete?path=${encodeURIComponent(path)}${srvParam}`, {
+                        method: 'DELETE'
+                    });
+                    if (!res.ok) {
+                        const errText = await res.text();
+                        throw new Error(errText || 'Error al eliminar');
+                    }
+                    showToast(`"${name}" eliminado correctamente`, 'success');
+                    fetchAndRenderVolumeFiles(currentVolumePath);
+                } catch (err) {
+                    showToast(`Error al eliminar: ${err.message}`, 'error');
+                    btn.disabled = false;
+                }
+            });
+        });
+    }
+
+    async function openVolumeFileEditor(filePath) {
+        currentEditingFilePath = filePath;
+        if (volumeFilesView) volumeFilesView.style.display = 'none';
+        if (volumeEditorView) volumeEditorView.style.display = 'block';
+        if (volumeEditorFilePath) volumeEditorFilePath.textContent = filePath;
+        if (volumeEditorTextarea) volumeEditorTextarea.value = 'Cargando contenido del archivo...';
+
+        try {
+            const srvParam = selectedServerName ? `&server=${encodeURIComponent(selectedServerName)}` : '';
+            const res = await fetch(`/api/volumes/read?path=${encodeURIComponent(filePath)}${srvParam}`);
+            if (!res.ok) {
+                const errText = await res.text();
+                throw new Error(errText || 'Error al leer archivo');
+            }
+            const data = await res.json();
+            if (volumeEditorTextarea) volumeEditorTextarea.value = data.content || '';
+        } catch (err) {
+            if (volumeEditorTextarea) volumeEditorTextarea.value = `Error al leer archivo: ${err.message}`;
+            showToast(`Error: ${err.message}`, 'error');
+        }
+    }
+
+    if (btnVolumeBackToList) {
+        btnVolumeBackToList.addEventListener('click', () => {
+            if (volumeEditorView) volumeEditorView.style.display = 'none';
+            if (volumeFilesView) volumeFilesView.style.display = 'block';
+            currentEditingFilePath = '';
+        });
+    }
+
+    if (btnVolumeEditorDownload) {
+        btnVolumeEditorDownload.addEventListener('click', () => {
+            if (currentEditingFilePath) {
+                const srvParam = selectedServerName ? `&server=${encodeURIComponent(selectedServerName)}` : '';
+                window.location.href = `/api/volumes/download?path=${encodeURIComponent(currentEditingFilePath)}${srvParam}`;
+            }
+        });
+    }
+
+    if (btnVolumeEditorSave) {
+        btnVolumeEditorSave.addEventListener('click', async () => {
+            if (!currentEditingFilePath || !volumeEditorTextarea) return;
+            const originalText = btnVolumeEditorSave.innerHTML;
+            btnVolumeEditorSave.disabled = true;
+            btnVolumeEditorSave.innerHTML = '<span>Guardando...</span>';
+
+            try {
+                const srvParam = selectedServerName ? `?server=${encodeURIComponent(selectedServerName)}` : '';
+                const res = await fetch(`/api/volumes/write${srvParam}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        path: currentEditingFilePath,
+                        content: volumeEditorTextarea.value
+                    })
+                });
+                if (!res.ok) {
+                    const errText = await res.text();
+                    throw new Error(errText || 'Error al guardar archivo');
+                }
+                showToast('Archivo guardado correctamente en el VPS', 'success');
+            } catch (err) {
+                showToast(`Error al guardar: ${err.message}`, 'error');
+            } finally {
+                btnVolumeEditorSave.disabled = false;
+                btnVolumeEditorSave.innerHTML = originalText;
+            }
+        });
+    }
+
+    if (btnVolumeNewFolder) {
+        btnVolumeNewFolder.addEventListener('click', async () => {
+            const folderName = prompt('Nombre de la nueva carpeta:');
+            if (!folderName || !folderName.trim()) return;
+
+            const cleanName = folderName.trim().replace(/[/\\]/g, '');
+            const newFolderPath = `${currentVolumePath}/${cleanName}`;
+
+            try {
+                const srvParam = selectedServerName ? `?server=${encodeURIComponent(selectedServerName)}` : '';
+                const res = await fetch(`/api/volumes/mkdir${srvParam}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: newFolderPath })
+                });
+                if (!res.ok) {
+                    const errText = await res.text();
+                    throw new Error(errText || 'Error al crear carpeta');
+                }
+                showToast(`Carpeta "${cleanName}" creada`, 'success');
+                fetchAndRenderVolumeFiles(currentVolumePath);
+            } catch (err) {
+                showToast(`Error: ${err.message}`, 'error');
+            }
+        });
+    }
+
+    if (volumeFileInput) {
+        volumeFileInput.addEventListener('change', async (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('dir', currentVolumePath);
+
+            showToast(`Subiendo "${file.name}"...`, 'info');
+            try {
+                const srvParam = selectedServerName ? `?server=${encodeURIComponent(selectedServerName)}` : '';
+                const res = await fetch(`/api/volumes/upload${srvParam}`, {
+                    method: 'POST',
+                    body: formData
+                });
+                if (!res.ok) {
+                    const errText = await res.text();
+                    throw new Error(errText || 'Error al subir archivo');
+                }
+                showToast(`"${file.name}" subido con éxito`, 'success');
+                fetchAndRenderVolumeFiles(currentVolumePath);
+            } catch (err) {
+                showToast(`Error al subir: ${err.message}`, 'error');
+            } finally {
+                volumeFileInput.value = '';
+            }
+        });
+    }
+
+    if (btnVolumeRefresh) {
+        btnVolumeRefresh.addEventListener('click', () => {
+            fetchAndRenderVolumeFiles(currentVolumePath);
+        });
+    }
+
+    if (volumeSearchInput) {
+        volumeSearchInput.addEventListener('input', () => {
+            const query = volumeSearchInput.value.toLowerCase().trim();
+            if (!query) {
+                renderVolumeTableRows(currentVolumeFiles);
+                return;
+            }
+            const filtered = currentVolumeFiles.filter(item => item.name.toLowerCase().includes(query));
+            renderVolumeTableRows(filtered);
+        });
+    }
+
+    if (btnDeskVolumes) {
+        btnDeskVolumes.addEventListener('click', () => {
+            openVolumeModal('/opt/data');
+        });
+    }
+
+    if (btnCloseVolumeModal) btnCloseVolumeModal.addEventListener('click', closeVolumeModal);
+    if (btnCloseVolumeModalBottom) btnCloseVolumeModalBottom.addEventListener('click', closeVolumeModal);
+    if (volumeModal) {
+        volumeModal.addEventListener('click', (e) => {
+            if (e.target === volumeModal) closeVolumeModal();
+        });
+    }
+
+    // ==========================================================================
+    // --- Modal: Consola Terminal Web Interactiva & Dual Terminal ---
+    // ==========================================================================
+    const terminalModal = document.getElementById('terminalModal');
+    const btnCloseTerminalModal = document.getElementById('btnCloseTerminalModal');
+    const btnCloseTerminalModalBottom = document.getElementById('btnCloseTerminalModalBottom');
+    const btnTerminalOpenPC = document.getElementById('btnTerminalOpenPC');
+    const btnTerminalDirectPC = document.getElementById('btnTerminalDirectPC');
+    const btnFallbackOpenPC = document.getElementById('btnFallbackOpenPC');
+    const terminalHostLabel = document.getElementById('terminalHostLabel');
+    const terminalTargetSelect = document.getElementById('terminalTargetSelect');
+    const terminalFallbackBanner = document.getElementById('terminalFallbackBanner');
+    const terminalFallbackMsg = document.getElementById('terminalFallbackMsg');
+    const terminalViewport = document.getElementById('terminalViewport');
+    const terminalOutput = document.getElementById('terminalOutput');
+    const terminalPromptPrefix = document.getElementById('terminalPromptPrefix');
+    const terminalCommandInput = document.getElementById('terminalCommandInput');
+    const btnTerminalSend = document.getElementById('btnTerminalSend');
+    const btnTerminalClear = document.getElementById('btnTerminalClear');
+    const btnTerminalCopy = document.getElementById('btnTerminalCopy');
+
+    let terminalActiveServer = '';
+    let terminalCommandHistory = [];
+    let terminalHistoryIndex = -1;
+    let isTerminalExecuting = false;
+
+    function openTerminalModal(serverName, targetContainer = '') {
+        if (!terminalModal) return;
+        terminalActiveServer = serverName || selectedServerName || '';
+        if (terminalHostLabel) terminalHostLabel.textContent = terminalActiveServer;
+
+        if (terminalFallbackBanner) terminalFallbackBanner.style.display = 'none';
+
+        if (terminalTargetSelect) {
+            terminalTargetSelect.innerHTML = `<option value="">🖥️ Host VPS (${escapeHtml(terminalActiveServer)})</option>`;
+            
+            if (swarmServicesCache && swarmServicesCache.length > 0) {
+                const groupSvc = document.createElement('optgroup');
+                groupSvc.label = 'Servicios Swarm / Contenedores';
+                swarmServicesCache.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s.name;
+                    opt.textContent = `🐳 ${s.name}`;
+                    if (targetContainer && targetContainer === s.name) opt.selected = true;
+                    groupSvc.appendChild(opt);
+                });
+                terminalTargetSelect.appendChild(groupSvc);
+            }
+
+            if (swarmDatabasesCache && swarmDatabasesCache.length > 0) {
+                const groupDb = document.createElement('optgroup');
+                groupDb.label = 'Bases de Datos';
+                swarmDatabasesCache.forEach(db => {
+                    const opt = document.createElement('option');
+                    opt.value = `tarhiata-db-${db.name}`;
+                    opt.textContent = `🗄️ ${db.name} (${db.engine || 'db'})`;
+                    if (targetContainer && (targetContainer === db.name || targetContainer === `tarhiata-db-${db.name}`)) opt.selected = true;
+                    groupDb.appendChild(opt);
+                });
+                terminalTargetSelect.appendChild(groupDb);
+            }
+        }
+
+        updateTerminalPrompt();
+
+        if (terminalOutput && terminalOutput.children.length === 0) {
+            appendTerminalSystemNotice(`✨ Tarhiata-Ops Web Terminal v4.2 iniciada.\nConectado a: ${terminalActiveServer}\nEscribe comandos bash directamente o usa los atajos rápidos.\n👉 Puedes usar la Terminal de tu computadora en cualquier momento con "Terminal del PC".`);
+        }
+
+        terminalModal.style.display = 'flex';
+        setTimeout(() => {
+            if (terminalCommandInput) terminalCommandInput.focus();
+        }, 80);
+    }
+
+    function closeTerminalModal() {
+        if (terminalModal) terminalModal.style.display = 'none';
+    }
+
+    function updateTerminalPrompt() {
+        if (!terminalPromptPrefix) return;
+        const target = terminalTargetSelect ? terminalTargetSelect.value : '';
+        if (target) {
+            terminalPromptPrefix.textContent = `root@${target}:#`;
+            terminalPromptPrefix.style.color = '#38bdf8';
+        } else {
+            terminalPromptPrefix.textContent = `root@${terminalActiveServer || 'vps'}:~$`;
+            terminalPromptPrefix.style.color = '#10b981';
+        }
+    }
+
+    function appendTerminalSystemNotice(text) {
+        if (!terminalOutput) return;
+        const div = document.createElement('div');
+        div.className = 'terminal-line';
+        div.style.color = '#94a3b8';
+        div.style.fontStyle = 'italic';
+        div.textContent = text;
+        terminalOutput.appendChild(div);
+        scrollTerminalToBottom();
+    }
+
+    function scrollTerminalToBottom() {
+        if (terminalViewport) {
+            terminalViewport.scrollTop = terminalViewport.scrollHeight;
+        }
+    }
+
+    async function executeTerminalCommand(cmdToRun) {
+        const rawCmd = (cmdToRun !== undefined ? cmdToRun : (terminalCommandInput ? terminalCommandInput.value : '')).trim();
+        if (!rawCmd || isTerminalExecuting) return;
+
+        terminalCommandHistory.push(rawCmd);
+        terminalHistoryIndex = terminalCommandHistory.length;
+
+        if (terminalCommandInput) {
+            terminalCommandInput.value = '';
+        }
+
+        if (rawCmd.toLowerCase() === 'clear') {
+            if (terminalOutput) terminalOutput.innerHTML = '';
+            return;
+        }
+
+        const targetContainer = terminalTargetSelect ? terminalTargetSelect.value : '';
+        const promptLabel = terminalPromptPrefix ? terminalPromptPrefix.textContent : '$';
+
+        const cmdLine = document.createElement('div');
+        cmdLine.className = 'terminal-line terminal-line-cmd';
+        cmdLine.innerHTML = `<span>${escapeHtml(promptLabel)}</span> <span>${escapeHtml(rawCmd)}</span>`;
+        terminalOutput.appendChild(cmdLine);
+
+        const runningIndicator = document.createElement('div');
+        runningIndicator.className = 'terminal-line';
+        runningIndicator.style.color = '#64748b';
+        runningIndicator.textContent = '⏳ Ejecutando en servidor remoto...';
+        terminalOutput.appendChild(runningIndicator);
+        scrollTerminalToBottom();
+
+        isTerminalExecuting = true;
+        if (btnTerminalSend) btnTerminalSend.disabled = true;
+
+        try {
+            const res = await fetch('/api/servers/terminal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: terminalActiveServer,
+                    command: rawCmd,
+                    container: targetContainer
+                })
+            });
+
+            runningIndicator.remove();
+
+            if (!res.ok) {
+                const errText = await res.text();
+                throw new Error(errText || `Error HTTP ${res.status}`);
+            }
+
+            const data = await res.json();
+
+            // Si falló la conexión por navegador, activar fallback a PC sin bloquearlo
+            if (data.connected === false) {
+                const errLine = document.createElement('div');
+                errLine.className = 'terminal-line terminal-line-err';
+                errLine.textContent = `❌ Fallo de conexión web: ${data.output || 'No se pudo conectar por SSH'}\n💡 Puedes conectar directamente abriendo la Terminal del PC (disponible abajo o en cabecera).`;
+                terminalOutput.appendChild(errLine);
+
+                if (terminalFallbackBanner) {
+                    terminalFallbackBanner.style.display = 'flex';
+                    if (terminalFallbackMsg) {
+                        terminalFallbackMsg.textContent = `${data.output || 'Fallo de conexión SSH'}.`;
+                    }
+                }
+            } else {
+                if (terminalFallbackBanner) terminalFallbackBanner.style.display = 'none';
+
+                const outLine = document.createElement('div');
+                outLine.className = data.exitCode !== 0 ? 'terminal-line terminal-line-err' : 'terminal-line terminal-line-out';
+                outLine.textContent = data.output || '(sin salida)';
+                terminalOutput.appendChild(outLine);
+            }
+        } catch (err) {
+            runningIndicator.remove();
+            const errLine = document.createElement('div');
+            errLine.className = 'terminal-line terminal-line-err';
+            errLine.textContent = `❌ Error al ejecutar en navegador: ${err.message}\n💡 La opción de usar la Terminal del PC permanece totalmente disponible.`;
+            terminalOutput.appendChild(errLine);
+
+            if (terminalFallbackBanner) {
+                terminalFallbackBanner.style.display = 'flex';
+                if (terminalFallbackMsg) {
+                    terminalFallbackMsg.textContent = `${err.message}.`;
+                }
+            }
+        } finally {
+            isTerminalExecuting = false;
+            if (btnTerminalSend) btnTerminalSend.disabled = false;
+            scrollTerminalToBottom();
+            if (terminalCommandInput) terminalCommandInput.focus();
+        }
+    }
+
+    // Disparador de terminal de PC (NUNCA BLOQUEADO)
+    function triggerPCTerminal() {
+        const targetServer = terminalActiveServer || selectedServerName || (activeServer && activeServer.name);
+        if (!targetServer) {
+            showToast('Selecciona un servidor primero.', 'error');
+            return;
+        }
+        launchNativeTerminal(targetServer, btnTerminalOpenPC);
+    }
+
+    if (btnTerminalOpenPC) btnTerminalOpenPC.addEventListener('click', triggerPCTerminal);
+    if (btnTerminalDirectPC) btnTerminalDirectPC.addEventListener('click', triggerPCTerminal);
+    if (btnFallbackOpenPC) btnFallbackOpenPC.addEventListener('click', triggerPCTerminal);
+
+    // Atajos de comandos rápidos
+    document.querySelectorAll('.btn-term-quick').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const cmd = btn.getAttribute('data-cmd');
+            if (cmd) executeTerminalCommand(cmd);
+        });
+    });
+
+    if (terminalCommandInput) {
+        terminalCommandInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                executeTerminalCommand();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (terminalCommandHistory.length > 0 && terminalHistoryIndex > 0) {
+                    terminalHistoryIndex--;
+                    terminalCommandInput.value = terminalCommandHistory[terminalHistoryIndex];
+                }
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (terminalHistoryIndex < terminalCommandHistory.length - 1) {
+                    terminalHistoryIndex++;
+                    terminalCommandInput.value = terminalCommandHistory[terminalHistoryIndex];
+                } else {
+                    terminalHistoryIndex = terminalCommandHistory.length;
+                    terminalCommandInput.value = '';
+                }
+            } else if (e.ctrlKey && e.key === 'l') {
+                e.preventDefault();
+                if (terminalOutput) terminalOutput.innerHTML = '';
+            }
+        });
+    }
+
+    if (btnTerminalSend) {
+        btnTerminalSend.addEventListener('click', () => executeTerminalCommand());
+    }
+
+    if (btnTerminalClear) {
+        btnTerminalClear.addEventListener('click', () => {
+            if (terminalOutput) terminalOutput.innerHTML = '';
+            if (terminalCommandInput) terminalCommandInput.focus();
+        });
+    }
+
+    if (btnTerminalCopy) {
+        btnTerminalCopy.addEventListener('click', async () => {
+            if (!terminalOutput) return;
+            const text = terminalOutput.innerText || terminalOutput.textContent || '';
+            const ok = await copyToClipboard(text);
+            if (ok) {
+                showToast('Salida de la terminal copiada al portapapeles', 'success');
+            } else {
+                showToast('No se pudo copiar el texto', 'error');
+            }
+        });
+    }
+
+    if (terminalTargetSelect) {
+        terminalTargetSelect.addEventListener('change', () => {
+            updateTerminalPrompt();
+            if (terminalCommandInput) terminalCommandInput.focus();
+        });
+    }
+
+    if (btnCloseTerminalModal) btnCloseTerminalModal.addEventListener('click', closeTerminalModal);
+    if (btnCloseTerminalModalBottom) btnCloseTerminalModalBottom.addEventListener('click', closeTerminalModal);
+    if (terminalModal) {
+        terminalModal.addEventListener('click', (e) => {
+            if (e.target === terminalModal) closeTerminalModal();
+        });
+    }
+
+    // --- Load Initial State ---
+    async function loadHubState() {
+        try {
+            const res = await fetch('/api/status');
+            if (!res.ok) {
+                topActiveName.textContent = 'Error de API';
+                showToast(`Error al consultar estado (${res.status})`, 'error');
+                deactivateInitialSkeletons();
+                return;
+            }
+
+            const data = await res.json();
+            servers = data.servers || [];
+            activeServer = data.config || null;
+
+            if (servers.length === 0 && activeServer && activeServer.host) {
+                servers = [activeServer];
+            }
+
+            topActiveName.textContent = 'Ninguno';
+            topActiveHost.textContent = '—';
+            topActiveDot.className = 'status-dot status-offline';
+            topActiveLatency.textContent = '—';
+
+            if (activeServer && activeServer.name) {
+                topActiveName.textContent = activeServer.name;
+                topActiveHost.textContent = activeServer.host || 'localhost';
+                topActiveDot.className = data.isOnline ? 'status-dot status-online' : 'status-dot status-offline';
+                topActiveLatency.textContent = data.isOnline ? 'ONLINE' : 'OFFLINE';
+            }
+
+            const savedServer = localStorage.getItem('tarhiata_last_server');
+            if (savedServer && servers.some(s => s.name === savedServer)) {
+                selectedServerName = savedServer;
+            } else if (!selectedServerName || !servers.some(s => s.name === selectedServerName)) {
+                if (activeServer && activeServer.name) {
+                    selectedServerName = activeServer.name;
+                } else if (servers.length > 0) {
+                    selectedServerName = servers[0].name;
+                }
+            }
+
+            renderFleetDirectory();
+
+            // Restaurar pestaña activa desde URL Hash (#apps, #dbs, #services, #topology)
+            const initialTab = (location.hash || '').replace('#', '');
+            if (['services', 'databases', 'host', 'topology'].includes(initialTab)) {
+                activateTab(initialTab);
+            }
+
+            if (selectedServerName) {
+                await selectServer(selectedServerName);
+            } else if (servers.length === 0) {
+                deskServerTitle.textContent = 'Sin Servidores';
+                deskHost.textContent = '—';
+                deskModeBadge.textContent = 'NINGUNO';
+                deskActiveBadge.style.display = 'none';
+                btnDeskActivate.style.display = 'none';
+                tileCpuPct.textContent = '—';
+                tileRamUsed.textContent = '—';
+                tileDiskUsed.textContent = '—';
+                tileDiskBar.style.width = '0%';
+                tileUptime.textContent = '—';
+                swarmStateBadge.className = 'swarm-status-tag';
+                swarmStateBadge.textContent = 'Sin Framework';
+                deskSwarm.textContent = '—';
+                deskDocker.textContent = '—';
+                deskOS.textContent = '—';
+                btnBootstrapSwarm.style.display = 'inline-flex';
+                btnBootstrapSwarm.disabled = false;
+                btnBootstrapSwarm.classList.remove('swarm-configured');
+                btnBootstrapSwarm.innerHTML = `🚀 <span>Instalar Framework</span>`;
+                btnBootstrapSwarm.title = 'Añade un servidor VPS para instalar el Framework de orquestación';
+                swarmServicesCardsGrid.innerHTML = '';
+                swarmServicesEmpty.style.display = 'flex';
+                swarmDatabasesCardsGrid.innerHTML = '';
+                swarmDatabasesEmpty.style.display = 'flex';
+                if (swarmNodesTableBody) swarmNodesTableBody.innerHTML = '<tr><td colspan="5" class="t-td-empty">Sin servidores registrados. Haz clic en "Instalar Framework" para comenzar.</td></tr>';
+                if (servicesTableBody) servicesTableBody.innerHTML = '<tr><td colspan="4" class="t-td-empty">Sin servidores registrados</td></tr>';
+            }
+
+            // Deactivate all component skeletons at once when the very last data has arrived & rendered
+            deactivateInitialSkeletons();
+
+            if (servers.length > 0) {
+                testAllServers(false);
+            }
+        } catch (err) {
+            console.error('Error inicializando Hub:', err);
+            showToast(`Fallo de conexión: ${err.message}`, 'error');
+            deactivateInitialSkeletons();
+        }
+    }
+
+    // --- Toast Notifications ---
+    function showToast(message, type = 'info') {
+        const container = document.getElementById('toastContainer');
+        if (!container) return;
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+
+        const icon = type === 'success' ? '✓' : type === 'error' ? '✕' : 'ℹ';
+        toast.innerHTML = `<span style="font-weight:700;">${icon}</span> <span>${escapeHtml(message)}</span>`;
+
+        container.appendChild(toast);
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(10px)';
+            toast.style.transition = 'all 0.25s ease';
+            setTimeout(() => toast.remove(), 250);
+        }, 3500);
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    // Inicializar Studio
+    loadHubState();
+
+    // Auto-refresh periódico de telemetría (cada 15s) cuando la pestaña está activa
+    let isAutoRefreshing = false;
+    setInterval(async () => {
+        if (document.hidden || isAutoRefreshing) return;
+        if (selectedServerName && !btnDeskRefresh.disabled) {
+            isAutoRefreshing = true;
+            try {
+                await refreshServerTelemetry(selectedServerName, true);
+            } catch (_) {
+            } finally {
+                isAutoRefreshing = false;
+            }
+        }
+    }, 15000);
+
+    // Reanudación inmediata al regresar a la pestaña activa
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && selectedServerName && !isAutoRefreshing) {
+            refreshServerTelemetry(selectedServerName, true);
+        }
+    });
 });

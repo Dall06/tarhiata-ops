@@ -2,6 +2,7 @@ package usecases
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
@@ -52,7 +53,7 @@ func FormatEnvMap(envMap map[string]string) string {
 func (uc *ManageEnvVarsUseCase) GetEnvVars(serviceName string) (string, map[string]string, error) {
 	svc, err := uc.repo.GetService(serviceName)
 	if err != nil || svc == nil {
-		return "", nil, fmt.Errorf("servicio '%s' no encontrado en el catálogo", serviceName)
+		return "", make(map[string]string), nil
 	}
 	envMap := ParseEnvContent(svc.EnvVars)
 	return svc.EnvVars, envMap, nil
@@ -61,7 +62,9 @@ func (uc *ManageEnvVarsUseCase) GetEnvVars(serviceName string) (string, map[stri
 func (uc *ManageEnvVarsUseCase) UpdateEnvVars(serviceName string, rawEnvContent string, config domain.ServerConfig) error {
 	svc, err := uc.repo.GetService(serviceName)
 	if err != nil || svc == nil {
-		return fmt.Errorf("servicio '%s' no encontrado", serviceName)
+		svc = &domain.SavedService{
+			Name: serviceName,
+		}
 	}
 
 	// 1. Guardar en SQLite
@@ -86,7 +89,9 @@ func (uc *ManageEnvVarsUseCase) UpdateEnvVars(serviceName string, rawEnvContent 
 				flagsStr := strings.Join(envFlags, " ")
 				cmd := fmt.Sprintf("docker service update %s %s 2>/dev/null || docker service update %s %s_%s 2>/dev/null || docker service update %s tarhiata-app-%s 2>/dev/null || true",
 					flagsStr, svc.Name, flagsStr, svc.Name, svc.Name, flagsStr, svc.Name)
-				uc.ssh.RunCommand(cmd)
+				if _, errRun := uc.ssh.RunCommand(cmd); errRun != nil {
+					slog.Warn("falló ejecución de actualización de env vars en swarm", "error", errRun)
+				}
 			}
 		}
 	}

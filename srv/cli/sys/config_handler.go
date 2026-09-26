@@ -29,6 +29,7 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 			huh.NewSelect[string]().
 				Title("¿Dónde alojaremos el motor de Tarhiata-ops?").
 				Options(
+					huh.NewOption("💻 Este mismo equipo (Localhost / Servidor actual)", "local"),
 					huh.NewOption("🔌 Tengo un servidor existente (Requiere IP y SSH)", "existing"),
 					huh.NewOption("🐳 Crear un servidor desde cero (Vultr)", "new"),
 				).Value(&configType),
@@ -53,6 +54,17 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 		cloudProvider = current.CloudProvider
 	}
 
+	if configType == "local" {
+		host = "localhost"
+		portStr = "0"
+		user = os.Getenv("USER")
+		if user == "" {
+			user = "local"
+		}
+		key = ""
+		cloudProvider = "local"
+	}
+
 	if configType == "existing" {
 		form := huh.NewForm(
 			huh.NewGroup(
@@ -69,7 +81,9 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 			fmt.Println("Cancelado.")
 			return current
 		}
-	} else {
+	}
+
+	if configType == "new" {
 		// Modo Terraform (Desde cero)
 		var providerName string
 		if err := huh.NewForm(

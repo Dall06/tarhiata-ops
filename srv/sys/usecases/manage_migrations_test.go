@@ -23,6 +23,10 @@ func newMockRepoForMigrations() *mockRepoForMigrations {
 
 func (m *mockRepoForMigrations) SaveServerConfig(config domain.ServerConfig) error { return nil }
 func (m *mockRepoForMigrations) GetServerConfig() (*domain.ServerConfig, error)    { return nil, nil }
+func (m *mockRepoForMigrations) GetAllServerConfigs() ([]domain.ServerConfig, error) { return nil, nil }
+func (m *mockRepoForMigrations) GetServerConfigByName(name string) (*domain.ServerConfig, error) { return nil, nil }
+func (m *mockRepoForMigrations) SetActiveServerConfig(name string) error           { return nil }
+func (m *mockRepoForMigrations) DeleteServerConfig(name string) error              { return nil }
 func (m *mockRepoForMigrations) SaveService(svc domain.SavedService) error          { return nil }
 func (m *mockRepoForMigrations) GetServices() ([]domain.SavedService, error)         { return nil, nil }
 func (m *mockRepoForMigrations) GetService(name string) (*domain.SavedService, error) { return nil, nil }

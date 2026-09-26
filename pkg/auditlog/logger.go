@@ -3,6 +3,7 @@ package auditlog
 import (
 	"bufio"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -104,7 +105,9 @@ func (l *Logger) writeToFile(entry AuditEntry) {
 	}
 	defer f.Close()
 
-	_, _ = f.WriteString(string(data) + "\n")
+	if _, err := f.WriteString(string(data) + "\n"); err != nil {
+		slog.Warn("falló al escribir registro de auditoría en disco", "error", err)
+	}
 }
 
 // Log envía un evento al canal paralelo para ser procesado de forma no bloqueante.

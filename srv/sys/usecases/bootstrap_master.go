@@ -2,6 +2,7 @@ package usecases
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
@@ -61,7 +62,9 @@ func (uc *bootstrapMasterServiceUseCase) Execute(input ports.BootstrapMasterInpu
 			for _, l := range existingLinks {
 				if l.SourceSvc == input.AppName {
 					if uc.unlinkUC != nil {
-						_ = uc.unlinkUC.Execute(l.SourceSvc, l.TargetSvc)
+						if errUnlink := uc.unlinkUC.Execute(l.SourceSvc, l.TargetSvc); errUnlink != nil {
+							slog.Warn("Fallo al desvincular enlace previo", "source", l.SourceSvc, "target", l.TargetSvc, "error", errUnlink)
+						}
 					}
 					result.UnlinkedOld = append(result.UnlinkedOld, l.TargetSvc)
 				}
@@ -87,7 +90,9 @@ func (uc *bootstrapMasterServiceUseCase) Execute(input ports.BootstrapMasterInpu
 			}
 		}
 		if uc.repo != nil {
-			_ = uc.repo.SaveDatabase(db)
+			if errSave := uc.repo.SaveDatabase(db); errSave != nil {
+				return &result, fmt.Errorf("error guardando base de datos en repositorio: %w", errSave)
+			}
 		}
 		createdDB = &db
 		result.Database = createdDB
@@ -122,7 +127,9 @@ func (uc *bootstrapMasterServiceUseCase) Execute(input ports.BootstrapMasterInpu
 		}
 	}
 	if uc.repo != nil {
-		_ = uc.repo.SaveService(svc)
+		if errSave := uc.repo.SaveService(svc); errSave != nil {
+			return &result, fmt.Errorf("error guardando servicio en repositorio: %w", errSave)
+		}
 	}
 	result.App = svc
 

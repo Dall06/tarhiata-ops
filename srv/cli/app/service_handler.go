@@ -506,10 +506,17 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 			}
 		}
 
-		svc.Port, _ = strconv.Atoi(portStr)
+		parsedPort, errPort := strconv.Atoi(portStr)
+		if errPort != nil || parsedPort <= 0 {
+			parsedPort = 80
+		}
+		svc.Port = parsedPort
 		svc.Expose = isPublic
 		svc.Domain = domainName
-		h.repo.SaveService(*svc)
+		if errSave := h.repo.SaveService(*svc); errSave != nil {
+			fmt.Printf("❌ Error guardando servicio: %v\n", errSave)
+			return
+		}
 		fmt.Println("✅ Configuración de red actualizada. Recuerda hacer un 'Desplegar / Actualizar' para aplicar los cambios.")
 
 	case "edit_env":

@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -21,15 +24,23 @@ import (
 	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
 	"github.com/Dall06/tarhiata-ops/srv/sys/usecases"
 	"github.com/Dall06/tarhiata-ops/opt/banner"
+	"github.com/Dall06/tarhiata-ops/pkg/osterminal"
 	"github.com/Dall06/tarhiata-ops/srv/ui/dto"
 	"github.com/Dall06/tarhiata-ops/srv/ui/views/public"
 )
 
+type cacheItem struct {
+	data      interface{}
+	expiresAt time.Time
+}
+
 type WebServer struct {
-	mu     sync.RWMutex
-	repo   ports.ConfigRepository
-	config *domain.ServerConfig
-	apiKey string // Clave API opcional para proteger endpoints destructivos
+	mu      sync.RWMutex
+	repo    ports.ConfigRepository
+	config  *domain.ServerConfig
+	apiKey  string // Clave API opcional para proteger endpoints destructivos
+	cacheMu sync.RWMutex
+	cache   map[string]cacheItem
 }
 
 func (w *WebServer) getConfig() *domain.ServerConfig {
@@ -44,6 +55,29 @@ func (w *WebServer) setConfig(cfg *domain.ServerConfig) {
 	w.config = cfg
 }
 
+func (w *WebServer) getCache(key string) (interface{}, bool) {
+	w.cacheMu.RLock()
+	defer w.cacheMu.RUnlock()
+	if entry, ok := w.cache[key]; ok {
+		if time.Now().Before(entry.expiresAt) {
+			return entry.data, true
+		}
+	}
+	return nil, false
+}
+
+func (w *WebServer) setCache(key string, data interface{}, ttl time.Duration) {
+	w.cacheMu.Lock()
+	defer w.cacheMu.Unlock()
+	if w.cache == nil {
+		w.cache = make(map[string]cacheItem)
+	}
+	w.cache[key] = cacheItem{
+		data:      data,
+		expiresAt: time.Now().Add(ttl),
+	}
+}
+
 func NewWebServer(repo ports.ConfigRepository, config *domain.ServerConfig) *WebServer {
 	// Usar variable de entorno TARHIATA_API_KEY si está configurada
 	apiKey := ""
@@ -54,6 +88,7 @@ func NewWebServer(repo ports.ConfigRepository, config *domain.ServerConfig) *Web
 		repo:   repo,
 		config: config,
 		apiKey: apiKey,
+		cache:  make(map[string]cacheItem),
 	}
 }
 
@@ -79,7 +114,11 @@ func (w *WebServer) localAuthMiddleware(next http.HandlerFunc) http.HandlerFunc 
 func (w *WebServer) Start(port int) error {
 	mux := http.NewServeMux()
 
-	fileServer := http.FileServer(http.FS(public.FS))
+	var rootFS http.FileSystem = http.FS(public.FS)
+	if fi, err := os.Stat("srv/ui/views/public/index.html"); err == nil && !fi.IsDir() {
+		rootFS = http.Dir("srv/ui/views/public")
+	}
+	fileServer := http.FileServer(rootFS)
 	mux.HandleFunc("/", func(rw http.ResponseWriter, req *http.Request) {
 		rw.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		rw.Header().Set("Pragma", "no-cache")
@@ -92,12 +131,26 @@ func (w *WebServer) Start(port int) error {
 	mux.HandleFunc("/api/dashboard", w.handleStatus)
 	mux.HandleFunc("/api/services", w.handleServices)
 	mux.HandleFunc("/api/services/rollback", w.handleServiceRollback)
+	mux.HandleFunc("/api/services/restart", w.handleServiceRestart)
+	mux.HandleFunc("/api/databases/restart", w.handleServiceRestart)
 	mux.HandleFunc("/api/services/", w.handleServiceItem)
 	mux.HandleFunc("/api/deploy-service", w.handleServices)
 	mux.HandleFunc("/api/databases", w.handleDatabases)
 	mux.HandleFunc("/api/databases/", w.handleDatabaseItem)
 	mux.HandleFunc("/api/deploy-db", w.handleDatabases)
 	mux.HandleFunc("/api/config", w.localAuthMiddleware(w.handleConfig))
+	mux.HandleFunc("/api/config/test", w.handleConnect)
+	mux.HandleFunc("/api/connect", w.handleConnect)
+	mux.HandleFunc("/api/connect/all", w.handleConnectAll)
+	mux.HandleFunc("/api/servers", w.handleServers)
+	mux.HandleFunc("/api/servers/active", w.handleSetActiveServer)
+	mux.HandleFunc("/api/servers/provision", w.handleProvisionServer)
+	mux.HandleFunc("/api/servers/open-terminal", w.handleOpenTerminal)
+	mux.HandleFunc("/api/servers/terminal", w.handleTerminalExec)
+	mux.HandleFunc("/api/host/metrics", w.handleHostMetrics)
+	mux.HandleFunc("/api/host/services", w.handleHostServices)
+	mux.HandleFunc("/api/host/inspect", w.handleHostInspect)
+	mux.HandleFunc("/api/swarm/status", w.handleSwarmStatus)
 	mux.HandleFunc("/api/bootstrap", w.localAuthMiddleware(w.handleBootstrap))
 	mux.HandleFunc("/api/create-vm-bootstrap", w.localAuthMiddleware(w.handleCreateVMBootstrap))
 	mux.HandleFunc("/api/workers", w.localAuthMiddleware(w.handleWorkerProvision))
@@ -113,6 +166,7 @@ func (w *WebServer) Start(port int) error {
 	mux.HandleFunc("/api/migrations/run", w.localAuthMiddleware(w.handleRunMigrations))
 	mux.HandleFunc("/api/observability/metrics", w.handleObservabilityMetrics)
 	mux.HandleFunc("/api/backups", w.handleBackups)
+	mux.HandleFunc("/api/databases/backup", w.handleBackups)
 	mux.HandleFunc("/api/backups/restore", w.localAuthMiddleware(w.handleRestoreBackup))
 	mux.HandleFunc("/api/backups/download", w.handleDownloadBackup)
 	mux.HandleFunc("/api/env", w.handleEnvVars)
@@ -124,9 +178,11 @@ func (w *WebServer) Start(port int) error {
 	mux.HandleFunc("/api/volumes/download", w.handleVolumeDownload)
 	mux.HandleFunc("/api/volumes/upload", w.localAuthMiddleware(w.handleVolumeUpload))
 	mux.HandleFunc("/api/volumes/delete", w.localAuthMiddleware(w.handleVolumeDelete))
+	mux.HandleFunc("/api/volumes/mkdir", w.localAuthMiddleware(w.handleVolumeMkdir))
 	mux.HandleFunc("/api/ssl/inspect", w.handleSSLInspect)
 	mux.HandleFunc("/api/maintenance/toggle", w.localAuthMiddleware(w.handleMaintenanceToggle))
 	mux.HandleFunc("/api/domains", w.handleCustomDomains)
+	mux.HandleFunc("/api/dns/check", w.handleDNSCheck)
 	mux.HandleFunc("/api/prune", w.localAuthMiddleware(w.handlePrune))
 	mux.HandleFunc("/api/tools/prune", w.localAuthMiddleware(w.handlePrune))
 	mux.HandleFunc("/api/tools/restart-traefik", w.localAuthMiddleware(w.handleRestartTraefik))
@@ -150,7 +206,14 @@ func (w *WebServer) Start(port int) error {
 	banner.PrintServerBanner(port)
 	go openBrowser(url)
 
-	return http.ListenAndServe(fmt.Sprintf(":%d", port), mux)
+	handler := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.Header().Set("X-Content-Type-Options", "nosniff")
+		rw.Header().Set("X-Frame-Options", "DENY")
+		rw.Header().Set("X-XSS-Protection", "1; mode=block")
+		mux.ServeHTTP(rw, req)
+	})
+
+	return http.ListenAndServe(fmt.Sprintf(":%d", port), handler)
 }
 
 func isDockerServiceMatch(targetName string, liveMap map[string]bool) bool {
@@ -203,8 +266,15 @@ func (w *WebServer) handleStatus(rw http.ResponseWriter, req *http.Request) {
 			if len(services) == 0 && len(databases) == 0 {
 				syncUC := usecases.NewSyncClusterStateUseCase(w.repo, sshExec)
 				if dump, err := syncUC.ImportStateFromRemote(); err == nil && dump != nil {
-					services, _ = w.repo.GetServices()
-					databases, _ = w.repo.GetDatabases()
+					var errSvc, errDb error
+					services, errSvc = w.repo.GetServices()
+					if errSvc != nil {
+						slog.Warn("falló recargar servicios tras importar estado", "error", errSvc)
+					}
+					databases, errDb = w.repo.GetDatabases()
+					if errDb != nil {
+						slog.Warn("falló recargar bases de datos tras importar estado", "error", errDb)
+					}
 				}
 			}
 
@@ -223,17 +293,11 @@ func (w *WebServer) handleStatus(rw http.ResponseWriter, req *http.Request) {
 				for _, s := range services {
 					if isDockerServiceMatch(s.Name, liveMap) {
 						activeServices = append(activeServices, s)
-					} else {
-						// Servidor muerto / eliminado -> purgar de la BD local
-						_ = w.repo.DeleteService(s.Name)
 					}
 				}
 				for _, d := range databases {
 					if isDockerServiceMatch(d.Name, liveMap) {
 						activeDatabases = append(activeDatabases, d)
-					} else {
-						// Base de datos muerta / eliminada -> purgar de la BD local
-						_ = w.repo.DeleteDatabase(d.Name)
 					}
 				}
 
@@ -267,7 +331,9 @@ func (w *WebServer) handleStatus(rw http.ResponseWriter, req *http.Request) {
 							Expose:      true,
 							TargetNode:  cfg.Host,
 						}
-						_ = w.repo.SaveService(discovered)
+						if err := w.repo.SaveService(discovered); err != nil {
+							slog.Warn("falló persistencia de servicio descubierto", "service", discovered.Name, "error", err)
+						}
 						activeServices = append(activeServices, discovered)
 					}
 				}
@@ -279,11 +345,20 @@ func (w *WebServer) handleStatus(rw http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	isLocalTarget := false
+	if cfg != nil && cfg.IsLocal() {
+		isLocalTarget = true
+	}
+
+	servers, _ := w.repo.GetAllServerConfigs()
+
 	resp := map[string]interface{}{
 		"config":    cfg,
+		"servers":   servers,
 		"services":  activeServices,
 		"databases": activeDatabases,
 		"isOnline":  isOnline,
+		"isLocal":   isLocalTarget,
 	}
 	jsonResponse(rw, resp)
 }
@@ -303,13 +378,479 @@ func (w *WebServer) handleConfig(rw http.ResponseWriter, req *http.Request) {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
-	cfg.CloudProvider = "vps-direct"
+	if cfg.IsLocal() {
+		cfg.CloudProvider = "local"
+		cfg.Host = "localhost"
+	}
+	if !cfg.IsLocal() && cfg.CloudProvider == "" {
+		cfg.CloudProvider = "vps-direct"
+	}
 	if err := w.repo.SaveServerConfig(cfg); err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.setConfig(&cfg)
 	jsonResponse(rw, map[string]string{"status": "ok"})
+}
+
+func (w *WebServer) handleConnect(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(rw, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var targetCfg domain.ServerConfig
+	if len(body) > 0 && strings.TrimSpace(string(body)) != "{}" {
+		decoded, err := dto.DecodeServerConfig(body)
+		if err == nil {
+			targetCfg = decoded
+		}
+	}
+
+	if targetCfg.Host == "" && !targetCfg.IsLocal() {
+		curr := w.getConfig()
+		if curr != nil {
+			targetCfg = *curr
+		}
+	}
+
+	if targetCfg.IsLocal() {
+		targetCfg.CloudProvider = "local"
+		if targetCfg.Host == "" {
+			targetCfg.Host = "localhost"
+		}
+	}
+
+	exec := repositories.NewCryptoSSHExecutor()
+	defer exec.Close()
+	uc := usecases.NewConnectServerUseCase(exec)
+	res, err := uc.Execute(targetCfg)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("Error ejecutando diagnóstico: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(rw, res)
+}
+
+func (w *WebServer) handleServers(rw http.ResponseWriter, req *http.Request) {
+	if req.Method == http.MethodGet {
+		servers, err := w.repo.GetAllServerConfigs()
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jsonResponse(rw, servers)
+		return
+	}
+
+	if req.Method == http.MethodPost {
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		cfg, err := dto.DecodeServerConfig(body)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if cfg.IsLocal() {
+			cfg.CloudProvider = "local"
+			cfg.Host = "localhost"
+		}
+		if !cfg.IsLocal() && cfg.CloudProvider == "" {
+			cfg.CloudProvider = "vps-direct"
+		}
+		if err := w.repo.SaveServerConfig(cfg); err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if cfg.IsActive {
+			w.setConfig(&cfg)
+		}
+		jsonResponse(rw, map[string]interface{}{"status": "ok", "config": cfg})
+		return
+	}
+
+	if req.Method == http.MethodDelete {
+		name := req.URL.Query().Get("name")
+		if name == "" {
+			var bodyData struct {
+				Name string `json:"name"`
+			}
+			if err := json.NewDecoder(req.Body).Decode(&bodyData); err == nil {
+				name = bodyData.Name
+			}
+		}
+		name = strings.TrimSpace(name)
+		if name == "" {
+			http.Error(rw, "nombre de servidor requerido", http.StatusBadRequest)
+			return
+		}
+		if err := w.repo.DeleteServerConfig(name); err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		curr := w.getConfig()
+		if curr != nil && curr.Name == name {
+			activeCfg, _ := w.repo.GetServerConfig()
+			w.setConfig(activeCfg)
+		}
+		jsonResponse(rw, map[string]string{"status": "ok"})
+		return
+	}
+
+	http.Error(rw, "Method not allowed", http.StatusMethodNotAllowed)
+}
+
+func (w *WebServer) handleSetActiveServer(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(rw, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var bodyData struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&bodyData); err != nil || strings.TrimSpace(bodyData.Name) == "" {
+		http.Error(rw, "nombre de servidor inválido", http.StatusBadRequest)
+		return
+	}
+	if err := w.repo.SetActiveServerConfig(bodyData.Name); err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	activeCfg, err := w.repo.GetServerConfig()
+	if err == nil && activeCfg != nil {
+		w.setConfig(activeCfg)
+	}
+	jsonResponse(rw, map[string]interface{}{"status": "ok", "active": activeCfg})
+}
+
+func (w *WebServer) handleProvisionServer(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(rw, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var reqData ports.ProvisionCloudRequest
+	if err := json.NewDecoder(req.Body).Decode(&reqData); err != nil {
+		http.Error(rw, "JSON inválido: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if reqData.APIToken == "" {
+		http.Error(rw, "Se requiere un Token de API del proveedor de nube (Vultr o DigitalOcean)", http.StatusBadRequest)
+		return
+	}
+
+	sshExec := repositories.NewCryptoSSHExecutor()
+	defer sshExec.Close()
+	connectUC := usecases.NewConnectServerUseCase(sshExec)
+	provisionUC := usecases.NewProvisionCloudServerUseCase(w.repo, connectUC)
+
+	res, err := provisionUC.Execute(reqData)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if reqData.SetAsActive {
+		activeCfg, _ := w.repo.GetServerConfigByName(reqData.Name)
+		if activeCfg != nil {
+			w.setConfig(activeCfg)
+		}
+	}
+
+	jsonResponse(rw, res)
+}
+
+func (w *WebServer) handleOpenTerminal(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(rw, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var payload struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	targetCfg := w.getConfig()
+	if payload.Name != "" {
+		found, err := w.repo.GetServerConfigByName(payload.Name)
+		if err != nil || found == nil {
+			http.Error(rw, fmt.Sprintf("Servidor '%s' no encontrado", payload.Name), http.StatusNotFound)
+			return
+		}
+		targetCfg = found
+	}
+
+	if targetCfg == nil || (targetCfg.Host == "" && !targetCfg.IsLocal()) {
+		http.Error(rw, "Servidor no encontrado o no configurado", http.StatusNotFound)
+		return
+	}
+
+	var cmdStr string
+	if targetCfg.IsLocal() {
+		shell := os.Getenv("SHELL")
+		if shell == "" {
+			shell = "/bin/sh"
+		}
+		cmdStr = shell
+	} else {
+		cmdStr = osterminal.BuildSSHCommand(targetCfg.User, targetCfg.Host, targetCfg.Port, targetCfg.PrivateKey)
+	}
+
+	launchErr := osterminal.OpenNativeTerminal(cmdStr)
+	jsonResponse(rw, map[string]interface{}{
+		"status":   "ok",
+		"name":     targetCfg.Name,
+		"command":  cmdStr,
+		"launched": launchErr == nil,
+		"isLocal":  targetCfg.IsLocal(),
+	})
+}
+
+func (w *WebServer) getTargetServerConfig(req *http.Request) (*domain.ServerConfig, error) {
+	name := strings.TrimSpace(req.URL.Query().Get("server"))
+	if name == "" {
+		name = strings.TrimSpace(req.URL.Query().Get("name"))
+	}
+	if name != "" {
+		found, err := w.repo.GetServerConfigByName(name)
+		if err != nil {
+			return nil, err
+		}
+		if found != nil {
+			return found, nil
+		}
+		return nil, fmt.Errorf("servidor '%s' no encontrado", name)
+	}
+
+	cfg := w.getConfig()
+	if cfg == nil || (cfg.Host == "" && !cfg.IsLocal()) {
+		return nil, fmt.Errorf("no hay un servidor activo configurado")
+	}
+	return cfg, nil
+}
+
+func (w *WebServer) handleHostInspect(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(rw, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	cfg, err := w.getTargetServerConfig(req)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	cacheKey := "inspect:" + cfg.Name
+	if req.URL.Query().Get("fresh") != "true" {
+		if cached, ok := w.getCache(cacheKey); ok {
+			jsonResponse(rw, cached)
+			return
+		}
+	}
+
+	sshExec := repositories.NewCryptoSSHExecutor()
+	defer sshExec.Close()
+
+	uc := usecases.NewInspectHostUseCase(sshExec)
+	inspection, err := uc.Execute(*cfg)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("Error inspeccionando host: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.setCache(cacheKey, inspection, 5*time.Second)
+	jsonResponse(rw, inspection)
+}
+
+func (w *WebServer) handleHostMetrics(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(rw, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	cfg, err := w.getTargetServerConfig(req)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	cacheKey := "metrics:" + cfg.Name
+	if req.URL.Query().Get("fresh") != "true" {
+		if cached, ok := w.getCache(cacheKey); ok {
+			jsonResponse(rw, cached)
+			return
+		}
+	}
+
+	sshExec := repositories.NewCryptoSSHExecutor()
+	defer sshExec.Close()
+
+	uc := usecases.NewInspectHostUseCase(sshExec)
+	metrics, err := uc.ExecuteMetricsOnly(*cfg)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("Error obteniendo métricas del host: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.setCache(cacheKey, metrics, 5*time.Second)
+	jsonResponse(rw, metrics)
+}
+
+func (w *WebServer) handleHostServices(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(rw, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	cfg, err := w.getTargetServerConfig(req)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	cacheKey := "services:" + cfg.Name
+	if req.URL.Query().Get("fresh") != "true" {
+		if cached, ok := w.getCache(cacheKey); ok {
+			jsonResponse(rw, cached)
+			return
+		}
+	}
+
+	sshExec := repositories.NewCryptoSSHExecutor()
+	defer sshExec.Close()
+
+	uc := usecases.NewInspectHostUseCase(sshExec)
+	services, err := uc.ExecuteServicesOnly(*cfg)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("Error obteniendo servicios del host: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.setCache(cacheKey, services, 10*time.Second)
+	jsonResponse(rw, services)
+}
+
+func (w *WebServer) handleSwarmStatus(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(rw, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	cfg, err := w.getTargetServerConfig(req)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	cacheKey := "swarm:" + cfg.Name
+	if req.URL.Query().Get("fresh") != "true" {
+		if cached, ok := w.getCache(cacheKey); ok {
+			jsonResponse(rw, cached)
+			return
+		}
+	}
+
+	sshExec := repositories.NewCryptoSSHExecutor()
+	defer sshExec.Close()
+
+	uc := usecases.NewGetSwarmStatusUseCase(sshExec)
+	status, err := uc.Execute(*cfg)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("Error obteniendo estado de Swarm: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Incorporar información de bases de datos registradas
+	dbs, _ := w.repo.GetDatabases()
+	liveServicesMap := make(map[string]bool)
+	for _, s := range status.Services {
+		liveServicesMap[s.Name] = true
+	}
+
+	status.Databases = make([]domain.SwarmDBInfo, 0, len(dbs))
+	for _, db := range dbs {
+		dbStatus := "offline"
+		svcName := fmt.Sprintf("tarhiata-db-%s", db.Name)
+		if db.DeployType == "external" {
+			dbStatus = "external"
+		} else if liveServicesMap[svcName] || liveServicesMap[db.Name] {
+			dbStatus = "running"
+		}
+
+		internalDns := fmt.Sprintf("%s:%d", svcName, db.InternalPort)
+		if db.DeployType == "external" && db.ExternalURL != "" {
+			internalDns = db.ExternalURL
+		}
+
+		status.Databases = append(status.Databases, domain.SwarmDBInfo{
+			ID:           db.ID,
+			Name:         db.Name,
+			Engine:       db.Engine,
+			DeployType:   db.DeployType,
+			InternalPort: db.InternalPort,
+			ExternalURL:  db.ExternalURL,
+			TargetNode:   db.TargetNode,
+			Status:       dbStatus,
+			InternalDNS:  internalDns,
+		})
+	}
+
+	w.setCache(cacheKey, status, 5*time.Second)
+	jsonResponse(rw, status)
+}
+
+func (w *WebServer) handleConnectAll(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(rw, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	servers, err := w.repo.GetAllServerConfigs()
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	results := make([]domain.ConnectionResult, len(servers))
+	var wg sync.WaitGroup
+
+	for i, s := range servers {
+		wg.Add(1)
+		go func(idx int, cfg domain.ServerConfig) {
+			defer wg.Done()
+			exec := repositories.NewCryptoSSHExecutor()
+			defer exec.Close()
+			uc := usecases.NewConnectServerUseCase(exec)
+			res, execErr := uc.Execute(cfg)
+			if execErr != nil {
+				results[idx] = domain.ConnectionResult{
+					Name:       cfg.Name,
+					Connected:  false,
+					IsLocal:    cfg.IsLocal(),
+					TargetHost: cfg.Host,
+					Message:    execErr.Error(),
+					Errors:     []string{execErr.Error()},
+				}
+				return
+			}
+			results[idx] = *res
+		}(i, s)
+	}
+
+	wg.Wait()
+	jsonResponse(rw, results)
 }
 
 func (w *WebServer) handleServices(rw http.ResponseWriter, req *http.Request) {
@@ -338,8 +879,6 @@ func (w *WebServer) handleServices(rw http.ResponseWriter, req *http.Request) {
 					for _, s := range svcs {
 						if isDockerServiceMatch(s.Name, liveMap) {
 							active = append(active, s)
-						} else {
-							_ = w.repo.DeleteService(s.Name)
 						}
 					}
 					svcs = active
@@ -416,9 +955,13 @@ func (w *WebServer) handleServices(rw http.ResponseWriter, req *http.Request) {
 			}
 			if svc.EnvVars != "" {
 				workDir := fmt.Sprintf("/opt/tarhiata/services/%s", svc.Name)
-				loggingExec.RunCommand(fmt.Sprintf("mkdir -p %s", workDir))
+				if _, err := loggingExec.RunCommand(fmt.Sprintf("mkdir -p %s", workDir)); err != nil {
+					slog.Warn("falló al crear workdir", "error", err)
+				}
 				envEncoded := base64.StdEncoding.EncodeToString([]byte(svc.EnvVars))
-				loggingExec.RunCommand(fmt.Sprintf("echo '%s' | base64 -d > %s/.env", envEncoded, workDir))
+				if _, err := loggingExec.RunCommand(fmt.Sprintf("echo '%s' | base64 -d > %s/.env", envEncoded, workDir)); err != nil {
+					slog.Warn("falló al decodificar .env", "error", err)
+				}
 			}
 			send("step", "🛠️  Ejecutando servicio en Docker Swarm...")
 			if err := usecases.NewDeployServiceUseCase(loggingExec).Execute(customSvc, deployConfig); err != nil {
@@ -431,12 +974,14 @@ func (w *WebServer) handleServices(rw http.ResponseWriter, req *http.Request) {
 			}
 		}
 
-		_ = w.repo.SaveAuditLog(domain.AuditLog{
+		if err := w.repo.SaveAuditLog(domain.AuditLog{
 			Action:       "DEPLOY",
 			ResourceType: "service",
 			ResourceName: svc.Name,
 			Details:      fmt.Sprintf("Desplegado servicio '%s' (Imagen: %s, Puerto: %d, Dominio: %s)", svc.Name, svc.ImageSource, svc.Port, svc.Domain),
-		})
+		}); err != nil {
+			slog.Warn("falló al guardar log de auditoría", "error", err)
+		}
 
 		send("step", fmt.Sprintf("✅ Servicio '%s' desplegado con éxito!", svc.Name))
 		if isStreaming {
@@ -466,17 +1011,27 @@ func (w *WebServer) handleServices(rw http.ResponseWriter, req *http.Request) {
 
 				cmd := fmt.Sprintf("docker service rm %s || docker service rm %s || docker service rm %s || docker rm -f %s || docker rm -f %s || docker rm -f %s",
 					dbService1, dbService2, name, dbService1, dbService2, name)
-				_, _ = sshExec.RunCommand(cmd)
+				if _, err := sshExec.RunCommand(cmd); err != nil {
+					slog.Debug("aviso al remover contenedor/servicio ssh", "cmd", cmd, "error", err)
+				}
 			}
 		}
 
 		cleanName := strings.TrimPrefix(name, "tarhiata-db-")
 		cleanName = strings.TrimPrefix(cleanName, "tarhiata-")
 
-		_ = w.repo.DeleteService(name)
-		_ = w.repo.DeleteService(cleanName)
-		_ = w.repo.DeleteDatabase(name)
-		_ = w.repo.DeleteDatabase(cleanName)
+		if err := w.repo.DeleteService(name); err != nil {
+			slog.Debug("aviso al eliminar servicio por nombre", "name", name, "error", err)
+		}
+		if err := w.repo.DeleteService(cleanName); err != nil {
+			slog.Debug("aviso al eliminar servicio por cleanName", "cleanName", cleanName, "error", err)
+		}
+		if err := w.repo.DeleteDatabase(name); err != nil {
+			slog.Debug("aviso al eliminar base de datos por nombre", "name", name, "error", err)
+		}
+		if err := w.repo.DeleteDatabase(cleanName); err != nil {
+			slog.Debug("aviso al eliminar base de datos por cleanName", "cleanName", cleanName, "error", err)
+		}
 
 		jsonResponse(rw, map[string]string{"status": "deleted", "name": name})
 		return
@@ -538,9 +1093,13 @@ func (w *WebServer) handleServiceItem(rw http.ResponseWriter, req *http.Request)
 				}
 				if svc.EnvVars != "" {
 					workDir := fmt.Sprintf("/opt/tarhiata/services/%s", svc.Name)
-					sshExec.RunCommand(fmt.Sprintf("mkdir -p %s", workDir))
+					if _, err := sshExec.RunCommand(fmt.Sprintf("mkdir -p %s", workDir)); err != nil {
+						slog.Warn("falló al crear workdir", "error", err)
+					}
 					envEncoded := base64.StdEncoding.EncodeToString([]byte(svc.EnvVars))
-					sshExec.RunCommand(fmt.Sprintf("echo '%s' | base64 -d > %s/.env", envEncoded, workDir))
+					if _, err := sshExec.RunCommand(fmt.Sprintf("echo '%s' | base64 -d > %s/.env", envEncoded, workDir)); err != nil {
+						slog.Warn("falló al decodificar .env", "error", err)
+					}
 				}
 				if err := usecases.NewDeployServiceUseCase(sshExec).Execute(customSvc, deployConfig); err != nil {
 					http.Error(rw, fmt.Sprintf("Error al actualizar despliegue SSH: %v", err), http.StatusInternalServerError)
@@ -557,7 +1116,9 @@ func (w *WebServer) handleServiceItem(rw http.ResponseWriter, req *http.Request)
 			sshExec := repositories.NewCryptoSSHExecutor()
 			if err := sshExec.Connect(*cfg); err == nil {
 				defer sshExec.Close()
-				_, _ = sshExec.RunCommand(fmt.Sprintf("docker service rm %s || docker rm -f %s", name, name))
+				if _, err := sshExec.RunCommand(fmt.Sprintf("docker service rm %s || docker rm -f %s", name, name)); err != nil {
+					slog.Debug("aviso al remover contenedor/servicio ssh", "error", err)
+				}
 			}
 		}
 		if err := w.repo.DeleteService(name); err != nil {
@@ -594,10 +1155,8 @@ func (w *WebServer) handleDatabases(rw http.ResponseWriter, req *http.Request) {
 					}
 					var active []domain.SavedDatabase
 					for _, db := range dbs {
-						if isDockerServiceMatch(db.Name, liveMap) {
+						if db.DeployType == "external" || isDockerServiceMatch(db.Name, liveMap) {
 							active = append(active, db)
-						} else {
-							_ = w.repo.DeleteDatabase(db.Name)
 						}
 					}
 					dbs = active
@@ -605,6 +1164,9 @@ func (w *WebServer) handleDatabases(rw http.ResponseWriter, req *http.Request) {
 			}
 		}
 
+		for i := range dbs {
+			dbs[i].Password = ""
+		}
 		jsonResponse(rw, dbs)
 		return
 	}
@@ -680,12 +1242,14 @@ func (w *WebServer) handleDatabases(rw http.ResponseWriter, req *http.Request) {
 			}
 		}
 
-		_ = w.repo.SaveAuditLog(domain.AuditLog{
+		if err := w.repo.SaveAuditLog(domain.AuditLog{
 			Action:       "DEPLOY",
 			ResourceType: "database",
 			ResourceName: db.Name,
 			Details:      fmt.Sprintf("Desplegada BD '%s' (Motor: %s, Nodo: %s, Recovery: %v)", db.Name, db.Engine, db.TargetNode, db.ReuseExistingData),
-		})
+		}); err != nil {
+			slog.Warn("falló al guardar log de auditoría para base de datos", "db", db.Name, "error", err)
+		}
 
 		send("step", fmt.Sprintf("✅ Base de Datos '%s' desplegada con éxito!", db.Name))
 		if isStreaming {
@@ -708,11 +1272,16 @@ func (w *WebServer) handleDatabases(rw http.ResponseWriter, req *http.Request) {
 				defer sshExec.Close()
 
 				// 1. Remover variables de entorno inyectadas en servicios vinculados en Swarm
-				links, _ := w.repo.GetServiceLinks()
+				links, errLinks := w.repo.GetServiceLinks()
+				if errLinks != nil {
+					slog.Warn("falló al obtener enlaces de servicios", "error", errLinks)
+				}
 				unlinkUC := usecases.NewUnlinkServicesUseCase(w.repo, sshExec)
 				for _, l := range links {
 					if l.TargetSvc == name || l.SourceSvc == name {
-						_ = unlinkUC.Execute(l.SourceSvc, l.TargetSvc)
+						if err := unlinkUC.Execute(l.SourceSvc, l.TargetSvc); err != nil {
+							slog.Warn("falló al desvincular servicio", "source", l.SourceSvc, "target", l.TargetSvc, "error", err)
+						}
 					}
 				}
 
@@ -725,17 +1294,27 @@ func (w *WebServer) handleDatabases(rw http.ResponseWriter, req *http.Request) {
 
 				cmd := fmt.Sprintf("docker service rm %s || docker service rm %s || docker service rm %s || docker rm -f %s || docker rm -f %s || docker rm -f %s",
 					dbService1, dbService2, name, dbService1, dbService2, name)
-				_, _ = sshExec.RunCommand(cmd)
+				if _, err := sshExec.RunCommand(cmd); err != nil {
+					slog.Debug("aviso al remover contenedor/servicio ssh de base de datos", "cmd", cmd, "error", err)
+				}
 			}
 		}
 
 		cleanName := strings.TrimPrefix(name, "tarhiata-db-")
 		cleanName = strings.TrimPrefix(cleanName, "tarhiata-")
 
-		_ = w.repo.DeleteDatabase(name)
-		_ = w.repo.DeleteDatabase(cleanName)
-		_ = w.repo.DeleteService(name)
-		_ = w.repo.DeleteService(cleanName)
+		if err := w.repo.DeleteDatabase(name); err != nil {
+			slog.Debug("aviso al eliminar base de datos por nombre", "name", name, "error", err)
+		}
+		if err := w.repo.DeleteDatabase(cleanName); err != nil {
+			slog.Debug("aviso al eliminar base de datos por cleanName", "cleanName", cleanName, "error", err)
+		}
+		if err := w.repo.DeleteService(name); err != nil {
+			slog.Debug("aviso al eliminar servicio por nombre", "name", name, "error", err)
+		}
+		if err := w.repo.DeleteService(cleanName); err != nil {
+			slog.Debug("aviso al eliminar servicio por cleanName", "cleanName", cleanName, "error", err)
+		}
 
 		jsonResponse(rw, map[string]string{"status": "deleted", "name": name})
 		return
@@ -788,11 +1367,16 @@ func (w *WebServer) handleDatabaseItem(rw http.ResponseWriter, req *http.Request
 				defer sshExec.Close()
 
 				// 1. Remover variables de entorno inyectadas en servicios vinculados en Swarm
-				links, _ := w.repo.GetServiceLinks()
+				links, errLinks := w.repo.GetServiceLinks()
+				if errLinks != nil {
+					slog.Warn("falló al obtener enlaces de servicios", "error", errLinks)
+				}
 				unlinkUC := usecases.NewUnlinkServicesUseCase(w.repo, sshExec)
 				for _, l := range links {
 					if l.TargetSvc == name || l.SourceSvc == name {
-						_ = unlinkUC.Execute(l.SourceSvc, l.TargetSvc)
+						if err := unlinkUC.Execute(l.SourceSvc, l.TargetSvc); err != nil {
+							slog.Warn("falló al desvincular servicio", "source", l.SourceSvc, "target", l.TargetSvc, "error", err)
+						}
 					}
 				}
 
@@ -805,17 +1389,27 @@ func (w *WebServer) handleDatabaseItem(rw http.ResponseWriter, req *http.Request
 
 				cmd := fmt.Sprintf("docker service rm %s || docker service rm %s || docker service rm %s || docker rm -f %s || docker rm -f %s || docker rm -f %s",
 					dbService1, dbService2, name, dbService1, dbService2, name)
-				_, _ = sshExec.RunCommand(cmd)
+				if _, err := sshExec.RunCommand(cmd); err != nil {
+					slog.Debug("aviso al remover contenedor/servicio ssh de base de datos", "cmd", cmd, "error", err)
+				}
 			}
 		}
 
 		cleanName := strings.TrimPrefix(name, "tarhiata-db-")
 		cleanName = strings.TrimPrefix(cleanName, "tarhiata-")
 
-		_ = w.repo.DeleteDatabase(name)
-		_ = w.repo.DeleteDatabase(cleanName)
-		_ = w.repo.DeleteService(name)
-		_ = w.repo.DeleteService(cleanName)
+		if err := w.repo.DeleteDatabase(name); err != nil {
+			slog.Debug("aviso al eliminar base de datos por nombre", "name", name, "error", err)
+		}
+		if err := w.repo.DeleteDatabase(cleanName); err != nil {
+			slog.Debug("aviso al eliminar base de datos por cleanName", "cleanName", cleanName, "error", err)
+		}
+		if err := w.repo.DeleteService(name); err != nil {
+			slog.Debug("aviso al eliminar servicio por nombre", "name", name, "error", err)
+		}
+		if err := w.repo.DeleteService(cleanName); err != nil {
+			slog.Debug("aviso al eliminar servicio por cleanName", "cleanName", cleanName, "error", err)
+		}
 
 		jsonResponse(rw, map[string]string{"status": "deleted", "name": name})
 		return
@@ -874,7 +1468,9 @@ func (w *WebServer) handleBootstrap(rw http.ResponseWriter, req *http.Request) {
 		InstallObservability bool   `json:"installObservability"`
 	}
 	if req.Body != nil {
-		_ = json.NewDecoder(req.Body).Decode(&reqData)
+		if err := json.NewDecoder(req.Body).Decode(&reqData); err != nil && err != io.EOF {
+			slog.Warn("cuerpo de solicitud bootstrap no es JSON válido", "error", err)
+		}
 	}
 
 	// Configurar streaming NDJSON
@@ -947,8 +1543,11 @@ func (w *WebServer) handleBootstrap(rw http.ResponseWriter, req *http.Request) {
 	if reqData.InstallObservability {
 		send("step", "📊 [3/3] Desplegando stack de observabilidad...")
 		obsUC := usecases.NewDeployObservabilityUseCase(loggingExec)
-		_ = obsUC.Execute(true)
-		send("log", "✅ Observabilidad desplegada (Portainer, Dozzle, Grafana)")
+		if err := obsUC.Execute(true); err != nil {
+			send("log", fmt.Sprintf("⚠️ Despliegue de observabilidad reportó: %v", err))
+		} else {
+			send("log", "✅ Observabilidad desplegada (Portainer, Dozzle, Grafana)")
+		}
 	}
 
 	streamDoneJSON(rw, flusher, map[string]string{
@@ -1015,7 +1614,10 @@ func (w *WebServer) handleCreateVMBootstrap(rw http.ResponseWriter, req *http.Re
 		send("log", "🔓 SSL: Deshabilitado (modo HTTP)")
 	}
 
-	homeDir, _ := os.UserHomeDir()
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = "."
+	}
 	workspace := filepath.Join(homeDir, ".config", "tarhiata", "terraform", reqData.Provider+"_"+reqData.NodeName)
 
 	var provisioner ports.Provisioner
@@ -1036,11 +1638,16 @@ func (w *WebServer) handleCreateVMBootstrap(rw http.ResponseWriter, req *http.Re
 
 	// Guardar llave privada localmente
 	keyDir := filepath.Join(homeDir, ".ssh")
-	_ = os.MkdirAll(keyDir, 0700)
+	if err := os.MkdirAll(keyDir, 0700); err != nil {
+		slog.Warn("falló al crear directorio de llaves ssh", "dir", keyDir, "error", err)
+	}
 	keyPath := filepath.Join(keyDir, "tarhiata_master_"+reqData.NodeName+".pem")
 	if privKeyContent != "" {
-		_ = os.WriteFile(keyPath, []byte(privKeyContent), 0600)
-		send("log", fmt.Sprintf("🔑 Llave SSH guardada → %s", keyPath))
+		if err := os.WriteFile(keyPath, []byte(privKeyContent), 0600); err != nil {
+			slog.Warn("falló al guardar llave ssh privada", "path", keyPath, "error", err)
+		} else {
+			send("log", fmt.Sprintf("🔑 Llave SSH guardada → %s", keyPath))
+		}
 	}
 
 	// Guardar Configuración
@@ -1096,8 +1703,11 @@ func (w *WebServer) handleCreateVMBootstrap(rw http.ResponseWriter, req *http.Re
 	if reqData.InstallObservability {
 		send("step", "⏳ [4/5] Desplegando observabilidad (Portainer, Dozzle, Grafana)...")
 		obsUC := usecases.NewDeployObservabilityUseCase(loggingExec)
-		_ = obsUC.Execute(true)
-		send("log", "✅ Stack de observabilidad desplegado")
+		if err := obsUC.Execute(true); err != nil {
+			send("log", fmt.Sprintf("⚠️ Despliegue de observabilidad reportó: %v", err))
+		} else {
+			send("log", "✅ Stack de observabilidad desplegado")
+		}
 	}
 
 	send("step", "✅ [5/5] ¡Proceso completado exitosamente!")
@@ -1121,9 +1731,13 @@ func (w *WebServer) handleWorkerProvision(rw http.ResponseWriter, req *http.Requ
 		Plan      string `json:"plan"`
 		Region    string `json:"region"`
 		LabelType string `json:"labelType"`
+		APIKey    string `json:"apiKey"`
+		Provider  string `json:"provider"`
 	}
 	if req.Body != nil {
-		_ = json.NewDecoder(req.Body).Decode(&reqData)
+		if err := json.NewDecoder(req.Body).Decode(&reqData); err != nil && err != io.EOF {
+			slog.Warn("cuerpo JSON inválido en worker provision", "error", err)
+		}
 	}
 
 	flusher, ok := setupStreaming(rw)
@@ -1147,20 +1761,35 @@ func (w *WebServer) handleWorkerProvision(rw http.ResponseWriter, req *http.Requ
 		send("error", "❌ No hay ningún VPS Manager configurado")
 		return
 	}
+
+	if reqData.Provider != "" {
+		cfg.CloudProvider = reqData.Provider
+	}
+	if reqData.APIKey != "" {
+		if cfg.CloudProvider == "digitalocean" {
+			cfg.DOAPIToken = reqData.APIKey
+		}
+		if cfg.CloudProvider != "digitalocean" {
+			cfg.VultrAPIToken = reqData.APIKey
+		}
+		if err := w.repo.SaveServerConfig(*cfg); err != nil {
+			send("log", fmt.Sprintf("⚠️ No se pudo persistir API Key en repositorio: %v", err))
+		}
+	}
+
 	token := cfg.VultrAPIToken
 	if token == "" {
 		token = cfg.DOAPIToken
 	}
 	if token == "" {
-		send("error", "❌ Se requiere un Token de API (Vultr o DigitalOcean) guardado en la configuración")
+		send("error", "❌ Se requiere una API Key / Token Cloud (Vultr o DigitalOcean). Por favor ingrésala en el formulario.")
 		return
 	}
 
 	if reqData.Region == "" {
+		reqData.Region = "mex"
 		if cfg.CloudProvider == "digitalocean" {
 			reqData.Region = "nyc1"
-		} else {
-			reqData.Region = "mex"
 		}
 	}
 
@@ -1189,12 +1818,31 @@ func (w *WebServer) handleWorkerProvision(rw http.ResponseWriter, req *http.Requ
 		return
 	}
 
+	// Registrar el nuevo VPS Worker en el catálogo de servidores
+	homeDir, _ := os.UserHomeDir()
+	workerKeyPath := filepath.Join(homeDir, ".ssh", "tarhiata_worker_"+reqData.NodeName+".pem")
+	workerServer := domain.ServerConfig{
+		Name:          reqData.NodeName,
+		Host:          nodeIP,
+		Port:          22,
+		User:          "root",
+		PrivateKey:    workerKeyPath,
+		CloudProvider: cfg.CloudProvider,
+		VultrAPIToken: cfg.VultrAPIToken,
+		DOAPIToken:    cfg.DOAPIToken,
+		IsActive:      false,
+	}
+	if errSave := w.repo.SaveServerConfig(workerServer); errSave != nil {
+		send("log", fmt.Sprintf("⚠️ No se pudo registrar Worker en catálogo de servidores: %v", errSave))
+	}
+	send("log", fmt.Sprintf("💾 Nuevo VPS Worker '%s' (%s) registrado en el catálogo de servidores", reqData.NodeName, nodeIP))
+
 	send("step", "✅ [6/6] ¡Nodo Worker aprovisionado y unido al clúster exitosamente!")
 	streamDoneJSON(rw, flusher, map[string]string{
 		"status":  "worker_provisioned",
 		"nodeIp":  nodeIP,
 		"region":  reqData.Region,
-		"message": fmt.Sprintf("¡Nodo Worker '%s' en %s (%s) añadido al clúster con éxito!", reqData.NodeName, nodeIP, reqData.Region),
+		"message": fmt.Sprintf("¡Nodo Worker '%s' en %s (%s) añadido al clúster y catálogo con éxito!", reqData.NodeName, nodeIP, reqData.Region),
 	})
 }
 
@@ -1257,8 +1905,12 @@ func (w *WebServer) handleObservability(rw http.ResponseWriter, req *http.Reques
 	defer sshExec.Close()
 
 	if shouldDisable {
-		_, _ = sshExec.RunCommand("docker stack rm tarhiata_obs")
-		_ = w.repo.DeleteObservability()
+		if _, err := sshExec.RunCommand("docker stack rm tarhiata_obs"); err != nil {
+			slog.Warn("aviso al remover stack tarhiata_obs", "error", err)
+		}
+		if err := w.repo.DeleteObservability(); err != nil {
+			slog.Warn("aviso al eliminar observabilidad local", "error", err)
+		}
 		jsonResponse(rw, map[string]string{"status": "observability_disabled"})
 		return
 	}
@@ -1275,7 +1927,9 @@ func (w *WebServer) handleObservability(rw http.ResponseWriter, req *http.Reques
 		ExternalURL:     reqData.VolumePath,
 		GrafanaPassword: reqData.GrafanaPassword,
 	}
-	_ = w.repo.SaveObservability(obsRecord)
+	if err := w.repo.SaveObservability(obsRecord); err != nil {
+		slog.Warn("falló al guardar registro de observabilidad", "error", err)
+	}
 
 	jsonResponse(rw, map[string]string{
 		"status":     "observability_deployed",
@@ -1331,6 +1985,121 @@ func (w *WebServer) handleServiceRollback(rw http.ResponseWriter, req *http.Requ
 	})
 }
 
+func (w *WebServer) handleServiceRestart(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		jsonError(rw, "Método no permitido", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := strings.TrimSpace(req.URL.Query().Get("name"))
+	if name == "" && req.Body != nil {
+		var reqData struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&reqData); err != nil {
+			slog.Debug("handleServiceRestart: json decode omitido o inválido", "error", err)
+		} else {
+			name = strings.TrimSpace(reqData.Name)
+		}
+	}
+
+	if name == "" {
+		jsonError(rw, "Parámetro 'name' requerido", http.StatusBadRequest)
+		return
+	}
+
+	validNameRegex := regexp.MustCompile(`^[a-zA-Z0-9_\.\-]+$`)
+	if !validNameRegex.MatchString(name) {
+		jsonError(rw, "Nombre de servicio inválido", http.StatusBadRequest)
+		return
+	}
+
+	cfg := w.getConfig()
+	if cfg == nil || cfg.Host == "" {
+		if loaded, err := w.repo.GetServerConfig(); err == nil && loaded != nil && loaded.Host != "" {
+			w.setConfig(loaded)
+			cfg = loaded
+		}
+	}
+
+	if cfg == nil || cfg.Host == "" {
+		jsonError(rw, "VPS no configurado", http.StatusBadRequest)
+		return
+	}
+
+	sshExec := repositories.NewCryptoSSHExecutor()
+	if err := sshExec.Connect(*cfg); err != nil {
+		jsonError(rw, fmt.Sprintf("Error SSH: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer sshExec.Close()
+
+	candidates := []string{
+		name,
+		"tarhiata-db-" + name,
+		"tarhiata-app-" + name,
+		"tarhiata_" + name,
+	}
+
+	for _, cand := range candidates {
+		// 1. Intentar docker service update --force (Docker Swarm)
+		resSwarm, errSwarm := sshExec.RunCommand(fmt.Sprintf("docker service update --force %s 2>&1", cand))
+		if errSwarm == nil && resSwarm.ExitCode == 0 && !isDockerError(resSwarm.Output) {
+			jsonResponse(rw, map[string]string{
+				"status":  "restarted",
+				"type":    "swarm_service",
+				"service": cand,
+				"output":  strings.TrimSpace(resSwarm.Output),
+			})
+			return
+		}
+
+		// 2. Intentar docker restart directo
+		resRestart, errRestart := sshExec.RunCommand(fmt.Sprintf("docker restart %s 2>&1", cand))
+		if errRestart == nil && resRestart.ExitCode == 0 && !isDockerError(resRestart.Output) {
+			jsonResponse(rw, map[string]string{
+				"status":  "restarted",
+				"type":    "docker_container",
+				"service": cand,
+				"output":  strings.TrimSpace(resRestart.Output),
+			})
+			return
+		}
+
+		// 3. Intentar por filtro de contenedor ID
+		resPs, errPs := sshExec.RunCommand(fmt.Sprintf("docker ps -a -q --filter name=%s | head -n 1", cand))
+		if errPs == nil && strings.TrimSpace(resPs.Output) != "" {
+			cid := strings.TrimSpace(resPs.Output)
+			resCid, errCid := sshExec.RunCommand(fmt.Sprintf("docker restart %s 2>&1", cid))
+			if errCid == nil && resCid.ExitCode == 0 && !isDockerError(resCid.Output) {
+				jsonResponse(rw, map[string]string{
+					"status":  "restarted",
+					"type":    "docker_container_by_id",
+					"service": cand,
+					"output":  strings.TrimSpace(resCid.Output),
+				})
+				return
+			}
+		}
+	}
+
+	// 4. Intentar systemctl restart si es una unidad del host
+	if strings.HasSuffix(name, ".service") || !strings.Contains(name, "-") {
+		resSys, errSys := sshExec.RunCommand(fmt.Sprintf("systemctl restart %s 2>&1", name))
+		if errSys == nil && resSys.ExitCode == 0 {
+			jsonResponse(rw, map[string]string{
+				"status":  "restarted",
+				"type":    "systemd_service",
+				"service": name,
+				"output":  strings.TrimSpace(resSys.Output),
+			})
+			return
+		}
+	}
+
+	jsonError(rw, fmt.Sprintf("No se pudo reiniciar el servicio o contenedor '%s'. Verifique que esté en ejecución.", name), http.StatusInternalServerError)
+}
+
 
 
 func (w *WebServer) handleServerUpdate(rw http.ResponseWriter, req *http.Request) {
@@ -1338,7 +2107,9 @@ func (w *WebServer) handleServerUpdate(rw http.ResponseWriter, req *http.Request
 		sshExec := repositories.NewCryptoSSHExecutor()
 		if err := sshExec.Connect(*w.config); err == nil {
 			defer sshExec.Close()
-			_ = usecases.NewUpdateServerUseCase(sshExec).Execute()
+			if err := usecases.NewUpdateServerUseCase(sshExec).Execute(); err != nil {
+				slog.Warn("falló actualización del servidor", "error", err)
+			}
 		}
 	}
 	jsonResponse(rw, map[string]string{"status": "server_updated"})
@@ -1642,7 +2413,10 @@ func (w *WebServer) handleNodes(rw http.ResponseWriter, req *http.Request) {
 		hostname := strings.TrimSpace(resHost.Output)
 
 		// 2. Remover cualquier servicio de base de datos asociado a este nodo para liberar el candado de Swarm
-		resServices, _ := sshExec.RunCommand("docker service ls --format '{{.Name}}'")
+		resServices, errServices := sshExec.RunCommand("docker service ls --format '{{.Name}}'")
+		if errServices != nil {
+			slog.Debug("aviso al listar servicios para remover nodo", "error", errServices)
+		}
 		if resServices != nil && resServices.Output != "" {
 			svcs := strings.Split(strings.TrimSpace(resServices.Output), "\n")
 			for _, svc := range svcs {
@@ -1651,13 +2425,17 @@ func (w *WebServer) handleNodes(rw http.ResponseWriter, req *http.Request) {
 					continue
 				}
 				if (hostname != "" && strings.Contains(svc, hostname)) || strings.Contains(svc, nodeID) {
-					_, _ = sshExec.RunCommand(fmt.Sprintf("docker service rm %s", svc))
+					if _, err := sshExec.RunCommand(fmt.Sprintf("docker service rm %s", svc)); err != nil {
+						slog.Debug("aviso al remover servicio asociado a nodo", "service", svc, "error", err)
+					}
 				}
 			}
 		}
 
 		// 3. Cambiar disponibilidad a drain y forzar remoción del clúster Swarm
-		_, _ = sshExec.RunCommand(fmt.Sprintf("docker node update --availability drain %s", nodeID))
+		if _, err := sshExec.RunCommand(fmt.Sprintf("docker node update --availability drain %s", nodeID)); err != nil {
+			slog.Debug("aviso al poner nodo en drain", "node", nodeID, "error", err)
+		}
 		res, err := sshExec.RunCommand(fmt.Sprintf("docker node rm --force %s", nodeID))
 		if (err != nil || res.ExitCode != 0) && hostname != "" {
 			// Intentar remover por hostname como alternativa
@@ -1894,8 +2672,11 @@ func (w *WebServer) handleTerminalExec(rw http.ResponseWriter, req *http.Request
 	}
 
 	var payload struct {
-		NodeID  string `json:"nodeId"`
-		Command string `json:"command"`
+		Name      string `json:"name"`
+		Server    string `json:"server"`
+		Container string `json:"container"`
+		NodeID    string `json:"nodeId"`
+		Command   string `json:"command"`
 	}
 	if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
@@ -1906,9 +2687,17 @@ func (w *WebServer) handleTerminalExec(rw http.ResponseWriter, req *http.Request
 		return
 	}
 
+	serverTarget := payload.Name
+	if serverTarget == "" {
+		serverTarget = payload.Server
+	}
+	if serverTarget == "" {
+		serverTarget = req.URL.Query().Get("server")
+	}
+
 	cmdStr := strings.TrimSpace(payload.Command)
 	if cmdStr == "" {
-		jsonResponse(rw, map[string]string{"output": ""})
+		jsonResponse(rw, map[string]interface{}{"output": "", "exitCode": 0, "connected": true})
 		return
 	}
 
@@ -1917,53 +2706,80 @@ func (w *WebServer) handleTerminalExec(rw http.ResponseWriter, req *http.Request
 		return
 	}
 
-	if w.config != nil && w.config.Host != "" {
-		sshExec := repositories.NewCryptoSSHExecutor()
-		if err := sshExec.Connect(*w.config); err == nil {
-			defer sshExec.Close()
-			res, err := sshExec.RunCommand(cmdStr)
-			if err != nil {
-				jsonResponse(rw, map[string]string{"output": fmt.Sprintf("Error: %v", err)})
-				return
-			}
-			jsonResponse(rw, map[string]string{"output": res.Output})
-			return
+	if payload.Container != "" {
+		sanitizedContainer := strings.TrimSpace(payload.Container)
+		cmdStr = fmt.Sprintf("docker exec %s sh -c %q 2>&1 || docker exec %s %s", sanitizedContainer, cmdStr, sanitizedContainer, cmdStr)
+	}
+
+	targetCfg := w.getConfig()
+	if serverTarget != "" {
+		if found, err := w.repo.GetServerConfigByName(serverTarget); err == nil && found != nil {
+			targetCfg = found
 		}
 	}
 
-	out := fmt.Sprintf("[%s] Executing: %s\n", payload.NodeID, cmdStr)
-	switch {
-	case strings.HasPrefix(cmdStr, "docker service ls"):
-		out += "ID             NAME             MODE         REPLICAS   IMAGE\n" +
-			"w9x02k91la     api-backend      replicated   1/1        node:18-alpine\n" +
-			"p2l990x1aa     db-postgres      replicated   1/1        postgres:15-alpine\n"
-	case strings.HasPrefix(cmdStr, "docker node ls"):
-		out += "ID                           HOSTNAME     STATUS    AVAILABILITY   MANAGER STATUS\n" +
-			"vps-master-1 *               tarhiata-01  Ready     Active         Leader\n"
-	case strings.HasPrefix(cmdStr, "ufw status"):
-		out += "Status: active\n\nTo                         Action      From\n--                         ------      ----\n22/tcp                     ALLOW       Anywhere\n80/tcp                     ALLOW       Anywhere\n443/tcp                    ALLOW       Anywhere\n5432/tcp                   DENY        Anywhere (Private Swarm)\n"
-	case strings.HasPrefix(cmdStr, "df -h"):
-		out += "Filesystem      Size  Used Avail Use% Mounted on\n/dev/sda1        50G   14G   34G  30% /\n/dev/sda15      105M  6.1M   99M   6% /boot/efi\n"
-	default:
-		out += fmt.Sprintf("OK: command executed on %s node.\n", payload.NodeID)
+	if targetCfg != nil && (targetCfg.Host != "" || targetCfg.IsLocal()) {
+		sshExec := repositories.NewCryptoSSHExecutor()
+		if err := sshExec.Connect(*targetCfg); err != nil {
+			jsonResponse(rw, map[string]interface{}{
+				"output":    fmt.Sprintf("Error conectando a %s: %v", targetCfg.Host, err),
+				"exitCode":  1,
+				"connected": false,
+			})
+			return
+		}
+		defer sshExec.Close()
+
+		res, err := sshExec.RunCommand(cmdStr)
+		if err != nil {
+			errMsg := fmt.Sprintf("Error ejecutando comando: %v", err)
+			if res != nil && res.Output != "" {
+				errMsg += "\n" + res.Output
+			}
+			jsonResponse(rw, map[string]interface{}{
+				"output":    errMsg,
+				"exitCode":  1,
+				"connected": true,
+			})
+			return
+		}
+		jsonResponse(rw, map[string]interface{}{
+			"output":    res.Output,
+			"exitCode":  res.ExitCode,
+			"connected": true,
+		})
+		return
 	}
 
-	jsonResponse(rw, map[string]string{"output": out})
+	jsonResponse(rw, map[string]interface{}{
+		"output":    "Error: no hay servidor configurado para ejecutar el comando",
+		"exitCode":  1,
+		"connected": false,
+	})
 }
 
 func (w *WebServer) handleLogs(rw http.ResponseWriter, req *http.Request) {
-	serviceName := req.URL.Query().Get("service")
+	serviceName := strings.TrimSpace(req.URL.Query().Get("service"))
 	if serviceName == "" {
-		serviceName = req.URL.Query().Get("name")
+		serviceName = strings.TrimSpace(req.URL.Query().Get("name"))
 	}
 	if serviceName == "" {
 		serviceName = "api-backend"
 	}
 
-	lines := req.URL.Query().Get("lines")
-	if lines == "" {
-		lines = "50"
+	// Sanitización estricta: solo alfanuméricos, guiones, puntos y guiones bajos
+	validNameRegex := regexp.MustCompile(`^[a-zA-Z0-9_\.\-]+$`)
+	if !validNameRegex.MatchString(serviceName) {
+		http.Error(rw, "Nombre de servicio inválido", http.StatusBadRequest)
+		return
 	}
+
+	linesParam := strings.TrimSpace(req.URL.Query().Get("lines"))
+	linesInt, err := strconv.Atoi(linesParam)
+	if err != nil || linesInt <= 0 || linesInt > 5000 {
+		linesInt = 50
+	}
+	lines := strconv.Itoa(linesInt)
 
 	if w.config != nil && w.config.Host != "" {
 		sshExec := repositories.NewCryptoSSHExecutor()
@@ -2294,13 +3110,30 @@ func (w *WebServer) handleBackups(rw http.ResponseWriter, req *http.Request) {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return
 		}
-		cfg := domain.ServerConfig{}
-		if w.config != nil {
-			cfg = *w.config
+		if bReq.TargetType == "" {
+			bReq.TargetType = "database"
+		}
+		if bReq.TargetName == "" {
+			bReq.TargetName = strings.TrimSpace(req.URL.Query().Get("name"))
+		}
+		if bReq.TargetName == "" {
+			http.Error(rw, "Parámetro 'targetName' o 'name' requerido", http.StatusBadRequest)
+			return
+		}
+		cfg := w.getConfig()
+		if cfg == nil || cfg.Host == "" {
+			if loaded, err := w.repo.GetServerConfig(); err == nil && loaded != nil && loaded.Host != "" {
+				w.setConfig(loaded)
+				cfg = loaded
+			}
+		}
+		if cfg == nil || cfg.Host == "" {
+			http.Error(rw, "VPS no configurado", http.StatusBadRequest)
+			return
 		}
 		sshExec := repositories.NewCryptoSSHExecutor()
 		uc := usecases.NewManageBackupsUseCase(w.repo, sshExec)
-		backup, err := uc.CreateSnapshot(bReq, cfg)
+		backup, err := uc.CreateSnapshot(bReq, *cfg)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
@@ -2311,7 +3144,11 @@ func (w *WebServer) handleBackups(rw http.ResponseWriter, req *http.Request) {
 
 	if req.Method == http.MethodDelete {
 		idStr := req.URL.Query().Get("id")
-		id, _ := strconv.Atoi(idStr)
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			http.Error(rw, "ID inválido", http.StatusBadRequest)
+			return
+		}
 		if err := w.repo.DeleteBackup(id); err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
@@ -2331,13 +3168,20 @@ func (w *WebServer) handleRestoreBackup(rw http.ResponseWriter, req *http.Reques
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
-	cfg := domain.ServerConfig{}
-	if w.config != nil {
-		cfg = *w.config
+	cfg := w.getConfig()
+	if cfg == nil || cfg.Host == "" {
+		if loaded, err := w.repo.GetServerConfig(); err == nil && loaded != nil && loaded.Host != "" {
+			w.setConfig(loaded)
+			cfg = loaded
+		}
+	}
+	if cfg == nil || cfg.Host == "" {
+		http.Error(rw, "VPS no configurado", http.StatusBadRequest)
+		return
 	}
 	sshExec := repositories.NewCryptoSSHExecutor()
 	uc := usecases.NewManageBackupsUseCase(w.repo, sshExec)
-	if err := uc.RestoreSnapshot(bReq.BackupID, cfg); err != nil {
+	if err := uc.RestoreSnapshot(bReq.BackupID, *cfg); err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -2351,13 +3195,20 @@ func (w *WebServer) handleDownloadBackup(rw http.ResponseWriter, req *http.Reque
 		http.Error(rw, "ID de backup inválido", http.StatusBadRequest)
 		return
 	}
-	cfg := domain.ServerConfig{}
-	if w.config != nil {
-		cfg = *w.config
+	cfg := w.getConfig()
+	if cfg == nil || cfg.Host == "" {
+		if loaded, err := w.repo.GetServerConfig(); err == nil && loaded != nil && loaded.Host != "" {
+			w.setConfig(loaded)
+			cfg = loaded
+		}
+	}
+	if cfg == nil || cfg.Host == "" {
+		http.Error(rw, "VPS no configurado", http.StatusBadRequest)
+		return
 	}
 	sshExec := repositories.NewCryptoSSHExecutor()
 	uc := usecases.NewManageBackupsUseCase(w.repo, sshExec)
-	data, filename, err := uc.DownloadSnapshot(id, cfg)
+	data, filename, err := uc.DownloadSnapshot(id, *cfg)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
@@ -2366,7 +3217,9 @@ func (w *WebServer) handleDownloadBackup(rw http.ResponseWriter, req *http.Reque
 	rw.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
 	rw.Header().Set("Content-Type", "application/octet-stream")
 	rw.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	rw.Write(data)
+	if _, errWrite := rw.Write(data); errWrite != nil {
+		slog.Warn("falló escritura de backup en http response", "error", errWrite)
+	}
 }
 
 func (w *WebServer) handleEnvVars(rw http.ResponseWriter, req *http.Request) {
@@ -2404,13 +3257,20 @@ func (w *WebServer) handleEnvVars(rw http.ResponseWriter, req *http.Request) {
 			http.Error(rw, "serviceName es requerido", http.StatusBadRequest)
 			return
 		}
-		cfg := domain.ServerConfig{}
-		if w.config != nil {
-			cfg = *w.config
+		cfg := w.getConfig()
+		if cfg == nil || cfg.Host == "" {
+			if loaded, err := w.repo.GetServerConfig(); err == nil && loaded != nil && loaded.Host != "" {
+				w.setConfig(loaded)
+				cfg = loaded
+			}
+		}
+		serverCfg := domain.ServerConfig{}
+		if cfg != nil {
+			serverCfg = *cfg
 		}
 		sshExec := repositories.NewCryptoSSHExecutor()
 		uc := usecases.NewManageEnvVarsUseCase(w.repo, sshExec)
-		if err := uc.UpdateEnvVars(body.ServiceName, body.RawContent, cfg); err != nil {
+		if err := uc.UpdateEnvVars(body.ServiceName, body.RawContent, serverCfg); err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -2440,11 +3300,20 @@ func (w *WebServer) handleExportEnvVars(rw http.ResponseWriter, req *http.Reques
 	rw.Write([]byte(raw))
 }
 
-func (w *WebServer) handleVolumes(rw http.ResponseWriter, req *http.Request) {
-	cfg := domain.ServerConfig{}
-	if w.config != nil {
-		cfg = *w.config
+func (w *WebServer) resolveVolumeConfig(req *http.Request) domain.ServerConfig {
+	cfg, err := w.getTargetServerConfig(req)
+	if err == nil && cfg != nil {
+		return *cfg
 	}
+	curr := w.getConfig()
+	if curr != nil {
+		return *curr
+	}
+	return domain.ServerConfig{}
+}
+
+func (w *WebServer) handleVolumes(rw http.ResponseWriter, req *http.Request) {
+	cfg := w.resolveVolumeConfig(req)
 	sshExec := repositories.NewCryptoSSHExecutor()
 	uc := usecases.NewManageVolumesUseCase(w.repo, sshExec)
 	vols, err := uc.ListVolumes(cfg)
@@ -2457,10 +3326,7 @@ func (w *WebServer) handleVolumes(rw http.ResponseWriter, req *http.Request) {
 
 func (w *WebServer) handleVolumeFiles(rw http.ResponseWriter, req *http.Request) {
 	path := req.URL.Query().Get("path")
-	cfg := domain.ServerConfig{}
-	if w.config != nil {
-		cfg = *w.config
-	}
+	cfg := w.resolveVolumeConfig(req)
 	sshExec := repositories.NewCryptoSSHExecutor()
 	uc := usecases.NewManageVolumesUseCase(w.repo, sshExec)
 	files, err := uc.ListVolumeFiles(path, cfg)
@@ -2477,10 +3343,7 @@ func (w *WebServer) handleVolumeRead(rw http.ResponseWriter, req *http.Request) 
 		http.Error(rw, "path es requerido", http.StatusBadRequest)
 		return
 	}
-	cfg := domain.ServerConfig{}
-	if w.config != nil {
-		cfg = *w.config
-	}
+	cfg := w.resolveVolumeConfig(req)
 	sshExec := repositories.NewCryptoSSHExecutor()
 	uc := usecases.NewManageVolumesUseCase(w.repo, sshExec)
 	content, err := uc.ReadFileContent(path, cfg)
@@ -2504,10 +3367,7 @@ func (w *WebServer) handleVolumeWrite(rw http.ResponseWriter, req *http.Request)
 		http.Error(rw, "path es requerido", http.StatusBadRequest)
 		return
 	}
-	cfg := domain.ServerConfig{}
-	if w.config != nil {
-		cfg = *w.config
-	}
+	cfg := w.resolveVolumeConfig(req)
 	sshExec := repositories.NewCryptoSSHExecutor()
 	uc := usecases.NewManageVolumesUseCase(w.repo, sshExec)
 	if err := uc.WriteFileContent(body.Path, body.Content, cfg); err != nil {
@@ -2523,10 +3383,7 @@ func (w *WebServer) handleVolumeDownload(rw http.ResponseWriter, req *http.Reque
 		http.Error(rw, "path es requerido", http.StatusBadRequest)
 		return
 	}
-	cfg := domain.ServerConfig{}
-	if w.config != nil {
-		cfg = *w.config
-	}
+	cfg := w.resolveVolumeConfig(req)
 	sshExec := repositories.NewCryptoSSHExecutor()
 	uc := usecases.NewManageVolumesUseCase(w.repo, sshExec)
 	data, filename, err := uc.DownloadFile(path, cfg)
@@ -2538,7 +3395,9 @@ func (w *WebServer) handleVolumeDownload(rw http.ResponseWriter, req *http.Reque
 	rw.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
 	rw.Header().Set("Content-Type", "application/octet-stream")
 	rw.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	rw.Write(data)
+	if _, errWrite := rw.Write(data); errWrite != nil {
+		slog.Error("error escribiendo descarga de archivo", "error", errWrite)
+	}
 }
 
 func (w *WebServer) handleVolumeUpload(rw http.ResponseWriter, req *http.Request) {
@@ -2565,13 +3424,13 @@ func (w *WebServer) handleVolumeUpload(rw http.ResponseWriter, req *http.Request
 		targetFile = fmt.Sprintf("%s/%s", strings.TrimRight(dirPath, "/"), header.Filename)
 	}
 
-	buf := make([]byte, header.Size)
-	file.Read(buf)
-
-	cfg := domain.ServerConfig{}
-	if w.config != nil {
-		cfg = *w.config
+	buf, errRead := io.ReadAll(file)
+	if errRead != nil {
+		http.Error(rw, "error al leer archivo: "+errRead.Error(), http.StatusBadRequest)
+		return
 	}
+
+	cfg := w.resolveVolumeConfig(req)
 	sshExec := repositories.NewCryptoSSHExecutor()
 	uc := usecases.NewManageVolumesUseCase(w.repo, sshExec)
 
@@ -2588,10 +3447,7 @@ func (w *WebServer) handleVolumeDelete(rw http.ResponseWriter, req *http.Request
 		http.Error(rw, "path es requerido", http.StatusBadRequest)
 		return
 	}
-	cfg := domain.ServerConfig{}
-	if w.config != nil {
-		cfg = *w.config
-	}
+	cfg := w.resolveVolumeConfig(req)
 	sshExec := repositories.NewCryptoSSHExecutor()
 	uc := usecases.NewManageVolumesUseCase(w.repo, sshExec)
 	if err := uc.DeleteFile(path, cfg); err != nil {
@@ -2600,6 +3456,33 @@ func (w *WebServer) handleVolumeDelete(rw http.ResponseWriter, req *http.Request
 	}
 	jsonResponse(rw, map[string]string{"status": "deleted"})
 }
+
+func (w *WebServer) handleVolumeMkdir(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(rw, "Método no permitido", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if body.Path == "" {
+		http.Error(rw, "path es requerido", http.StatusBadRequest)
+		return
+	}
+	cfg := w.resolveVolumeConfig(req)
+	sshExec := repositories.NewCryptoSSHExecutor()
+	uc := usecases.NewManageVolumesUseCase(w.repo, sshExec)
+	if err := uc.CreateDirectory(body.Path, cfg); err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(rw, map[string]string{"status": "created", "path": body.Path})
+}
+
 
 func (w *WebServer) handleSSLInspect(rw http.ResponseWriter, req *http.Request) {
 	sshExec := repositories.NewCryptoSSHExecutor()
@@ -2698,6 +3581,80 @@ func (w *WebServer) handleCustomDomains(rw http.ResponseWriter, req *http.Reques
 	default:
 		http.Error(rw, "Método no permitido", http.StatusMethodNotAllowed)
 	}
+}
+
+func (w *WebServer) handleDNSCheck(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		jsonError(rw, "Método no permitido", http.StatusMethodNotAllowed)
+		return
+	}
+
+	rawDomain := strings.TrimSpace(req.URL.Query().Get("domain"))
+	if rawDomain == "" {
+		jsonError(rw, "Parámetro 'domain' requerido", http.StatusBadRequest)
+		return
+	}
+
+	cleanDomain := strings.TrimPrefix(rawDomain, "https://")
+	cleanDomain = strings.TrimPrefix(cleanDomain, "http://")
+	if idx := strings.Index(cleanDomain, "/"); idx != -1 {
+		cleanDomain = cleanDomain[:idx]
+	}
+	if idx := strings.Index(cleanDomain, ":"); idx != -1 {
+		cleanDomain = cleanDomain[:idx]
+	}
+	cleanDomain = strings.ToLower(strings.TrimSpace(cleanDomain))
+
+	validDomainRegex := regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`)
+	if !validDomainRegex.MatchString(cleanDomain) {
+		jsonError(rw, "Formato de dominio inválido", http.StatusBadRequest)
+		return
+	}
+
+	serverIP := ""
+	cfg := w.getConfig()
+	if cfg == nil || cfg.Host == "" {
+		if loaded, err := w.repo.GetServerConfig(); err == nil && loaded != nil && loaded.Host != "" {
+			w.setConfig(loaded)
+			cfg = loaded
+		}
+	}
+	if cfg != nil {
+		serverIP = cfg.Host
+	}
+
+	ips, err := net.LookupHost(cleanDomain)
+	if err != nil || len(ips) == 0 {
+		jsonResponse(rw, map[string]interface{}{
+			"domain":       cleanDomain,
+			"server_ip":    serverIP,
+			"resolved_ips": []string{},
+			"matches":      false,
+			"status":       "not_found",
+		})
+		return
+	}
+
+	isMatch := false
+	for _, ip := range ips {
+		if ip == serverIP {
+			isMatch = true
+			break
+		}
+	}
+
+	status := "mismatch"
+	if isMatch {
+		status = "match"
+	}
+
+	jsonResponse(rw, map[string]interface{}{
+		"domain":       cleanDomain,
+		"server_ip":    serverIP,
+		"resolved_ips": ips,
+		"matches":      isMatch,
+		"status":       status,
+	})
 }
 
 // --- Audit Logs Handler ---
@@ -2907,7 +3864,9 @@ func (w *WebServer) handleSyncState(rw http.ResponseWriter, req *http.Request) {
 		dump, err := syncUC.ImportStateFromRemote()
 		if err != nil {
 			// Si no existe state.json en VPS, exporta el estado local actual
-			_ = syncUC.ExportStateToRemote()
+			if exportErr := syncUC.ExportStateToRemote(); exportErr != nil {
+				slog.Warn("falló exportar estado a VPS remoto", "error", exportErr)
+			}
 		}
 		jsonResponse(rw, map[string]interface{}{
 			"status": "synced",
@@ -2926,7 +3885,9 @@ func (w *WebServer) syncStateToRemote(cfg *domain.ServerConfig) {
 	if err := sshExec.Connect(*cfg); err == nil {
 		defer sshExec.Close()
 		syncUC := usecases.NewSyncClusterStateUseCase(w.repo, sshExec)
-		_ = syncUC.ExportStateToRemote()
+		if err := syncUC.ExportStateToRemote(); err != nil {
+			slog.Warn("falló sincronización de estado a remoto", "error", err)
+		}
 	}
 }
 
@@ -2969,7 +3930,9 @@ func (w *WebServer) handleSSHKeys(rw http.ResponseWriter, req *http.Request) {
 			var body struct {
 				Fingerprint string `json:"fingerprint"`
 			}
-			_ = json.NewDecoder(req.Body).Decode(&body)
+			if err := json.NewDecoder(req.Body).Decode(&body); err != nil && err != io.EOF {
+				slog.Debug("aviso al decodificar fingerprint de body", "error", err)
+			}
 			fp = body.Fingerprint
 		}
 		if fp == "" {

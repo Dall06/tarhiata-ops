@@ -31,10 +31,11 @@ func NewManageVolumesUseCase(repo ports.ConfigRepository, ssh ports.SSHExecutor)
 
 const BaseDataPath = "/opt/data"
 
-// sanitizePath evita vulnerabilidades de Directory Traversal (../)
+// sanitizePath evita vulnerabilidades de Directory Traversal (../) y escapes de prefijo
 func sanitizePath(userPath string) (string, error) {
 	cleaned := filepath.Clean(userPath)
-	if !strings.HasPrefix(cleaned, BaseDataPath) {
+	rel, err := filepath.Rel(BaseDataPath, cleaned)
+	if err != nil || strings.HasPrefix(rel, "..") || rel == ".." {
 		return "", fmt.Errorf("acceso denegado: el camino '%s' está fuera de %s", userPath, BaseDataPath)
 	}
 	return cleaned, nil
@@ -104,8 +105,14 @@ func (uc *ManageVolumesUseCase) ListVolumeFiles(targetPath string, config domain
 			continue
 		}
 		isDir := parts[0] == "1"
-		size, _ := strconv.ParseInt(parts[1], 10, 64)
-		timestamp, _ := strconv.ParseInt(parts[2], 10, 64)
+		size, errSize := strconv.ParseInt(parts[1], 10, 64)
+		if errSize != nil {
+			size = 0
+		}
+		timestamp, errTs := strconv.ParseInt(parts[2], 10, 64)
+		if errTs != nil {
+			timestamp = time.Now().Unix()
+		}
 		name := parts[3]
 
 		modTime := time.Unix(timestamp, 0).Format("2006-01-02 15:04:05")
@@ -136,7 +143,7 @@ func (uc *ManageVolumesUseCase) ReadFileContent(targetPath string, config domain
 	}
 	defer uc.ssh.Close()
 
-	cmd := fmt.Sprintf("head -c 200000 %s", cleanPath)
+	cmd := fmt.Sprintf("head -c 200000 %q", cleanPath)
 	res, err := uc.ssh.RunCommand(cmd)
 	if err != nil || res.ExitCode != 0 {
 		return "", fmt.Errorf("error al leer archivo '%s': %s", cleanPath, res.Output)
@@ -161,17 +168,19 @@ func (uc *ManageVolumesUseCase) WriteFileContent(targetPath string, content stri
 
 	// Crear el directorio padre si no existe
 	parentDir := filepath.Dir(cleanPath)
-	mkdirCmd := fmt.Sprintf("mkdir -p %s", parentDir)
-	uc.ssh.RunCommand(mkdirCmd)
+	mkdirCmd := fmt.Sprintf("mkdir -p %q", parentDir)
+	if _, errMkdir := uc.ssh.RunCommand(mkdirCmd); errMkdir != nil {
+		return fmt.Errorf("error creando directorio %s: %w", parentDir, errMkdir)
+	}
 
 	// Inyectar contenido en base64 para evitar problemas de comillas en bash
 	b64Data := fmt.Sprintf("%x", content) // hex encoding
-	writeCmd := fmt.Sprintf("echo '%s' | xxd -r -p > %s", b64Data, cleanPath)
+	writeCmd := fmt.Sprintf("echo '%s' | xxd -r -p > %q", b64Data, cleanPath)
 	res, err := uc.ssh.RunCommand(writeCmd)
 	if err != nil || res.ExitCode != 0 {
 		// Fallback simple si xxd no estuviese presente
 		escaped := strings.ReplaceAll(content, `'`, `'\''`)
-		fallbackCmd := fmt.Sprintf("cat << 'EOF_TARHIATA_FILE' > %s\n%s\nEOF_TARHIATA_FILE", cleanPath, escaped)
+		fallbackCmd := fmt.Sprintf("cat << 'EOF_TARHIATA_FILE' > %q\n%s\nEOF_TARHIATA_FILE", cleanPath, escaped)
 		res2, err2 := uc.ssh.RunCommand(fallbackCmd)
 		if err2 != nil || res2.ExitCode != 0 {
 			return fmt.Errorf("error al escribir archivo: %s", res.Output)
@@ -195,7 +204,7 @@ func (uc *ManageVolumesUseCase) DownloadFile(targetPath string, config domain.Se
 	}
 	defer uc.ssh.Close()
 
-	cmd := fmt.Sprintf("base64 %s 2>/dev/null || cat %s", cleanPath, cleanPath)
+	cmd := fmt.Sprintf("base64 %q 2>/dev/null || cat %q", cleanPath, cleanPath)
 	res, err := uc.ssh.RunCommand(cmd)
 	if err != nil || res.ExitCode != 0 {
 		return nil, "", fmt.Errorf("error al descargar archivo '%s': %s", cleanPath, res.Output)
@@ -229,10 +238,34 @@ func (uc *ManageVolumesUseCase) DeleteFile(targetPath string, config domain.Serv
 	}
 	defer uc.ssh.Close()
 
-	cmd := fmt.Sprintf("rm -rf %s", cleanPath)
+	cmd := fmt.Sprintf("rm -rf %q", cleanPath)
 	res, err := uc.ssh.RunCommand(cmd)
 	if err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("error al eliminar '%s': %s", cleanPath, res.Output)
 	}
 	return nil
 }
+
+// CreateDirectory crea una carpeta de forma recursiva dentro de /opt/data
+func (uc *ManageVolumesUseCase) CreateDirectory(targetPath string, config domain.ServerConfig) error {
+	cleanPath, err := sanitizePath(targetPath)
+	if err != nil {
+		return err
+	}
+
+	if uc.ssh == nil {
+		return fmt.Errorf("ejecutor SSH no configurado")
+	}
+	if err := uc.ssh.Connect(config); err != nil {
+		return fmt.Errorf("error de conexión SSH: %w", err)
+	}
+	defer uc.ssh.Close()
+
+	cmd := fmt.Sprintf("mkdir -p %q", cleanPath)
+	res, err := uc.ssh.RunCommand(cmd)
+	if err != nil || res.ExitCode != 0 {
+		return fmt.Errorf("error al crear directorio '%s': %s", cleanPath, res.Output)
+	}
+	return nil
+}
+

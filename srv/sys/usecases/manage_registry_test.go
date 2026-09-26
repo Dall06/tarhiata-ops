@@ -18,6 +18,10 @@ func newMockRepoForRegistry() *mockRepoForRegistry {
 
 func (m *mockRepoForRegistry) SaveServerConfig(config domain.ServerConfig) error { return nil }
 func (m *mockRepoForRegistry) GetServerConfig() (*domain.ServerConfig, error)    { return nil, nil }
+func (m *mockRepoForRegistry) GetAllServerConfigs() ([]domain.ServerConfig, error) { return nil, nil }
+func (m *mockRepoForRegistry) GetServerConfigByName(name string) (*domain.ServerConfig, error) { return nil, nil }
+func (m *mockRepoForRegistry) SetActiveServerConfig(name string) error           { return nil }
+func (m *mockRepoForRegistry) DeleteServerConfig(name string) error              { return nil }
 func (m *mockRepoForRegistry) SaveService(svc domain.SavedService) error          { return nil }
 func (m *mockRepoForRegistry) GetServices() ([]domain.SavedService, error)         { return nil, nil }
 func (m *mockRepoForRegistry) GetService(name string) (*domain.SavedService, error) { return nil, nil }

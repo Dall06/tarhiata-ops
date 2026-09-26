@@ -3,11 +3,15 @@ package sshclient
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/term"
 )
 
 // Client es un cliente SSH genérico
@@ -26,9 +30,23 @@ func (c *Client) Connect(host, user, privateKeyPath string, port int) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	key, err := os.ReadFile(privateKeyPath)
+	resolvedKeyPath := privateKeyPath
+	if strings.HasPrefix(resolvedKeyPath, "~/") {
+		homeDir, err := os.UserHomeDir()
+		if err == nil {
+			resolvedKeyPath = filepath.Join(homeDir, resolvedKeyPath[2:])
+		}
+	}
+	if resolvedKeyPath == "~" {
+		homeDir, err := os.UserHomeDir()
+		if err == nil {
+			resolvedKeyPath = homeDir
+		}
+	}
+
+	key, err := os.ReadFile(resolvedKeyPath)
 	if err != nil {
-		return fmt.Errorf("no se pudo leer la llave en %s: %w", privateKeyPath, err)
+		return fmt.Errorf("no se pudo leer la llave en %s: %w", resolvedKeyPath, err)
 	}
 
 	signer, err := ssh.ParsePrivateKey(key)
@@ -52,7 +70,9 @@ func (c *Client) Connect(host, user, privateKeyPath string, port int) error {
 	}
 
 	if c.conn != nil {
-		_ = c.conn.Close()
+		if err := c.conn.Close(); err != nil {
+			slog.Debug("error cerrando conexión previa ssh", "error", err)
+		}
 	}
 
 	c.conn = conn
@@ -102,11 +122,17 @@ func (c *Client) RunCommandWithContext(ctx context.Context, cmd string) (string,
 
 	select {
 	case <-ctx.Done():
-		_ = session.Signal(ssh.SIGTERM)
-		_ = session.Close() // Fuerza a CombinedOutput a retornar un error y desbloquear la goroutine
+		if err := session.Signal(ssh.SIGTERM); err != nil {
+			slog.Debug("falló envío de sigterm a sesión ssh", "error", err)
+		}
+		if err := session.Close(); err != nil {
+			slog.Debug("falló cierre forzado de sesión ssh", "error", err)
+		}
 		return "", -1, ctx.Err()
 	case res := <-done:
-		_ = session.Close()
+		if err := session.Close(); err != nil {
+			slog.Debug("falló cierre regular de sesión ssh", "error", err)
+		}
 		return res.out, res.code, res.err
 	}
 }
@@ -135,6 +161,22 @@ func (c *Client) InteractiveShellWithDimensions(width, height int) error {
 	session.Stdout = os.Stdout
 	session.Stderr = os.Stderr
 	session.Stdin = os.Stdin
+
+	fd := int(os.Stdin.Fd())
+	if term.IsTerminal(fd) {
+		oldState, err := term.MakeRaw(fd)
+		if err == nil {
+			defer func() {
+				if err := term.Restore(fd, oldState); err != nil {
+					slog.Warn("falló al restaurar modo de terminal", "error", err)
+				}
+			}()
+		}
+		if w, h, err := term.GetSize(fd); err == nil && w > 0 && h > 0 {
+			width = w
+			height = h
+		}
+	}
 
 	modes := ssh.TerminalModes{
 		ssh.ECHO:          1,
