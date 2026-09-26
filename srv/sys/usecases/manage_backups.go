@@ -250,14 +250,20 @@ func (uc *ManageBackupsUseCase) RestoreSnapshot(backupID int, config domain.Serv
 	return nil
 }
 
-func (uc *ManageBackupsUseCase) DownloadSnapshot(backupID int, config domain.ServerConfig) ([]byte, string, error) {
+// SnapshotDownloadResult contiene los bytes decodificados y el nombre del archivo de backup.
+type SnapshotDownloadResult struct {
+	Data     []byte
+	Filename string
+}
+
+func (uc *ManageBackupsUseCase) DownloadSnapshot(backupID int, config domain.ServerConfig) (*SnapshotDownloadResult, error) {
 	backup, err := uc.repo.GetBackupByID(backupID)
 	if err != nil || backup == nil {
-		return nil, "", fmt.Errorf("backup ID %d no encontrado", backupID)
+		return nil, fmt.Errorf("backup ID %d no encontrado", backupID)
 	}
 
 	if err := uc.ssh.Connect(config); err != nil {
-		return nil, "", fmt.Errorf("falló conexión SSH: %w", err)
+		return nil, fmt.Errorf("falló conexión SSH: %w", err)
 	}
 	defer func() {
 		if clErr := uc.ssh.Close(); clErr != nil {
@@ -274,13 +280,16 @@ func (uc *ManageBackupsUseCase) DownloadSnapshot(backupID int, config domain.Ser
 		if out == "" && err != nil {
 			out = err.Error()
 		}
-		return nil, "", fmt.Errorf("falló la lectura remota del backup: %s", out)
+		return nil, fmt.Errorf("falló la lectura remota del backup: %s", out)
 	}
 
 	data, err := base64.StdEncoding.DecodeString(strings.TrimSpace(res.Output))
 	if err != nil {
-		return nil, "", fmt.Errorf("error al decodificar datos del backup: %w", err)
+		return nil, fmt.Errorf("error al decodificar datos del backup: %w", err)
 	}
 
-	return data, backup.Filename, nil
+	return &SnapshotDownloadResult{
+		Data:     data,
+		Filename: backup.Filename,
+	}, nil
 }

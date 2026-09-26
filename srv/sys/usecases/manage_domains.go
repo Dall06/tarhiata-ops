@@ -23,20 +23,29 @@ func NewManageDomainsUseCase(repo ports.ConfigRepository, ssh ports.SSHExecutor)
 	return &ManageDomainsUseCase{repo: repo, ssh: ssh}
 }
 
+// ServiceDomainsInfo agrupa el dominio principal y las reglas de dominio personalizadas.
+type ServiceDomainsInfo struct {
+	PrimaryDomain string       `json:"primaryDomain"`
+	Rules         []DomainRule `json:"rules"`
+}
+
 // GetServiceDomains obtiene el dominio principal y los dominios personalizados/redirecciones asociados
-func (uc *ManageDomainsUseCase) GetServiceDomains(serviceName string) (string, []DomainRule, error) {
+func (uc *ManageDomainsUseCase) GetServiceDomains(serviceName string) (*ServiceDomainsInfo, error) {
 	svc, err := uc.repo.GetService(serviceName)
 	if err != nil || svc == nil {
-		return "", nil, fmt.Errorf("servicio '%s' no encontrado", serviceName)
+		return nil, fmt.Errorf("servicio '%s' no encontrado", serviceName)
 	}
 
 	var rules []DomainRule
 	if svc.CustomDomains != "" {
 		if err := json.Unmarshal([]byte(svc.CustomDomains), &rules); err != nil {
-			return "", nil, fmt.Errorf("error parseando dominios personalizados: %w", err)
+			return nil, fmt.Errorf("error parseando dominios personalizados: %w", err)
 		}
 	}
-	return svc.Domain, rules, nil
+	return &ServiceDomainsInfo{
+		PrimaryDomain: svc.Domain,
+		Rules:         rules,
+	}, nil
 }
 
 // AddCustomDomain agrega un alias o regla de redirección CNAME al servicio y actualiza Traefik en Docker Swarm

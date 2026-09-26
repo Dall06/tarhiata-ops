@@ -2006,14 +2006,14 @@ func handleDomainCommand(repo *repositories.SQLiteRepository, config *domain.Ser
 			fmt.Println("❌ Especifica --service <nombre>")
 			return
 		}
-		primary, rules, err := uc.GetServiceDomains(*svcName)
-		if err != nil {
+		info, err := uc.GetServiceDomains(*svcName)
+		if err != nil || info == nil {
 			fmt.Printf("❌ Error al obtener dominios: %v\n", err)
 			return
 		}
 		fmt.Printf("🌐 Dominios configurados para '%s':\n", *svcName)
-		fmt.Printf(" - Dominio Principal: %s\n", primary)
-		for _, r := range rules {
+		fmt.Printf(" - Dominio Principal: %s\n", info.PrimaryDomain)
+		for _, r := range info.Rules {
 			redirStr := ""
 			if r.RedirectTarget != "" {
 				redirStr = fmt.Sprintf(" (Redirección 301 ➔ %s)", r.RedirectTarget)

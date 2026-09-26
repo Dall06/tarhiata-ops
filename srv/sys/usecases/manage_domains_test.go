@@ -43,15 +43,15 @@ func TestManageDomainsUseCase_AddAndRemove(t *testing.T) {
 		t.Fatalf("unexpected error adding custom domain: %v", err)
 	}
 
-	primary, rules, err := uc.GetServiceDomains("web-app")
+	info, err := uc.GetServiceDomains("web-app")
 	if err != nil {
 		t.Fatalf("unexpected error getting domains: %v", err)
 	}
-	if primary != "myapp.com" {
-		t.Errorf("expected primary domain myapp.com, got %s", primary)
+	if info.PrimaryDomain != "myapp.com" {
+		t.Errorf("expected primary domain myapp.com, got %s", info.PrimaryDomain)
 	}
-	if len(rules) != 1 || rules[0].Domain != "www.myapp.com" {
-		t.Errorf("expected custom domain www.myapp.com, got %v", rules)
+	if len(info.Rules) != 1 || info.Rules[0].Domain != "www.myapp.com" {
+		t.Errorf("expected custom domain www.myapp.com, got %v", info.Rules)
 	}
 
 	// Remove custom domain
@@ -60,11 +60,11 @@ func TestManageDomainsUseCase_AddAndRemove(t *testing.T) {
 		t.Fatalf("unexpected error removing custom domain: %v", err)
 	}
 
-	_, rules2, errGet2 := uc.GetServiceDomains("web-app")
+	info2, errGet2 := uc.GetServiceDomains("web-app")
 	if errGet2 != nil {
 		t.Fatalf("unexpected error getting domains after removal: %v", errGet2)
 	}
-	if len(rules2) != 0 {
-		t.Errorf("expected 0 custom domains after removal, got %d", len(rules2))
+	if len(info2.Rules) != 0 {
+		t.Errorf("expected 0 custom domains after removal, got %d", len(info2.Rules))
 	}
 }

@@ -3546,16 +3546,20 @@ func (w *WebServer) handleDownloadBackup(rw http.ResponseWriter, req *http.Reque
 	}
 	sshExec := repositories.NewCryptoSSHExecutor()
 	uc := usecases.NewManageBackupsUseCase(w.repo, sshExec)
-	data, filename, err := uc.DownloadSnapshot(id, *cfg)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
+	res, err := uc.DownloadSnapshot(id, *cfg)
+	if err != nil || res == nil {
+		msg := "error al descargar backup"
+		if err != nil {
+			msg = err.Error()
+		}
+		http.Error(rw, msg, http.StatusInternalServerError)
 		return
 	}
 
-	rw.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	rw.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", res.Filename))
 	rw.Header().Set("Content-Type", "application/octet-stream")
-	rw.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	if _, errWrite := rw.Write(data); errWrite != nil {
+	rw.Header().Set("Content-Length", strconv.Itoa(len(res.Data)))
+	if _, errWrite := rw.Write(res.Data); errWrite != nil {
 		slog.Warn("falló escritura de backup en http response", "error", errWrite)
 	}
 }
@@ -3724,16 +3728,20 @@ func (w *WebServer) handleVolumeDownload(rw http.ResponseWriter, req *http.Reque
 	cfg := w.resolveVolumeConfig(req)
 	sshExec := repositories.NewCryptoSSHExecutor()
 	uc := usecases.NewManageVolumesUseCase(w.repo, sshExec)
-	data, filename, err := uc.DownloadFile(path, cfg)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
+	res, err := uc.DownloadFile(path, cfg)
+	if err != nil || res == nil {
+		msg := "error al descargar archivo"
+		if err != nil {
+			msg = err.Error()
+		}
+		http.Error(rw, msg, http.StatusInternalServerError)
 		return
 	}
 
-	rw.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	rw.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", res.Filename))
 	rw.Header().Set("Content-Type", "application/octet-stream")
-	rw.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	if _, errWrite := rw.Write(data); errWrite != nil {
+	rw.Header().Set("Content-Length", strconv.Itoa(len(res.Data)))
+	if _, errWrite := rw.Write(res.Data); errWrite != nil {
 		slog.Error("error escribiendo descarga de archivo", "error", errWrite)
 	}
 }
@@ -3906,14 +3914,18 @@ func (w *WebServer) handleCustomDomains(rw http.ResponseWriter, req *http.Reques
 			http.Error(rw, "service es requerido", http.StatusBadRequest)
 			return
 		}
-		primary, rules, err := uc.GetServiceDomains(serviceName)
-		if err != nil {
-			http.Error(rw, err.Error(), http.StatusNotFound)
+		info, err := uc.GetServiceDomains(serviceName)
+		if err != nil || info == nil {
+			msg := "servicio no encontrado"
+			if err != nil {
+				msg = err.Error()
+			}
+			http.Error(rw, msg, http.StatusNotFound)
 			return
 		}
 		jsonResponse(rw, map[string]interface{}{
-			"primaryDomain": primary,
-			"customRules":   rules,
+			"primaryDomain": info.PrimaryDomain,
+			"customRules":   info.Rules,
 		})
 
 	case http.MethodPost:

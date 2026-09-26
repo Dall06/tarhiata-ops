@@ -205,18 +205,24 @@ func (uc *ManageVolumesUseCase) WriteFileContent(targetPath string, content stri
 	return nil
 }
 
+// VolumeDownloadResult contiene los bytes y el nombre del archivo descargado de un volumen.
+type VolumeDownloadResult struct {
+	Data     []byte
+	Filename string
+}
+
 // DownloadFile devuelve los bytes de un archivo para descarga directa
-func (uc *ManageVolumesUseCase) DownloadFile(targetPath string, config domain.ServerConfig) ([]byte, string, error) {
+func (uc *ManageVolumesUseCase) DownloadFile(targetPath string, config domain.ServerConfig) (*VolumeDownloadResult, error) {
 	cleanPath, err := sanitizePath(targetPath)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	if uc.ssh == nil {
-		return nil, "", fmt.Errorf("ejecutor SSH no configurado")
+		return nil, fmt.Errorf("ejecutor SSH no configurado")
 	}
 	if err := uc.ssh.Connect(config); err != nil {
-		return nil, "", fmt.Errorf("error de conexión SSH: %w", err)
+		return nil, fmt.Errorf("error de conexión SSH: %w", err)
 	}
 	defer uc.ssh.Close()
 
@@ -230,7 +236,7 @@ func (uc *ManageVolumesUseCase) DownloadFile(targetPath string, config domain.Se
 		if out == "" && err != nil {
 			out = err.Error()
 		}
-		return nil, "", fmt.Errorf("error al descargar archivo '%s': %s", cleanPath, out)
+		return nil, fmt.Errorf("error al descargar archivo '%s': %s", cleanPath, out)
 	}
 
 	// Decodificar base64 si corresponde
@@ -238,9 +244,15 @@ func (uc *ManageVolumesUseCase) DownloadFile(targetPath string, config domain.Se
 	filename := filepath.Base(cleanPath)
 	decoded, err := base64.StdEncoding.DecodeString(raw)
 	if err == nil {
-		return decoded, filename, nil
+		return &VolumeDownloadResult{
+			Data:     decoded,
+			Filename: filename,
+		}, nil
 	}
-	return []byte(raw), filename, nil
+	return &VolumeDownloadResult{
+		Data:     []byte(raw),
+		Filename: filename,
+	}, nil
 }
 
 // DeleteFile elimina un archivo o carpeta dentro de /opt/data
