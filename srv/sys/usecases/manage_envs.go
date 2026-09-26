@@ -50,13 +50,25 @@ func FormatEnvMap(envMap map[string]string) string {
 	return builder.String()
 }
 
-func (uc *ManageEnvVarsUseCase) GetEnvVars(serviceName string) (string, map[string]string, error) {
+// EnvVarsData encapsula el contenido crudo y el mapa parseado de variables de entorno.
+type EnvVarsData struct {
+	Raw string
+	Map map[string]string
+}
+
+func (uc *ManageEnvVarsUseCase) GetEnvVars(serviceName string) (*EnvVarsData, error) {
 	svc, err := uc.repo.GetService(serviceName)
 	if err != nil || svc == nil {
-		return "", make(map[string]string), nil
+		return &EnvVarsData{
+			Raw: "",
+			Map: make(map[string]string),
+		}, nil
 	}
 	envMap := ParseEnvContent(svc.EnvVars)
-	return svc.EnvVars, envMap, nil
+	return &EnvVarsData{
+		Raw: svc.EnvVars,
+		Map: envMap,
+	}, nil
 }
 
 func (uc *ManageEnvVarsUseCase) UpdateEnvVars(serviceName string, rawEnvContent string, config domain.ServerConfig) error {

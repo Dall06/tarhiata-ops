@@ -37,10 +37,31 @@ func main() {
 	defer repo.Close()
 
 	// 2. Cargar configuración del servidor si existe
-	serverConfig, _ := repo.GetServerConfig()
+	serverConfig, errCfg := repo.GetServerConfig()
+	if errCfg != nil {
+		slog.Warn("main: error leyendo server config inicial", "error", errCfg)
+	}
 
 	// 3. Enrutamiento de Comandos CLI (Mapeo 1 a 1 con Casos de Uso)
 	args := os.Args[1:]
+
+	// Detección de flag global --expose o -e para exposición deliberada de red
+	expose := false
+	filteredArgs := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == "--expose" || arg == "-e" {
+			expose = true
+			continue
+		}
+		filteredArgs = append(filteredArgs, arg)
+	}
+	if expose {
+		if setErr := os.Setenv("TARHIATA_EXPOSE", "true"); setErr != nil {
+			slog.Warn("main: error configurando TARHIATA_EXPOSE", "error", setErr)
+		}
+	}
+	args = filteredArgs
+
 	if len(args) == 0 {
 		runDashboard(repo, serverConfig)
 		return
@@ -289,7 +310,10 @@ func handleConnectCommand(repo *repositories.SQLiteRepository, config *domain.Se
 				fmt.Printf("🔍 Probando conexión inmediata con '%s' (%s)...\n", activeCfg.Name, activeCfg.Host)
 				exec := repositories.NewCryptoSSHExecutor()
 				uc := usecases.NewConnectServerUseCase(exec)
-				res, _ := uc.Execute(*activeCfg)
+				res, errExec := uc.Execute(*activeCfg)
+				if errExec != nil {
+					slog.Warn("main: error ejecutando prueba de conexión con servidor activo", "error", errExec)
+				}
 				if res != nil {
 					printConnectionReport(res)
 				}
@@ -416,7 +440,10 @@ func handleConnectCommand(repo *repositories.SQLiteRepository, config *domain.Se
 			for _, s := range servers {
 				exec := repositories.NewCryptoSSHExecutor()
 				uc := usecases.NewConnectServerUseCase(exec)
-				res, _ := uc.Execute(s)
+				res, errExec := uc.Execute(s)
+				if errExec != nil {
+					slog.Warn("main: error probando conexión de servidor", "server", s.Name, "error", errExec)
+				}
 				if res != nil {
 					printConnectionReport(res)
 				}
@@ -877,11 +904,25 @@ func handleNodeCommand(repo *repositories.SQLiteRepository, config *domain.Serve
 			fmt.Printf("❌ Error SSH: %v\n", err)
 			return
 		}
-		defer sshExec.Close()
-		resW, _ := sshExec.RunCommand("docker swarm join-token worker -q")
-		resM, _ := sshExec.RunCommand("docker swarm join-token manager -q")
-		workerToken := strings.TrimSpace(resW.Output)
-		mgrToken := strings.TrimSpace(resM.Output)
+		defer func() {
+			if clErr := sshExec.Close(); clErr != nil {
+				slog.Warn("main: error cerrando sshExec en node token", "error", clErr)
+			}
+		}()
+		workerToken := ""
+		resW, errW := sshExec.RunCommand("docker swarm join-token worker -q")
+		if errW != nil {
+			slog.Warn("main: error obteniendo worker join token", "error", errW)
+		} else if resW != nil {
+			workerToken = strings.TrimSpace(resW.Output)
+		}
+		mgrToken := ""
+		resM, errM := sshExec.RunCommand("docker swarm join-token manager -q")
+		if errM != nil {
+			slog.Warn("main: error obteniendo manager join token", "error", errM)
+		} else if resM != nil {
+			mgrToken = strings.TrimSpace(resM.Output)
+		}
 		fmt.Printf("📋 Worker Join Token:  %s\n", workerToken)
 		fmt.Printf("📋 Manager Join Token: %s\n", mgrToken)
 		fmt.Printf("🔗 Worker Join Cmd:   docker swarm join --token %s %s:2377\n", workerToken, config.Host)
@@ -1316,8 +1357,14 @@ func handleUpdateCommand(config *domain.ServerConfig) {
 }
 
 func handleListCommand(repo *repositories.SQLiteRepository) {
-	svcs, _ := repo.GetServices()
-	dbs, _ := repo.GetDatabases()
+	svcs, errSvc := repo.GetServices()
+	if errSvc != nil {
+		slog.Warn("main: error leyendo servicios en handleList", "error", errSvc)
+	}
+	dbs, errDb := repo.GetDatabases()
+	if errDb != nil {
+		slog.Warn("main: error leyendo bases de datos en handleList", "error", errDb)
+	}
 
 	fmt.Println("========================================================")
 	fmt.Println(" 📦 CATÁLOGO DE SERVICIOS Y BASES DE DATOS DE TARHIATA")
@@ -1346,17 +1393,32 @@ func handleStatusCommand(repo *repositories.SQLiteRepository, config *domain.Ser
 	} else {
 		fmt.Println(" 🔴 Host IP:       NO CONFIGURADO (Ejecuta: tarhiata config --host <IP>)")
 	}
-	svcs, _ := repo.GetServices()
-	dbs, _ := repo.GetDatabases()
+	svcs, errSvc := repo.GetServices()
+	if errSvc != nil {
+		slog.Warn("main: error leyendo servicios en handleStatus", "error", errSvc)
+	}
+	dbs, errDb := repo.GetDatabases()
+	if errDb != nil {
+		slog.Warn("main: error leyendo bases de datos en handleStatus", "error", errDb)
+	}
 	fmt.Printf(" 📦 Total Apps:    %d\n", len(svcs))
 	fmt.Printf(" 🗄️ Total BDs:     %d\n", len(dbs))
 	fmt.Println("========================================================")
 }
 
 func handleTopologyCommand(repo *repositories.SQLiteRepository) {
-	svcs, _ := repo.GetServices()
-	dbs, _ := repo.GetDatabases()
-	links, _ := repo.GetServiceLinks()
+	svcs, errSvc := repo.GetServices()
+	if errSvc != nil {
+		slog.Warn("main: error leyendo servicios en handleTopology", "error", errSvc)
+	}
+	dbs, errDb := repo.GetDatabases()
+	if errDb != nil {
+		slog.Warn("main: error leyendo bases de datos en handleTopology", "error", errDb)
+	}
+	links, errLinks := repo.GetServiceLinks()
+	if errLinks != nil {
+		slog.Warn("main: error leyendo service links en handleTopology", "error", errLinks)
+	}
 
 	fmt.Println("========================================================")
 	fmt.Println(" 🗺️ TARHIATA NETWORK TOPOLOGY MAP")
@@ -1661,17 +1723,17 @@ func handleEnvCommand(repo *repositories.SQLiteRepository, config *domain.Server
 			fmt.Println("❌ Especifica el servicio con --service <nombre>")
 			return
 		}
-		_, envMap, err := uc.GetEnvVars(*svcName)
+		envData, err := uc.GetEnvVars(*svcName)
 		if err != nil {
 			fmt.Printf("❌ Error: %v\n", err)
 			return
 		}
 		fmt.Printf("🔑 Variables de entorno para '%s':\n", *svcName)
-		if len(envMap) == 0 {
+		if envData == nil || len(envData.Map) == 0 {
 			fmt.Println(" (Sin variables de entorno configuradas)")
 			return
 		}
-		for k, v := range envMap {
+		for k, v := range envData.Map {
 			fmt.Printf("  • %s = %s\n", k, v)
 		}
 
@@ -1704,12 +1766,16 @@ func handleEnvCommand(repo *repositories.SQLiteRepository, config *domain.Server
 			fmt.Println("❌ Especifica --service <nombre> y --output <ruta.env>")
 			return
 		}
-		raw, _, err := uc.GetEnvVars(*svcName)
+		envData, err := uc.GetEnvVars(*svcName)
 		if err != nil {
 			fmt.Printf("❌ Error: %v\n", err)
 			return
 		}
-		if err := os.WriteFile(*outPath, []byte(raw), 0644); err != nil {
+		rawContent := ""
+		if envData != nil {
+			rawContent = envData.Raw
+		}
+		if err := os.WriteFile(*outPath, []byte(rawContent), 0644); err != nil {
 			fmt.Printf("❌ Error al escribir en '%s': %v\n", *outPath, err)
 			return
 		}
@@ -1724,7 +1790,7 @@ func handleEnvCommand(repo *repositories.SQLiteRepository, config *domain.Server
 			return
 		}
 		kv := fs.Args()[0]
-		_, envMap, err := uc.GetEnvVars(*svcName)
+		envData, err := uc.GetEnvVars(*svcName)
 		if err != nil {
 			slog.Warn("error al obtener variables previas", "service", *svcName, "error", err)
 		}
@@ -1733,8 +1799,11 @@ func handleEnvCommand(repo *repositories.SQLiteRepository, config *domain.Server
 			fmt.Println("❌ Formato inválido. Usa KEY=VALUE")
 			return
 		}
-		if envMap == nil {
-			envMap = make(map[string]string)
+		envMap := make(map[string]string)
+		if envData != nil && envData.Map != nil {
+			for k, v := range envData.Map {
+				envMap[k] = v
+			}
 		}
 		envMap[parts[0]] = parts[1]
 		newRaw := usecases.FormatEnvMap(envMap)

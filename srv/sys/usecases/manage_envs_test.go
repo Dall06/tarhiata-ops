@@ -59,12 +59,12 @@ func TestManageEnvVarsUseCase_UpdateAndGet(t *testing.T) {
 	uc := NewManageEnvVarsUseCase(repo, mockSSH)
 
 	// Get initial env
-	raw, envMap, err := uc.GetEnvVars("web-api")
+	envData, err := uc.GetEnvVars("web-api")
 	if err != nil {
 		t.Fatalf("unexpected get env error: %v", err)
 	}
-	if envMap["INITIAL_KEY"] != "val1" {
-		t.Errorf("expected INITIAL_KEY=val1, got %s (raw: %s)", envMap["INITIAL_KEY"], raw)
+	if envData.Map["INITIAL_KEY"] != "val1" {
+		t.Errorf("expected INITIAL_KEY=val1, got %s (raw: %s)", envData.Map["INITIAL_KEY"], envData.Raw)
 	}
 
 	// Update bulk env
@@ -75,11 +75,11 @@ func TestManageEnvVarsUseCase_UpdateAndGet(t *testing.T) {
 	}
 
 	// Verify persistence
-	_, updatedMap, err := uc.GetEnvVars("web-api")
+	updatedData, err := uc.GetEnvVars("web-api")
 	if err != nil {
 		t.Fatalf("unexpected error re-fetching env: %v", err)
 	}
-	if updatedMap["PORT"] != "3000" || updatedMap["NODE_ENV"] != "production" {
-		t.Errorf("env vars not updated correctly: %v", updatedMap)
+	if updatedData.Map["PORT"] != "3000" || updatedData.Map["NODE_ENV"] != "production" {
+		t.Errorf("env vars not updated correctly: %v", updatedData.Map)
 	}
 }

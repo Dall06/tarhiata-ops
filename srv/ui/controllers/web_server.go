@@ -203,6 +203,16 @@ func (w *WebServer) Start(port int) error {
 	mux.HandleFunc("/api/sync", w.handleSyncState)
 	mux.HandleFunc("/api/ssh-keys", w.handleSSHKeys)
 
+	bindHost := "127.0.0.1"
+	if os.Getenv("TARHIATA_EXPOSE") == "true" || os.Getenv("TARHIATA_HOST") == "0.0.0.0" {
+		bindHost = "0.0.0.0"
+		fmt.Println("⚠️  [ADVERTENCIA DE SEGURIDAD] Modo de exposición a la red activo (0.0.0.0).")
+		fmt.Println("   Cualquier equipo con acceso a su red podrá acceder a este panel de administración.")
+	} else {
+		fmt.Println("🔒 [SEGURIDAD] Servidor bloqueado para acceso local exclusivo (127.0.0.1).")
+		fmt.Println("   Para exponer el panel a la red, inicie con: tarhiata --expose o TARHIATA_EXPOSE=true")
+	}
+
 	url := fmt.Sprintf("http://localhost:%d", port)
 	banner.PrintServerBanner(port)
 	go openBrowser(url)
@@ -214,7 +224,7 @@ func (w *WebServer) Start(port int) error {
 		mux.ServeHTTP(rw, req)
 	})
 
-	return http.ListenAndServe(fmt.Sprintf(":%d", port), handler)
+	return http.ListenAndServe(fmt.Sprintf("%s:%d", bindHost, port), handler)
 }
 
 func isDockerServiceMatch(targetName string, liveMap map[string]bool) bool {
@@ -499,7 +509,10 @@ func (w *WebServer) handleServers(rw http.ResponseWriter, req *http.Request) {
 		}
 		curr := w.getConfig()
 		if curr != nil && curr.Name == name {
-			activeCfg, _ := w.repo.GetServerConfig()
+			activeCfg, errActive := w.repo.GetServerConfig()
+			if errActive != nil {
+				slog.Warn("web_server: error obteniendo activeCfg tras borrar servidor", "error", errActive)
+			}
 			w.setConfig(activeCfg)
 		}
 		jsonResponse(rw, map[string]string{"status": "ok"})
@@ -550,7 +563,11 @@ func (w *WebServer) handleProvisionServer(rw http.ResponseWriter, req *http.Requ
 	}
 
 	sshExec := repositories.NewCryptoSSHExecutor()
-	defer sshExec.Close()
+	defer func() {
+		if clErr := sshExec.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando sshExec en provisionServer", "error", clErr)
+		}
+	}()
 	connectUC := usecases.NewConnectServerUseCase(sshExec)
 	provisionUC := usecases.NewProvisionCloudServerUseCase(w.repo, connectUC)
 
@@ -561,7 +578,10 @@ func (w *WebServer) handleProvisionServer(rw http.ResponseWriter, req *http.Requ
 	}
 
 	if reqData.SetAsActive {
-		activeCfg, _ := w.repo.GetServerConfigByName(reqData.Name)
+		activeCfg, errByName := w.repo.GetServerConfigByName(reqData.Name)
+		if errByName != nil {
+			slog.Warn("web_server: error obteniendo servidor por nombre tras provision", "error", errByName)
+		}
 		if activeCfg != nil {
 			w.setConfig(activeCfg)
 		}
@@ -1803,7 +1823,11 @@ func (w *WebServer) handleWorkerProvision(rw http.ResponseWriter, req *http.Requ
 		send("error", fmt.Sprintf("❌ Falló conexión SSH al Manager: %v", err))
 		return
 	}
-	defer sshExec.Close()
+	defer func() {
+		if clErr := sshExec.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando sshExec en provisionWorker", "error", clErr)
+		}
+	}()
 
 	loggingExec := NewLoggingSSHExecutor(sshExec, send)
 	workerUseCase := usecases.NewProvisionWorkerUseCase(loggingExec)
@@ -1816,7 +1840,11 @@ func (w *WebServer) handleWorkerProvision(rw http.ResponseWriter, req *http.Requ
 	}
 
 	// Registrar el nuevo VPS Worker en el catálogo de servidores
-	homeDir, _ := os.UserHomeDir()
+	homeDir, errHome := os.UserHomeDir()
+	if errHome != nil {
+		slog.Warn("web_server: error obteniendo homeDir para workerKeyPath", "error", errHome)
+		homeDir = "."
+	}
 	workerKeyPath := filepath.Join(homeDir, ".ssh", "tarhiata_worker_"+reqData.NodeName+".pem")
 	workerServer := domain.ServerConfig{
 		Name:          reqData.NodeName,
@@ -2181,9 +2209,18 @@ func (w *WebServer) handleRestartTraefik(rw http.ResponseWriter, req *http.Reque
 }
 
 func (w *WebServer) handleTopology(rw http.ResponseWriter, req *http.Request) {
-	services, _ := w.repo.GetServices()
-	databases, _ := w.repo.GetDatabases()
-	links, _ := w.repo.GetServiceLinks()
+	services, errSvc := w.repo.GetServices()
+	if errSvc != nil {
+		slog.Warn("web_server: error leyendo servicios en handleTopology", "error", errSvc)
+	}
+	databases, errDB := w.repo.GetDatabases()
+	if errDB != nil {
+		slog.Warn("web_server: error leyendo bases de datos en handleTopology", "error", errDB)
+	}
+	links, errLinks := w.repo.GetServiceLinks()
+	if errLinks != nil {
+		slog.Warn("web_server: error leyendo service links en handleTopology", "error", errLinks)
+	}
 
 	if services == nil { services = []domain.SavedService{} }
 	if databases == nil { databases = []domain.SavedDatabase{} }
@@ -2319,7 +2356,11 @@ func jsonError(rw http.ResponseWriter, message string, statusCode int) {
 
 // streamJSON envía un evento de progreso al cliente en formato NDJSON.
 func streamJSON(rw http.ResponseWriter, flusher http.Flusher, eventType, msg string) {
-	data, _ := json.Marshal(map[string]string{"t": eventType, "m": msg})
+	data, err := json.Marshal(map[string]string{"t": eventType, "m": msg})
+	if err != nil {
+		slog.Warn("web_server: error serializando evento streamJSON", "error", err)
+		return
+	}
 	fmt.Fprintf(rw, "%s\n", data)
 	flusher.Flush()
 }
@@ -2327,7 +2368,11 @@ func streamJSON(rw http.ResponseWriter, flusher http.Flusher, eventType, msg str
 // streamDoneJSON envía el evento final de éxito con datos al cliente.
 func streamDoneJSON(rw http.ResponseWriter, flusher http.Flusher, result map[string]string) {
 	payload := map[string]interface{}{"t": "done", "d": result}
-	data, _ := json.Marshal(payload)
+	data, err := json.Marshal(payload)
+	if err != nil {
+		slog.Warn("web_server: error serializando evento streamDoneJSON", "error", err)
+		return
+	}
 	fmt.Fprintf(rw, "%s\n", data)
 	flusher.Flush()
 }
@@ -2403,11 +2448,20 @@ func (w *WebServer) handleNodes(rw http.ResponseWriter, req *http.Request) {
 			jsonError(rw, fmt.Sprintf("Error SSH: %v", err), http.StatusInternalServerError)
 			return
 		}
-		defer sshExec.Close()
+		defer func() {
+			if clErr := sshExec.Close(); clErr != nil {
+				slog.Warn("web_server: error cerrando sshExec en node delete", "error", clErr)
+			}
+		}()
 
 		// 1. Obtener el hostname del nodo
-		resHost, _ := sshExec.RunCommand(fmt.Sprintf("docker node inspect %s --format '{{.Description.Hostname}}'", nodeID))
-		hostname := strings.TrimSpace(resHost.Output)
+		hostname := ""
+		resHost, errHost := sshExec.RunCommand(fmt.Sprintf("docker node inspect %s --format '{{.Description.Hostname}}'", nodeID))
+		if errHost != nil {
+			slog.Warn("web_server: error inspeccionando hostname del nodo", "nodeID", nodeID, "error", errHost)
+		} else if resHost != nil {
+			hostname = strings.TrimSpace(resHost.Output)
+		}
 
 		// 2. Remover cualquier servicio de base de datos asociado a este nodo para liberar el candado de Swarm
 		resServices, errServices := sshExec.RunCommand("docker service ls --format '{{.Name}}'")
@@ -3228,15 +3282,15 @@ func (w *WebServer) handleEnvVars(rw http.ResponseWriter, req *http.Request) {
 		}
 		sshExec := repositories.NewCryptoSSHExecutor()
 		uc := usecases.NewManageEnvVarsUseCase(w.repo, sshExec)
-		raw, envMap, err := uc.GetEnvVars(serviceName)
+		envData, err := uc.GetEnvVars(serviceName)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusNotFound)
 			return
 		}
 		jsonResponse(rw, map[string]interface{}{
 			"serviceName": serviceName,
-			"rawContent":  raw,
-			"envVars":     envMap,
+			"rawContent":  envData.Raw,
+			"envVars":     envData.Map,
 		})
 		return
 	}
@@ -3284,7 +3338,7 @@ func (w *WebServer) handleExportEnvVars(rw http.ResponseWriter, req *http.Reques
 	}
 	sshExec := repositories.NewCryptoSSHExecutor()
 	uc := usecases.NewManageEnvVarsUseCase(w.repo, sshExec)
-	raw, _, err := uc.GetEnvVars(serviceName)
+	envData, err := uc.GetEnvVars(serviceName)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusNotFound)
 		return
@@ -3293,8 +3347,8 @@ func (w *WebServer) handleExportEnvVars(rw http.ResponseWriter, req *http.Reques
 	filename := fmt.Sprintf("%s.env", serviceName)
 	rw.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
 	rw.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	rw.Header().Set("Content-Length", strconv.Itoa(len(raw)))
-	rw.Write([]byte(raw))
+	rw.Header().Set("Content-Length", strconv.Itoa(len(envData.Raw)))
+	rw.Write([]byte(envData.Raw))
 }
 
 func (w *WebServer) resolveVolumeConfig(req *http.Request) domain.ServerConfig {
@@ -3787,12 +3841,19 @@ func (w *WebServer) handleDBHealth(rw http.ResponseWriter, req *http.Request) {
 		jsonError(rw, fmt.Sprintf("Error SSH: %v", err), http.StatusInternalServerError)
 		return
 	}
-	defer sshExec.Close()
+	defer func() {
+		if clErr := sshExec.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando sshExec en handleDBHealth", "error", clErr)
+		}
+	}()
 
 	cleanName := strings.TrimPrefix(name, "tarhiata-db-")
 	cleanName = strings.TrimPrefix(cleanName, "tarhiata-")
 
-	db, _ := w.repo.GetDatabase(cleanName)
+	db, errDB := w.repo.GetDatabase(cleanName)
+	if errDB != nil {
+		slog.Warn("web_server: error obteniendo base de datos en handleDBHealth", "name", cleanName, "error", errDB)
+	}
 	engine := "postgres"
 	if db != nil && db.Engine != "" {
 		engine = strings.ToLower(db.Engine)
@@ -3811,7 +3872,10 @@ func (w *WebServer) handleDBHealth(rw http.ResponseWriter, req *http.Request) {
 	switch engine {
 	case "postgres":
 		cmd := fmt.Sprintf("docker exec $(docker ps -q -f name=tarhiata-db-%s | head -n 1) psql -U admin -d db -t -c 'SELECT count(*) FROM pg_stat_activity;' 2>/dev/null", cleanName)
-		res, _ := sshExec.RunCommand(cmd)
+		res, errCmd := sshExec.RunCommand(cmd)
+		if errCmd != nil {
+			slog.Debug("web_server: error en query postgres health", "error", errCmd)
+		}
 		if res != nil && strings.TrimSpace(res.Output) != "" {
 			if count, err := strconv.Atoi(strings.TrimSpace(res.Output)); err == nil {
 				health.ActiveConnections = count
@@ -3819,7 +3883,10 @@ func (w *WebServer) handleDBHealth(rw http.ResponseWriter, req *http.Request) {
 		}
 	case "mysql":
 		cmd := fmt.Sprintf("docker exec $(docker ps -q -f name=tarhiata-db-%s | head -n 1) mysql -u admin -padmin_pass -e \"SHOW STATUS LIKE 'Threads_connected';\" 2>/dev/null | tail -n 1 | awk '{print $2}'", cleanName)
-		res, _ := sshExec.RunCommand(cmd)
+		res, errCmd := sshExec.RunCommand(cmd)
+		if errCmd != nil {
+			slog.Debug("web_server: error en query mysql health", "error", errCmd)
+		}
 		if res != nil && strings.TrimSpace(res.Output) != "" {
 			if count, err := strconv.Atoi(strings.TrimSpace(res.Output)); err == nil {
 				health.ActiveConnections = count
