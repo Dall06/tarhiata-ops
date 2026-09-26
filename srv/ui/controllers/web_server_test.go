@@ -1558,6 +1558,113 @@ func TestHandleNodes_TargetServer_TableDriven(t *testing.T) {
 	}
 }
 
+func TestWebServer_SecurityAndAuth_TableDriven(t *testing.T) {
+	repo := &mockRepo{}
+	cfg := &domain.ServerConfig{Host: "127.0.0.1"}
+
+	tests := []struct {
+		name           string
+		apiKey         string
+		isExposed      bool
+		remoteAddr     string
+		url            string
+		headerKey      string
+		headerVal      string
+		expectedStatus int
+	}{
+		{
+			name:           "Local request without API key allowed",
+			apiKey:         "",
+			isExposed:      false,
+			remoteAddr:     "127.0.0.1:12345",
+			url:            "/api/protected",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "Exposed server with valid X-API-Key header allowed",
+			apiKey:         "secret-token-123",
+			isExposed:      true,
+			remoteAddr:     "198.51.100.1:54321",
+			url:            "/api/protected",
+			headerKey:      "X-API-Key",
+			headerVal:      "secret-token-123",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "Exposed server with valid Authorization Bearer token allowed",
+			apiKey:         "secret-token-123",
+			isExposed:      true,
+			remoteAddr:     "198.51.100.1:54321",
+			url:            "/api/protected",
+			headerKey:      "Authorization",
+			headerVal:      "Bearer secret-token-123",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "Exposed server with valid key query parameter allowed",
+			apiKey:         "secret-token-123",
+			isExposed:      true,
+			remoteAddr:     "198.51.100.1:54321",
+			url:            "/api/protected?key=secret-token-123",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "Exposed server with invalid API key returns 401",
+			apiKey:         "secret-token-123",
+			isExposed:      true,
+			remoteAddr:     "198.51.100.1:54321",
+			url:            "/api/protected",
+			headerKey:      "X-API-Key",
+			headerVal:      "wrong-token",
+			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name:           "Exposed server without API key configured blocks external IP with 403",
+			apiKey:         "",
+			isExposed:      true,
+			remoteAddr:     "198.51.100.1:54321",
+			url:            "/api/protected",
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:           "Exposed server without API key configured permits loopback caller",
+			apiKey:         "",
+			isExposed:      true,
+			remoteAddr:     "127.0.0.1:54321",
+			url:            "/api/protected",
+			expectedStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ws := NewWebServer(repo, cfg)
+			ws.SetAPIKey(tt.apiKey)
+			ws.SetExposed(tt.isExposed)
+
+			dummyHandler := ws.localAuthMiddleware(func(rw http.ResponseWriter, req *http.Request) {
+				rw.WriteHeader(http.StatusOK)
+				if _, wErr := rw.Write([]byte(`{"status":"ok"}`)); wErr != nil {
+					t.Fatalf("failed to write response: %v", wErr)
+				}
+			})
+
+			req := httptest.NewRequest(http.MethodPost, tt.url, nil)
+			req.RemoteAddr = tt.remoteAddr
+			if tt.headerKey != "" {
+				req.Header.Set(tt.headerKey, tt.headerVal)
+			}
+
+			rr := httptest.NewRecorder()
+			dummyHandler(rr, req)
+
+			if rr.Code != tt.expectedStatus {
+				t.Errorf("expected status %d, got %d", tt.expectedStatus, rr.Code)
+			}
+		})
+	}
+}
+
 
 
 

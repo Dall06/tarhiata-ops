@@ -153,6 +153,15 @@ func (w *WebServer) isAuthorized(req *http.Request) bool {
 		if reqKey == "" {
 			reqKey = req.URL.Query().Get("api_key")
 		}
+		if reqKey == "" {
+			reqKey = req.URL.Query().Get("key")
+		}
+		if reqKey == "" {
+			authHeader := req.Header.Get("Authorization")
+			if strings.HasPrefix(authHeader, "Bearer ") {
+				reqKey = strings.TrimPrefix(authHeader, "Bearer ")
+			}
+		}
 		return reqKey == apiKey
 	}
 	if isExposed && !isLoopback(req.RemoteAddr) {
@@ -203,11 +212,11 @@ func (w *WebServer) Start(port int) error {
 	mux.HandleFunc("/api/services/rollback", w.localAuthMiddleware(w.handleServiceRollback))
 	mux.HandleFunc("/api/services/restart", w.localAuthMiddleware(w.handleServiceRestart))
 	mux.HandleFunc("/api/databases/restart", w.localAuthMiddleware(w.handleServiceRestart))
-	mux.HandleFunc("/api/services/", w.handleServiceItem)
-	mux.HandleFunc("/api/deploy-service", w.handleServices)
-	mux.HandleFunc("/api/databases", w.handleDatabases)
-	mux.HandleFunc("/api/databases/", w.handleDatabaseItem)
-	mux.HandleFunc("/api/deploy-db", w.handleDatabases)
+	mux.HandleFunc("/api/services/", w.localAuthMiddleware(w.handleServiceItem))
+	mux.HandleFunc("/api/deploy-service", w.localAuthMiddleware(w.handleServices))
+	mux.HandleFunc("/api/databases", w.localAuthMiddleware(w.handleDatabases))
+	mux.HandleFunc("/api/databases/", w.localAuthMiddleware(w.handleDatabaseItem))
+	mux.HandleFunc("/api/deploy-db", w.localAuthMiddleware(w.handleDatabases))
 	mux.HandleFunc("/api/config", w.localAuthMiddleware(w.handleConfig))
 	mux.HandleFunc("/api/config/test", w.handleConnect)
 	mux.HandleFunc("/api/connect", w.handleConnect)
@@ -235,8 +244,8 @@ func (w *WebServer) Start(port int) error {
 	mux.HandleFunc("/api/migrations/file", w.handleMigrationFile)
 	mux.HandleFunc("/api/migrations/run", w.localAuthMiddleware(w.handleRunMigrations))
 	mux.HandleFunc("/api/observability/metrics", w.handleObservabilityMetrics)
-	mux.HandleFunc("/api/backups", w.handleBackups)
-	mux.HandleFunc("/api/databases/backup", w.handleBackups)
+	mux.HandleFunc("/api/backups", w.localAuthMiddleware(w.handleBackups))
+	mux.HandleFunc("/api/databases/backup", w.localAuthMiddleware(w.handleBackups))
 	mux.HandleFunc("/api/backups/restore", w.localAuthMiddleware(w.handleRestoreBackup))
 	mux.HandleFunc("/api/backups/download", w.handleDownloadBackup)
 	mux.HandleFunc("/api/env", w.handleEnvVars)
@@ -258,8 +267,8 @@ func (w *WebServer) Start(port int) error {
 	mux.HandleFunc("/api/tools/prune", w.localAuthMiddleware(w.handlePrune))
 	mux.HandleFunc("/api/tools/restart-traefik", w.localAuthMiddleware(w.handleRestartTraefik))
 	mux.HandleFunc("/api/topology", w.handleTopology)
-	mux.HandleFunc("/api/links", w.handleLinks)
-	mux.HandleFunc("/api/nodes", w.handleNodes)
+	mux.HandleFunc("/api/links", w.localAuthMiddleware(w.handleLinks))
+	mux.HandleFunc("/api/nodes", w.localAuthMiddleware(w.handleNodes))
 	mux.HandleFunc("/api/nodes/join-token", w.handleNodeJoinToken)
 	mux.HandleFunc("/api/nodes/update", w.localAuthMiddleware(w.handleNodeUpdate))
 	mux.HandleFunc("/api/nodes/labels", w.localAuthMiddleware(w.handleNodeLabels))
@@ -296,6 +305,7 @@ func (w *WebServer) Start(port int) error {
 		rw.Header().Set("X-Content-Type-Options", "nosniff")
 		rw.Header().Set("X-Frame-Options", "DENY")
 		rw.Header().Set("X-XSS-Protection", "1; mode=block")
+		rw.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		mux.ServeHTTP(rw, req)
 	})
 

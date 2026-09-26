@@ -4,6 +4,35 @@
  */
 
 document.addEventListener('DOMContentLoaded', () => {
+    // --- API Key & Session Security Interceptor ---
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const initialKey = urlParams.get('key') || urlParams.get('api_key');
+        if (initialKey) {
+            sessionStorage.setItem('tarhiata_api_key', initialKey);
+        }
+        const originalFetch = window.fetch;
+        window.fetch = function(input, init) {
+            const key = sessionStorage.getItem('tarhiata_api_key') || localStorage.getItem('tarhiata_api_key');
+            if (key) {
+                init = init || {};
+                if (!init.headers) {
+                    init.headers = {};
+                }
+                if (init.headers instanceof Headers) {
+                    if (!init.headers.has('X-API-Key')) init.headers.set('X-API-Key', key);
+                } else if (Array.isArray(init.headers)) {
+                    init.headers.push(['X-API-Key', key]);
+                } else {
+                    if (!init.headers['X-API-Key']) init.headers['X-API-Key'] = key;
+                }
+            }
+            return originalFetch.call(this, input, init);
+        };
+    } catch (secErr) {
+        console.debug('Error configurando interceptor de seguridad:', secErr);
+    }
+
     // --- Application State ---
     let servers = [];
     let activeServer = null;
