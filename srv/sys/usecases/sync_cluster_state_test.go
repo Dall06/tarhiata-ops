@@ -8,7 +8,7 @@ import (
 )
 
 func TestSyncClusterStateUseCase(t *testing.T) {
-	repo := newMockRepoForBootstrap()
+	repo := mocks.NewMockConfigRepository()
 	sshExec := mocks.NewMockSSHExecutor()
 
 	// Guardar datos iniciales

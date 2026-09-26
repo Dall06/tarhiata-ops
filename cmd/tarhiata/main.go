@@ -27,6 +27,16 @@ func isValidIdentifier(s string) bool {
 	return validIdentifierRegex.MatchString(s)
 }
 
+func confirmAction(prompt string) bool {
+	fmt.Printf("%s (s/N): ", prompt)
+	var confirm string
+	if _, err := fmt.Scanln(&confirm); err != nil {
+		return false
+	}
+	confirm = strings.ToLower(strings.TrimSpace(confirm))
+	return confirm == "s" || confirm == "si" || confirm == "y" || confirm == "yes"
+}
+
 func main() {
 	// 1. Inicializar Base de Datos Local (SQLite)
 	homeDir, err := os.UserHomeDir()
@@ -881,31 +891,7 @@ func handleDatabaseCommand(repo *repositories.SQLiteRepository, config *domain.S
 }
 
 func handleWorkerCommand(repo *repositories.SQLiteRepository, config *domain.ServerConfig, args []string) {
-	fs := flag.NewFlagSet("worker", flag.ExitOnError)
-	nodeName := fs.String("name", "worker-1", "Nombre del nodo worker")
-	region := fs.String("region", "ewr", "Región VPS Vultr (ej. ewr, lax)")
-	fs.Parse(args)
-
-	if config == nil || (config.DOAPIToken == "" && config.VultrAPIToken == "") {
-		fmt.Println("❌ Requiere Vultr API Key en config: tarhiata config --do-token vultr_api_key_...")
-		return
-	}
-
-	sshExec := repositories.NewCryptoSSHExecutor()
-	if err := sshExec.Connect(*config); err != nil {
-		fmt.Printf("❌ Error conectando por SSH al Manager: %v\n", err)
-		return
-	}
-	defer sshExec.Close()
-
-	workerUseCase := usecases.NewProvisionWorkerUseCase(sshExec)
-	fmt.Printf("🏗️ Provisionando worker node '%s' vía Terraform en DO (%s)...\n", *nodeName, *region)
-	nodeIP, err := workerUseCase.Execute(*config, *nodeName, "worker")
-	if err != nil {
-		fmt.Printf("❌ Error provisionando worker: %v\n", err)
-		return
-	}
-	fmt.Printf("🎉 Worker '%s' unido al clúster exitosamente con IP: %s\n", *nodeName, nodeIP)
+	handleNodeCommand(repo, config, append([]string{"add"}, args...))
 }
 
 func handleNodeCommand(repo *repositories.SQLiteRepository, config *domain.ServerConfig, args []string) {
@@ -971,11 +957,11 @@ func handleNodeCommand(repo *repositories.SQLiteRepository, config *domain.Serve
 	case "add", "provision":
 		fs := flag.NewFlagSet("node add", flag.ExitOnError)
 		nodeName := fs.String("name", "worker-1", "Nombre del nodo worker")
-		region := fs.String("region", "nyc3", "Región en DigitalOcean")
+		region := fs.String("region", "mex", "Región VPS (ej. mex, ewr, lax, nyc3)")
 		fs.Parse(args[1:])
 
-		if config == nil || config.DOAPIToken == "" {
-			fmt.Println("❌ Requiere DigitalOcean API Token en config: tarhiata config --do-token dop_v1_...")
+		if config == nil || (config.DOAPIToken == "" && config.VultrAPIToken == "") {
+			fmt.Println("❌ Requiere Token de Cloud Provider en config: tarhiata config --vultr-token <key> o --do-token <token>")
 			return
 		}
 
@@ -987,8 +973,8 @@ func handleNodeCommand(repo *repositories.SQLiteRepository, config *domain.Serve
 		defer sshExec.Close()
 
 		workerUseCase := usecases.NewProvisionWorkerUseCase(sshExec)
-		fmt.Printf("🏗️ Provisionando worker node '%s' vía Terraform en DO (%s)...\n", *nodeName, *region)
-		nodeIP, err := workerUseCase.Execute(*config, *nodeName, "worker")
+		fmt.Printf("🏗️ Provisionando worker node '%s' vía Terraform (%s)...\n", *nodeName, *region)
+		nodeIP, err := workerUseCase.ExecuteWithRegion(*config, *nodeName, "worker", *region)
 		if err != nil {
 			fmt.Printf("❌ Error provisionando worker: %v\n", err)
 			return
@@ -1011,11 +997,7 @@ func handleNodeCommand(repo *repositories.SQLiteRepository, config *domain.Serve
 		}
 
 		// Prompt confirmation for node removal
-		fmt.Printf("⚠️  ¿Está seguro de que desea eliminar el nodo '%s' del clúster Swarm? (s/N): ", nodeID)
-		var confirm string
-		fmt.Scanln(&confirm)
-		confirm = strings.ToLower(strings.TrimSpace(confirm))
-		if confirm != "s" && confirm != "si" && confirm != "y" && confirm != "yes" {
+		if !confirmAction(fmt.Sprintf("⚠️  ¿Está seguro de que desea eliminar el nodo '%s' del clúster Swarm?", nodeID)) {
 			fmt.Println("Operación cancelada.")
 			return
 		}
@@ -1150,11 +1132,7 @@ func handleObservabilityCommand(repo *repositories.SQLiteRepository, config *dom
 		}
 	}
 
-	fmt.Printf("⚠️  ¿Está seguro de desplegar/actualizar el stack de Observabilidad (Loki, Grafana, Portainer) montado en la VM en '%s'? (s/N): ", volPath)
-	var confirm string
-	fmt.Scanln(&confirm)
-	confirm = strings.ToLower(strings.TrimSpace(confirm))
-	if confirm != "s" && confirm != "si" && confirm != "y" && confirm != "yes" {
+	if !confirmAction(fmt.Sprintf("⚠️  ¿Está seguro de desplegar/actualizar el stack de Observabilidad (Loki, Grafana, Portainer) montado en la VM en '%s'?", volPath)) {
 		fmt.Println("Operación cancelada.")
 		return
 	}
@@ -1201,11 +1179,7 @@ func handleRollbackCommand(config *domain.ServerConfig, args []string) {
 		return
 	}
 
-	fmt.Printf("⚠️  ¿Está seguro de ejecutar un ROLLBACK en el servicio Swarm '%s'? (s/N): ", svcName)
-	var confirm string
-	fmt.Scanln(&confirm)
-	confirm = strings.ToLower(strings.TrimSpace(confirm))
-	if confirm != "s" && confirm != "si" && confirm != "y" && confirm != "yes" {
+	if !confirmAction(fmt.Sprintf("⚠️  ¿Está seguro de ejecutar un ROLLBACK en el servicio Swarm '%s'?", svcName)) {
 		fmt.Println("Operación cancelada.")
 		return
 	}
@@ -1268,10 +1242,7 @@ func handleRegistryCommand(repo *repositories.SQLiteRepository, config *domain.S
 			return
 		}
 
-		fmt.Printf("⚠️  ¿Está seguro de registrar e iniciar sesión en '%s' como '%s'? (s/N): ", *server, *username)
-		var confirm string
-		fmt.Scanln(&confirm)
-		if strings.ToLower(strings.TrimSpace(confirm)) != "s" && strings.ToLower(strings.TrimSpace(confirm)) != "si" {
+		if !confirmAction(fmt.Sprintf("⚠️  ¿Está seguro de registrar e iniciar sesión en '%s' como '%s'?", *server, *username)) {
 			fmt.Println("Operación cancelada.")
 			return
 		}
@@ -1316,10 +1287,7 @@ func handleRegistryCommand(repo *repositories.SQLiteRepository, config *domain.S
 			}
 		}
 
-		fmt.Printf("⚠️  ¿Está seguro de remover las credenciales y cerrar sesión en '%s'? (s/N): ", *server)
-		var confirm string
-		fmt.Scanln(&confirm)
-		if strings.ToLower(strings.TrimSpace(confirm)) != "s" && strings.ToLower(strings.TrimSpace(confirm)) != "si" {
+		if !confirmAction(fmt.Sprintf("⚠️  ¿Está seguro de remover las credenciales y cerrar sesión en '%s'?", *server)) {
 			fmt.Println("Operación cancelada.")
 			return
 		}
@@ -1355,11 +1323,7 @@ func handleMasterCommand(repo *repositories.SQLiteRepository, config *domain.Ser
 		return
 	}
 
-	fmt.Printf("⚠️  ¿Está seguro de inicializar el servicio Master '%s' con BD '%s'? (Si '%s' tenía enlaces previos, se desvinculará automáticamente) (s/N): ", *name, *dbEngine, *name)
-	var confirm string
-	fmt.Scanln(&confirm)
-	confirm = strings.ToLower(strings.TrimSpace(confirm))
-	if confirm != "s" && confirm != "si" && confirm != "y" && confirm != "yes" {
+	if !confirmAction(fmt.Sprintf("⚠️  ¿Está seguro de inicializar el servicio Master '%s' con BD '%s'? (Si '%s' tenía enlaces previos, se desvinculará automáticamente)", *name, *dbEngine, *name)) {
 		fmt.Println("Operación cancelada.")
 		return
 	}

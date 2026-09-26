@@ -1,7 +1,6 @@
 package usecases
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
@@ -9,116 +8,9 @@ import (
 	"github.com/Dall06/tarhiata-ops/srv/sys/tests/mocks"
 )
 
-type mockRepoForBootstrap struct {
-	services map[string]domain.SavedService
-	dbs      map[string]domain.SavedDatabase
-	links    []domain.ServiceLink
-}
-
-func newMockRepoForBootstrap() *mockRepoForBootstrap {
-	return &mockRepoForBootstrap{
-		services: make(map[string]domain.SavedService),
-		dbs:      make(map[string]domain.SavedDatabase),
-		links:    []domain.ServiceLink{},
-	}
-}
-
-func (m *mockRepoForBootstrap) SaveServerConfig(config domain.ServerConfig) error { return nil }
-func (m *mockRepoForBootstrap) GetServerConfig() (*domain.ServerConfig, error) {
-	return &domain.ServerConfig{Host: "127.0.0.1"}, nil
-}
-func (m *mockRepoForBootstrap) GetAllServerConfigs() ([]domain.ServerConfig, error) { return nil, nil }
-func (m *mockRepoForBootstrap) GetServerConfigByName(name string) (*domain.ServerConfig, error) { return nil, nil }
-func (m *mockRepoForBootstrap) SetActiveServerConfig(name string) error { return nil }
-func (m *mockRepoForBootstrap) DeleteServerConfig(name string) error { return nil }
-func (m *mockRepoForBootstrap) Close() error { return nil }
-
-func (m *mockRepoForBootstrap) SaveService(service domain.SavedService) error {
-	m.services[service.Name] = service
-	return nil
-}
-func (m *mockRepoForBootstrap) GetServices() ([]domain.SavedService, error) {
-	var list []domain.SavedService
-	for _, s := range m.services {
-		list = append(list, s)
-	}
-	return list, nil
-}
-func (m *mockRepoForBootstrap) GetService(name string) (*domain.SavedService, error) {
-	if s, ok := m.services[name]; ok {
-		return &s, nil
-	}
-	return nil, fmt.Errorf("service not found")
-}
-func (m *mockRepoForBootstrap) DeleteService(name string) error {
-	delete(m.services, name)
-	return nil
-}
-func (m *mockRepoForBootstrap) SaveDatabase(db domain.SavedDatabase) error {
-	m.dbs[db.Name] = db
-	return nil
-}
-func (m *mockRepoForBootstrap) GetDatabases() ([]domain.SavedDatabase, error) {
-	var list []domain.SavedDatabase
-	for _, d := range m.dbs {
-		list = append(list, d)
-	}
-	return list, nil
-}
-func (m *mockRepoForBootstrap) GetDatabase(name string) (*domain.SavedDatabase, error) {
-	if d, ok := m.dbs[name]; ok {
-		return &d, nil
-	}
-	return nil, fmt.Errorf("database not found")
-}
-func (m *mockRepoForBootstrap) DeleteDatabase(name string) error {
-	delete(m.dbs, name)
-	return nil
-}
-func (m *mockRepoForBootstrap) SaveObservability(obs domain.SavedObservability) error { return nil }
-func (m *mockRepoForBootstrap) GetObservability() (*domain.SavedObservability, error) { return nil, nil }
-func (m *mockRepoForBootstrap) DeleteObservability() error                            { return nil }
-
-func (m *mockRepoForBootstrap) SaveServiceLink(link domain.ServiceLink) error {
-	m.links = append(m.links, link)
-	return nil
-}
-func (m *mockRepoForBootstrap) GetServiceLinks() ([]domain.ServiceLink, error) {
-	return m.links, nil
-}
-func (m *mockRepoForBootstrap) DeleteServiceLink(sourceSvc string, targetSvc string) error {
-	var newLinks []domain.ServiceLink
-	for _, l := range m.links {
-		if l.SourceSvc == sourceSvc && l.TargetSvc == targetSvc {
-			continue
-		}
-		newLinks = append(newLinks, l)
-	}
-	m.links = newLinks
-	return nil
-}
-
-func (m *mockRepoForBootstrap) SavePreviewEnv(env domain.SavedPreviewEnv) error               { return nil }
-func (m *mockRepoForBootstrap) GetPreviewEnvs() ([]domain.SavedPreviewEnv, error)             { return nil, nil }
-func (m *mockRepoForBootstrap) GetPreviewEnv(name string) (*domain.SavedPreviewEnv, error)   { return nil, nil }
-func (m *mockRepoForBootstrap) DeletePreviewEnv(name string) error                            { return nil }
-func (m *mockRepoForBootstrap) SaveRegistryCredential(cred domain.SavedRegistryCredential) error { return nil }
-func (m *mockRepoForBootstrap) GetRegistryCredentials() ([]domain.SavedRegistryCredential, error) { return nil, nil }
-func (m *mockRepoForBootstrap) GetRegistryCredential(server string) (*domain.SavedRegistryCredential, error) { return nil, nil }
-func (m *mockRepoForBootstrap) DeleteRegistryCredential(server string) error                  { return nil }
-func (m *mockRepoForBootstrap) SaveMigrationFile(file domain.MigrationFile) error              { return nil }
-func (m *mockRepoForBootstrap) GetMigrationFiles(dbName string) ([]domain.MigrationFile, error){ return nil, nil }
-func (m *mockRepoForBootstrap) DeleteMigrationFile(dbName, filename string) error              { return nil }
-func (m *mockRepoForBootstrap) RecordMigrationExecution(dbName, filename, status, logs string) error { return nil }
-func (m *mockRepoForBootstrap) SaveBackup(b domain.SavedBackup) error                           { return nil }
-func (m *mockRepoForBootstrap) GetBackups() ([]domain.SavedBackup, error)                     { return nil, nil }
-func (m *mockRepoForBootstrap) GetBackupByID(id int) (*domain.SavedBackup, error)             { return nil, nil }
-func (m *mockRepoForBootstrap) DeleteBackup(id int) error                                      { return nil }
-func (m *mockRepoForBootstrap) SaveAuditLog(log domain.AuditLog) error                          { return nil }
-func (m *mockRepoForBootstrap) GetAuditLogs(limit int) ([]domain.AuditLog, error)              { return nil, nil }
-
 func TestBootstrapMasterService_Execute(t *testing.T) {
-	repo := newMockRepoForBootstrap()
+	repo := mocks.NewMockConfigRepository()
+	repo.Config = &domain.ServerConfig{Host: "127.0.0.1"}
 	sshExec := mocks.NewMockSSHExecutor()
 
 	// 1. Configurar un enlace previo para api-shop -> old-db

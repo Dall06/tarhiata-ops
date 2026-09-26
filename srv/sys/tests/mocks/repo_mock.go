@@ -17,6 +17,19 @@ type MockConfigRepository struct {
 	AuditLogs     []domain.AuditLog
 }
 
+func NewMockConfigRepository() *MockConfigRepository {
+	return &MockConfigRepository{
+		Services:   []domain.SavedService{},
+		Databases:  []domain.SavedDatabase{},
+		Links:      []domain.ServiceLink{},
+		Previews:   []domain.SavedPreviewEnv{},
+		Registries: []domain.SavedRegistryCredential{},
+		Migrations: []domain.MigrationFile{},
+		Backups:    []domain.SavedBackup{},
+		AuditLogs:  []domain.AuditLog{},
+	}
+}
+
 func (m *MockConfigRepository) SaveServerConfig(config domain.ServerConfig) error {
 	m.Config = &config
 	return nil
@@ -231,6 +244,12 @@ func (m *MockConfigRepository) DeleteMigrationFile(dbName, filename string) erro
 }
 
 func (m *MockConfigRepository) RecordMigrationExecution(dbName, filename, status, logs string) error {
+	for i := range m.Migrations {
+		if m.Migrations[i].DBName == dbName && m.Migrations[i].Filename == filename {
+			m.Migrations[i].Status = status
+			m.Migrations[i].LogOutput = logs
+		}
+	}
 	return nil
 }
 
