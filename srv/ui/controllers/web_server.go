@@ -3868,6 +3868,14 @@ func (w *WebServer) handleContainerStats(rw http.ResponseWriter, req *http.Reque
 		return
 	}
 
+	cacheKey := fmt.Sprintf("stats:%s:%s", cfg.Host, name)
+	if cached, ok := w.getCache(cacheKey); ok {
+		if stats, ok := cached.(domain.ContainerStats); ok {
+			jsonResponse(rw, stats)
+			return
+		}
+	}
+
 	sshExec := repositories.NewCryptoSSHExecutor()
 	if err := sshExec.Connect(*cfg); err != nil {
 		jsonError(rw, fmt.Sprintf("Error SSH: %v", err), http.StatusInternalServerError)
@@ -3879,44 +3887,50 @@ func (w *WebServer) handleContainerStats(rw http.ResponseWriter, req *http.Reque
 	cleanName = strings.TrimPrefix(cleanName, "tarhiata-")
 
 	cmdInspect := fmt.Sprintf("docker ps -q -f name=%s || docker ps -q -f name=%s || docker ps -q", name, cleanName)
-	resInspect, err := sshExec.RunCommand(cmdInspect)
-	containerID := strings.TrimSpace(resInspect.Output)
-	if containerID != "" {
-		lines := strings.Split(containerID, "\n")
-		containerID = lines[0]
+	resInspect, errInspect := sshExec.RunCommand(cmdInspect)
+	if errInspect != nil {
+		slog.Debug("web_server: error buscando contenedor para stats", "name", name, "error", errInspect)
+	}
+	containerID := ""
+	if resInspect != nil {
+		containerID = strings.TrimSpace(resInspect.Output)
+		if containerID != "" {
+			lines := strings.Split(containerID, "\n")
+			containerID = lines[0]
+		}
 	}
 
 	if containerID == "" {
 		containerID = name
 	}
 
+	fallbackStats := domain.ContainerStats{
+		Container: name,
+		CPUPerc:   "0.12%",
+		MemUsage:  "34.2MiB / 2GiB",
+		MemPerc:   "1.67%",
+		NetIO:     "1.2kB / 842B",
+		BlockIO:   "0B / 4.1kB",
+	}
+
 	cmdStats := fmt.Sprintf("docker stats --no-stream --format '{\"container\":\"{{.Container}}\",\"cpu\":\"{{.CPUPerc}}\",\"memUsage\":\"{{.MemUsage}}\",\"memPerc\":\"{{.MemPerc}}\",\"netIo\":\"{{.NetIO}}\",\"blockIo\":\"{{.BlockIO}}\"}' %s", containerID)
 	resStats, err := sshExec.RunCommand(cmdStats)
 	if err != nil || resStats.ExitCode != 0 || strings.TrimSpace(resStats.Output) == "" {
-		jsonResponse(rw, domain.ContainerStats{
-			Container: name,
-			CPUPerc:   "0.12%",
-			MemUsage:  "34.2MiB / 2GiB",
-			MemPerc:   "1.67%",
-			NetIO:     "1.2kB / 842B",
-			BlockIO:   "0B / 4.1kB",
-		})
+		w.setCache(cacheKey, fallbackStats, 5*time.Second)
+		jsonResponse(rw, fallbackStats)
 		return
 	}
 
 	var stats domain.ContainerStats
 	if err := json.Unmarshal([]byte(strings.TrimSpace(resStats.Output)), &stats); err != nil {
-		jsonResponse(rw, domain.ContainerStats{
-			Container: name,
-			CPUPerc:   "0.05%",
-			MemUsage:  "28MiB / 2GiB",
-			MemPerc:   "1.4%",
-			NetIO:     "400B / 200B",
-			BlockIO:   "0B / 0B",
-		})
+		fallbackStats.CPUPerc = "0.05%"
+		fallbackStats.MemUsage = "28MiB / 2GiB"
+		w.setCache(cacheKey, fallbackStats, 5*time.Second)
+		jsonResponse(rw, fallbackStats)
 		return
 	}
 
+	w.setCache(cacheKey, stats, 5*time.Second)
 	jsonResponse(rw, stats)
 }
 
@@ -3934,6 +3948,17 @@ func (w *WebServer) handleDBHealth(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	cleanName := strings.TrimPrefix(name, "tarhiata-db-")
+	cleanName = strings.TrimPrefix(cleanName, "tarhiata-")
+
+	cacheKey := fmt.Sprintf("dbhealth:%s:%s", cfg.Host, cleanName)
+	if cached, ok := w.getCache(cacheKey); ok {
+		if health, ok := cached.(domain.DBHealthStats); ok {
+			jsonResponse(rw, health)
+			return
+		}
+	}
+
 	sshExec := repositories.NewCryptoSSHExecutor()
 	if err := sshExec.Connect(*cfg); err != nil {
 		jsonError(rw, fmt.Sprintf("Error SSH: %v", err), http.StatusInternalServerError)
@@ -3945,16 +3970,20 @@ func (w *WebServer) handleDBHealth(rw http.ResponseWriter, req *http.Request) {
 		}
 	}()
 
-	cleanName := strings.TrimPrefix(name, "tarhiata-db-")
-	cleanName = strings.TrimPrefix(cleanName, "tarhiata-")
-
 	db, errDB := w.repo.GetDatabase(cleanName)
 	if errDB != nil {
 		slog.Warn("web_server: error obteniendo base de datos en handleDBHealth", "name", cleanName, "error", errDB)
 	}
 	engine := "postgres"
-	if db != nil && db.Engine != "" {
-		engine = strings.ToLower(db.Engine)
+	dbPass := "admin_pass"
+	dbUser := "admin"
+	if db != nil {
+		if db.Engine != "" {
+			engine = strings.ToLower(db.Engine)
+		}
+		if db.Password != "" {
+			dbPass = db.Password
+		}
 	}
 
 	health := domain.DBHealthStats{
@@ -3969,7 +3998,7 @@ func (w *WebServer) handleDBHealth(rw http.ResponseWriter, req *http.Request) {
 
 	switch engine {
 	case "postgres":
-		cmd := fmt.Sprintf("docker exec $(docker ps -q -f name=tarhiata-db-%s | head -n 1) psql -U admin -d db -t -c 'SELECT count(*) FROM pg_stat_activity;' 2>/dev/null", cleanName)
+		cmd := fmt.Sprintf("docker exec $(docker ps -q -f name=tarhiata-db-%s | head -n 1) psql -U %s -d db -t -c 'SELECT count(*) FROM pg_stat_activity;' 2>/dev/null", cleanName, dbUser)
 		res, errCmd := sshExec.RunCommand(cmd)
 		if errCmd != nil {
 			slog.Debug("web_server: error en query postgres health", "error", errCmd)
@@ -3980,7 +4009,7 @@ func (w *WebServer) handleDBHealth(rw http.ResponseWriter, req *http.Request) {
 			}
 		}
 	case "mysql":
-		cmd := fmt.Sprintf("docker exec $(docker ps -q -f name=tarhiata-db-%s | head -n 1) mysql -u admin -padmin_pass -e \"SHOW STATUS LIKE 'Threads_connected';\" 2>/dev/null | tail -n 1 | awk '{print $2}'", cleanName)
+		cmd := fmt.Sprintf("docker exec $(docker ps -q -f name=tarhiata-db-%s | head -n 1) mysql -u %s -p%q -e \"SHOW STATUS LIKE 'Threads_connected';\" 2>/dev/null | tail -n 1 | awk '{print $2}'", cleanName, dbUser, dbPass)
 		res, errCmd := sshExec.RunCommand(cmd)
 		if errCmd != nil {
 			slog.Debug("web_server: error en query mysql health", "error", errCmd)
@@ -3990,8 +4019,31 @@ func (w *WebServer) handleDBHealth(rw http.ResponseWriter, req *http.Request) {
 				health.ActiveConnections = count
 			}
 		}
+	case "mongodb", "mongo":
+		cmd := fmt.Sprintf("docker exec $(docker ps -q -f name=tarhiata-db-%s | head -n 1) mongosh --eval 'db.serverStatus().connections.current' --quiet 2>/dev/null", cleanName)
+		res, errCmd := sshExec.RunCommand(cmd)
+		if errCmd != nil {
+			slog.Debug("web_server: error en query mongo health", "error", errCmd)
+		}
+		if res != nil && strings.TrimSpace(res.Output) != "" {
+			if count, err := strconv.Atoi(strings.TrimSpace(res.Output)); err == nil {
+				health.ActiveConnections = count
+			}
+		}
+	case "redis":
+		cmd := fmt.Sprintf("docker exec $(docker ps -q -f name=tarhiata-db-%s | head -n 1) redis-cli info clients 2>/dev/null | grep connected_clients | cut -d: -f2", cleanName)
+		res, errCmd := sshExec.RunCommand(cmd)
+		if errCmd != nil {
+			slog.Debug("web_server: error en query redis health", "error", errCmd)
+		}
+		if res != nil && strings.TrimSpace(res.Output) != "" {
+			if count, err := strconv.Atoi(strings.TrimSpace(res.Output)); err == nil {
+				health.ActiveConnections = count
+			}
+		}
 	}
 
+	w.setCache(cacheKey, health, 5*time.Second)
 	jsonResponse(rw, health)
 }
 
@@ -4006,12 +4058,22 @@ func (w *WebServer) handleVultrPlans(rw http.ResponseWriter, req *http.Request) 
 	if cfg != nil {
 		token = cfg.VultrAPIToken
 	}
+
+	cacheKey := fmt.Sprintf("vultr:plans:%s", token)
+	if cached, ok := w.getCache(cacheKey); ok {
+		if plans, ok := cached.([]domain.VultrPlan); ok {
+			jsonResponse(rw, plans)
+			return
+		}
+	}
+
 	uc := usecases.NewListVultrPlansUseCase()
 	plans, err := uc.ExecutePlans(token)
 	if err != nil {
 		jsonError(rw, fmt.Sprintf("Error obteniendo planes de Vultr: %v", err), http.StatusInternalServerError)
 		return
 	}
+	w.setCache(cacheKey, plans, 5*time.Minute)
 	jsonResponse(rw, plans)
 }
 
@@ -4025,12 +4087,22 @@ func (w *WebServer) handleVultrRegions(rw http.ResponseWriter, req *http.Request
 	if cfg != nil {
 		token = cfg.VultrAPIToken
 	}
+
+	cacheKey := fmt.Sprintf("vultr:regions:%s", token)
+	if cached, ok := w.getCache(cacheKey); ok {
+		if regions, ok := cached.([]domain.VultrRegion); ok {
+			jsonResponse(rw, regions)
+			return
+		}
+	}
+
 	uc := usecases.NewListVultrPlansUseCase()
 	regions, err := uc.ExecuteRegions(token)
 	if err != nil {
 		jsonError(rw, fmt.Sprintf("Error obteniendo regiones de Vultr: %v", err), http.StatusInternalServerError)
 		return
 	}
+	w.setCache(cacheKey, regions, 5*time.Minute)
 	jsonResponse(rw, regions)
 }
 

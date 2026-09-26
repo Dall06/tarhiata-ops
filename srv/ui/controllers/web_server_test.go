@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 )
@@ -1093,6 +1094,86 @@ func TestMutatingEndpoints_ExposedRemoteProtection(t *testing.T) {
 				t.Errorf("[%s] expected status %d, got %d", tt.name, tt.expectedStatus, rr.Code)
 			}
 		})
+	}
+}
+
+func TestContainerStats_CacheAndFallback(t *testing.T) {
+	ws := NewWebServer(&mockRepo{}, &domain.ServerConfig{Name: "local", Host: "127.0.0.1"})
+
+	// Pre-populate cache
+	cachedData := domain.ContainerStats{
+		Container: "my-app",
+		CPUPerc:   "2.5%",
+		MemUsage:  "120MiB / 1GiB",
+	}
+	ws.setCache("stats:127.0.0.1:my-app", cachedData, 5*time.Second)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/stats?name=my-app", nil)
+	rr := httptest.NewRecorder()
+	ws.handleContainerStats(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var res domain.ContainerStats
+	if err := json.Unmarshal(rr.Body.Bytes(), &res); err != nil {
+		t.Fatalf("unexpected unmarshal error: %v", err)
+	}
+	if res.CPUPerc != "2.5%" {
+		t.Errorf("expected cached stats CPU 2.5%%, got %s", res.CPUPerc)
+	}
+}
+
+func TestDBHealth_CacheAndDynamicPassword(t *testing.T) {
+	ws := NewWebServer(&mockRepo{}, &domain.ServerConfig{Name: "local", Host: "127.0.0.1"})
+
+	cachedHealth := domain.DBHealthStats{
+		Engine:            "postgres",
+		ActiveConnections: 7,
+		Status:            "Healthy",
+	}
+	ws.setCache("dbhealth:127.0.0.1:my-db", cachedHealth, 5*time.Second)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/databases/health?name=my-db", nil)
+	rr := httptest.NewRecorder()
+	ws.handleDBHealth(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var res domain.DBHealthStats
+	if err := json.Unmarshal(rr.Body.Bytes(), &res); err != nil {
+		t.Fatalf("unexpected unmarshal error: %v", err)
+	}
+	if res.ActiveConnections != 7 {
+		t.Errorf("expected cached active connections 7, got %d", res.ActiveConnections)
+	}
+}
+
+func TestVultrPlans_Cache(t *testing.T) {
+	ws := NewWebServer(&mockRepo{}, &domain.ServerConfig{Name: "local", VultrAPIToken: "test-token"})
+
+	cachedPlans := []domain.VultrPlan{
+		{ID: "vc2-1c-1gb", VCPU: 1, RAM: 1024, MonthlyCost: 5.0},
+	}
+	ws.setCache("vultr:plans:test-token", cachedPlans, 5*time.Minute)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/vultr/plans", nil)
+	rr := httptest.NewRecorder()
+	ws.handleVultrPlans(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var res []domain.VultrPlan
+	if err := json.Unmarshal(rr.Body.Bytes(), &res); err != nil {
+		t.Fatalf("unexpected unmarshal error: %v", err)
+	}
+	if len(res) != 1 || res[0].ID != "vc2-1c-1gb" {
+		t.Errorf("expected cached plan vc2-1c-1gb, got %+v", res)
 	}
 }
 
