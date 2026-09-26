@@ -96,12 +96,13 @@ func (uc *ProvisionCloudServerUseCase) Execute(req ports.ProvisionCloudRequest) 
 
 	// 3. Aprovisionar infraestructura con el motor OpenTofu/Terraform
 	provisioner := uc.provisionerFactory(req.Provider, workspace)
-	newIP, privKeyContent, err := provisioner.ProvisionNode(req.APIToken, req.Name, req.Region, req.Plan)
+	provRes, err := provisioner.ProvisionNode(req.APIToken, req.Name, req.Region, req.Plan)
 	if err != nil {
 		return nil, fmt.Errorf("error aprovisionando nodo en %s: %w", req.Provider, err)
 	}
 
-	newIP = strings.TrimSpace(newIP)
+	newIP := strings.TrimSpace(provRes.PublicIP)
+	privKeyContent := provRes.PrivateKey
 	if newIP == "" {
 		return nil, fmt.Errorf("el aprovisionador no devolvió una IP pública válida")
 	}

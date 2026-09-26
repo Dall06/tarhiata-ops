@@ -393,6 +393,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Deploy Modal Elements
     const deployModal = document.getElementById('deployModal');
     const btnOpenDeployModal = document.getElementById('btnOpenDeployModal');
+    const btnZeroStateDeployApp = document.getElementById('btnZeroStateDeployApp');
     const btnCloseDeployModal = document.getElementById('btnCloseDeployModal');
     const btnCancelDeploy = document.getElementById('btnCancelDeploy');
     const formDeploy = document.getElementById('formDeploy');
@@ -408,6 +409,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Database Modal Elements
     const dbModal = document.getElementById('dbModal');
     const btnOpenDeployDBModal = document.getElementById('btnOpenDeployDBModal');
+    const btnZeroStateDeployDB = document.getElementById('btnZeroStateDeployDB');
     const btnCloseDBModal = document.getElementById('btnCloseDBModal');
     const btnCancelDB = document.getElementById('btnCancelDB');
     const formDeployDB = document.getElementById('formDeployDB');
@@ -521,28 +523,32 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentEnvMode = 'table';
 
     // --- Server Switcher Popover Interactions ---
-    serverSwitcherBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const isOpen = serverPopover.style.display === 'flex';
-        serverPopover.style.display = isOpen ? 'none' : 'flex';
-        serverSwitcherBtn.classList.toggle('open', !isOpen);
-        if (!isOpen) {
-            fleetSearchInput.value = '';
-            renderFleetDirectory();
-            setTimeout(() => fleetSearchInput.focus(), 50);
-        }
-    });
+    if (serverSwitcherBtn && serverPopover) {
+        serverSwitcherBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = serverPopover.style.display === 'flex';
+            serverPopover.style.display = isOpen ? 'none' : 'flex';
+            serverSwitcherBtn.classList.toggle('open', !isOpen);
+            if (!isOpen && fleetSearchInput) {
+                fleetSearchInput.value = '';
+                renderFleetDirectory();
+                setTimeout(() => fleetSearchInput.focus(), 50);
+            }
+        });
+    }
 
     document.addEventListener('click', (e) => {
-        if (!serverSwitcherWrap.contains(e.target)) {
-            serverPopover.style.display = 'none';
-            serverSwitcherBtn.classList.remove('open');
+        if (serverSwitcherWrap && !serverSwitcherWrap.contains(e.target)) {
+            if (serverPopover) serverPopover.style.display = 'none';
+            if (serverSwitcherBtn) serverSwitcherBtn.classList.remove('open');
         }
     });
 
-    fleetSearchInput.addEventListener('input', debounce(() => {
-        renderFleetDirectory();
-    }, 150));
+    if (fleetSearchInput) {
+        fleetSearchInput.addEventListener('input', debounce(() => {
+            renderFleetDirectory();
+        }, 150));
+    }
 
     // Soporte global tecla Escape para cerrar modales y popover
     document.addEventListener('keydown', (e) => {
@@ -2380,8 +2386,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (btnGlobalDeploy) btnGlobalDeploy.addEventListener('click', openDeployModal);
-    btnOpenDeployModal.addEventListener('click', openDeployModal);
-    btnCloseDeployModal.addEventListener('click', () => {
+    if (btnOpenDeployModal) btnOpenDeployModal.addEventListener('click', openDeployModal);
+    if (btnZeroStateDeployApp) btnZeroStateDeployApp.addEventListener('click', openDeployModal);
+    if (btnCloseDeployModal) btnCloseDeployModal.addEventListener('click', () => {
         formDeploy.reset();
         if (depDomainDnsFeedback) depDomainDnsFeedback.style.display = 'none';
         deployModal.style.display = 'none';
@@ -2518,14 +2525,17 @@ document.addEventListener('DOMContentLoaded', () => {
         dbPort.value = getDefaultPort(dbEngine.value);
     });
 
-    btnOpenDeployDBModal.addEventListener('click', () => {
-        formDeployDB.reset();
+    function openDeployDBModal() {
+        if (formDeployDB) formDeployDB.reset();
         setDBMode('single-node');
-        dbPort.value = getDefaultPort(dbEngine.value);
-        dbModal.style.display = 'flex';
-    });
-    btnCloseDBModal.addEventListener('click', () => { formDeployDB.reset(); dbModal.style.display = 'none'; });
-    btnCancelDB.addEventListener('click', () => { formDeployDB.reset(); dbModal.style.display = 'none'; });
+        if (dbEngine && dbPort) dbPort.value = getDefaultPort(dbEngine.value);
+        if (dbModal) dbModal.style.display = 'flex';
+    }
+
+    if (btnOpenDeployDBModal) btnOpenDeployDBModal.addEventListener('click', openDeployDBModal);
+    if (btnZeroStateDeployDB) btnZeroStateDeployDB.addEventListener('click', openDeployDBModal);
+    if (btnCloseDBModal) btnCloseDBModal.addEventListener('click', () => { if (formDeployDB) formDeployDB.reset(); if (dbModal) dbModal.style.display = 'none'; });
+    if (btnCancelDB) btnCancelDB.addEventListener('click', () => { if (formDeployDB) formDeployDB.reset(); if (dbModal) dbModal.style.display = 'none'; });
     dbModal.addEventListener('click', (e) => {
         if (e.target === dbModal) { formDeployDB.reset(); dbModal.style.display = 'none'; }
     });

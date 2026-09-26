@@ -78,10 +78,12 @@ func (uc *ProvisionWorkerUseCase) ExecuteWithPlanAndRegion(config domain.ServerC
 		}
 	}
 
-	newIP, privKeyContent, err := provisioner.ProvisionNode(activeToken, nodeName, region, requestedPlan)
+	provRes, err := provisioner.ProvisionNode(activeToken, nodeName, region, requestedPlan)
 	if err != nil {
-		return newIP, fmt.Errorf("falló provisionamiento terraform: %w", err)
+		return provRes.PublicIP, fmt.Errorf("falló provisionamiento terraform: %w", err)
 	}
+	newIP := provRes.PublicIP
+	privKeyContent := provRes.PrivateKey
 
 	fmt.Printf("✅ VM Confirmada en IP: %s\n", newIP)
 

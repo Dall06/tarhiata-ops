@@ -1,9 +1,9 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
-	"syscall"
 	"testing"
 	"time"
 
@@ -85,19 +85,14 @@ func TestStartGraceful_ShutdownLifecycle(t *testing.T) {
 		return c.String(http.StatusOK, "healthy")
 	})
 
+	ctx, cancel := context.WithCancel(context.Background())
 	errChan := make(chan error, 1)
 	go func() {
-		errChan <- StartGraceful(e, "127.0.0.1:0", 2*time.Second)
+		errChan <- StartGracefulWithContext(ctx, e, "127.0.0.1:0", 2*time.Second)
 	}()
 
-	// Wait briefly for server startup
-	time.Sleep(100 * time.Millisecond)
-
-	// Send SIGINT to trigger graceful shutdown
-	errSignal := syscall.Kill(syscall.Getpid(), syscall.SIGINT)
-	if errSignal != nil {
-		t.Fatalf("failed to send signal: %v", errSignal)
-	}
+	// Trigger graceful shutdown by canceling context
+	cancel()
 
 	select {
 	case err := <-errChan:
@@ -108,3 +103,4 @@ func TestStartGraceful_ShutdownLifecycle(t *testing.T) {
 		t.Fatal("timed out waiting for graceful shutdown to finish")
 	}
 }
+

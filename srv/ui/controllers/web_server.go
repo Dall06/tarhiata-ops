@@ -1880,11 +1880,13 @@ func (w *WebServer) handleCreateVMBootstrap(rw http.ResponseWriter, req *http.Re
 
 	send("step", "⏳ [1/5] Aprovisionando VM con Terraform (1-3 minutos)...")
 	send("log", "📦 Descargando providers y preparando infraestructura...")
-	newIP, privKeyContent, err := provisioner.ProvisionNode(reqData.ApiToken, reqData.NodeName, reqData.Region, "")
+	provRes, err := provisioner.ProvisionNode(reqData.ApiToken, reqData.NodeName, reqData.Region, "")
 	if err != nil {
 		send("error", fmt.Sprintf("❌ Falló aprovisionamiento de la VM: %v", err))
 		return
 	}
+	newIP := provRes.PublicIP
+	privKeyContent := provRes.PrivateKey
 	send("log", fmt.Sprintf("✅ VM creada exitosamente — IP pública: %s", newIP))
 
 	// Guardar llave privada localmente

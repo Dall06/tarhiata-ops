@@ -171,11 +171,13 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 			activeToken = doToken
 		}
 
-		newIP, privKeyContent, err := provisioner.ProvisionNode(activeToken, "tarhiata-manager", region, selectedPlan)
+		provRes, err := provisioner.ProvisionNode(activeToken, "tarhiata-manager", region, selectedPlan)
 		if err != nil {
 			fmt.Printf("❌ Error provisionando el servidor: %v\n", err)
 			return current
 		}
+		newIP := provRes.PublicIP
+		privKeyContent := provRes.PrivateKey
 
 		host = newIP
 		user = "root" // Ubuntu DO Droplet default root

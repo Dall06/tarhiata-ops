@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -82,10 +81,9 @@ func New(cfg Config) *echo.Echo {
 	return e
 }
 
-// StartGraceful ejecuta el servidor Echo en una goroutine y bloquea hasta recibir una señal
-// de terminación del sistema operativo (SIGINT o SIGTERM), ejecutando un apagado ordenado
-// dentro del tiempo límite establecido para permitir la finalización limpia de operaciones.
-func StartGraceful(e *echo.Echo, addr string, shutdownTimeout time.Duration) error {
+// StartGracefulWithContext ejecuta el servidor Echo y bloquea hasta que el contexto es cancelado,
+// ejecutando un apagado ordenado dentro del tiempo límite establecido.
+func StartGracefulWithContext(ctx context.Context, e *echo.Echo, addr string, shutdownTimeout time.Duration) error {
 	if shutdownTimeout <= 0 {
 		shutdownTimeout = DefaultShutdownTimeout
 	}
@@ -102,27 +100,32 @@ func StartGraceful(e *echo.Echo, addr string, shutdownTimeout time.Duration) err
 		errChan <- nil
 	}()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(quit)
-
 	select {
 	case err := <-errChan:
 		if err != nil {
 			return fmt.Errorf("falló inicio del servidor: %w", err)
 		}
 		return nil
-	case sig := <-quit:
-		slog.Info("señal de terminación recibida, cerrando servidor de forma ordenada", "signal", sig.String())
+	case <-ctx.Done():
+		slog.Info("contexto cancelado, cerrando servidor de forma ordenada")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
-	if err := e.Shutdown(ctx); err != nil {
+	if err := e.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("falló apagado ordenado del servidor: %w", err)
 	}
 
 	slog.Info("servidor detenido exitosamente sin interrumpir conexiones")
 	return nil
 }
+
+// StartGraceful ejecuta el servidor Echo en una goroutine y bloquea hasta recibir una señal
+// de terminación del sistema operativo (SIGINT o SIGTERM), ejecutando un apagado ordenado.
+func StartGraceful(e *echo.Echo, addr string, shutdownTimeout time.Duration) error {
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+	return StartGracefulWithContext(ctx, e, addr, shutdownTimeout)
+}
+

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Dall06/tarhiata-ops/pkg/terraform"
+	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/hashicorp/terraform-exec/tfexec"
 )
 
@@ -45,7 +46,7 @@ func sanitizeVultrRegion(r string) string {
 }
 
 // ProvisionNode delega la ejecución al Runner genérico de Terraform
-func (p *VultrProvisioner) ProvisionNode(token string, nodeName string, region string, plan string) (string, string, error) {
+func (p *VultrProvisioner) ProvisionNode(token string, nodeName string, region string, plan string) (domain.NodeProvisionResult, error) {
 	region = sanitizeVultrRegion(region)
 	if strings.TrimSpace(plan) == "" {
 		plan = "vc2-1c-1gb" // Default $5/mo plan
@@ -165,7 +166,7 @@ output "private_key" {
 
 	runner, err := terraform.NewRunner(p.workspace)
 	if err != nil {
-		return "", "", err
+		return domain.NodeProvisionResult{}, err
 	}
 
 	vars := map[string]string{
@@ -174,15 +175,16 @@ output "private_key" {
 
 	outputs, err := runner.Apply(tfContent, vars)
 	if err != nil {
-		return "", "", err
+		return domain.NodeProvisionResult{}, err
 	}
 
 	ipStr := outputs["public_ip"]
-	pkStr := outputs["private_key"]
+	pkStr := strings.TrimSpace(outputs["private_key"])
 
-	pkStr = strings.TrimSpace(pkStr)
-
-	return ipStr, pkStr, nil
+	return domain.NodeProvisionResult{
+		PublicIP:   ipStr,
+		PrivateKey: pkStr,
+	}, nil
 }
 
 func (p *VultrProvisioner) DestroyNode(token string, nodeName string) error {

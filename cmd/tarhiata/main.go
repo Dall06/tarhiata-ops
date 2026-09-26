@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -19,6 +20,12 @@ import (
 
 // Version is the current release version of tarhiata-ops.
 const Version = "v1.0.0-beta"
+
+var validIdentifierRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`)
+
+func isValidIdentifier(s string) bool {
+	return validIdentifierRegex.MatchString(s)
+}
 
 func main() {
 	// 1. Inicializar Base de Datos Local (SQLite)
@@ -121,10 +128,10 @@ func main() {
 
 
 	case "link":
-		handleLinkCommand(repo, serverConfig, os.Args[2:])
+		handleLinkCommand(repo, serverConfig, subArgs)
 
 	case "unlink":
-		handleUnlinkCommand(repo, serverConfig, os.Args[2:])
+		handleUnlinkCommand(repo, serverConfig, subArgs)
 
 	case "update":
 		handleUpdateCommand(serverConfig)
@@ -181,15 +188,18 @@ func runDashboard(repo *repositories.SQLiteRepository, config *domain.ServerConf
 }
 
 func handleConfigCommand(repo *repositories.SQLiteRepository, args []string) {
-	fs := flag.NewFlagSet("config", flag.ExitOnError)
+	fs := flag.NewFlagSet("config", flag.ContinueOnError)
 	host := fs.String("host", "", "IP o Host del servidor VPS (o 'localhost')")
 	port := fs.Int("port", 22, "Puerto SSH")
 	user := fs.String("user", "root", "Usuario SSH")
 	key := fs.String("key", "~/.ssh/id_rsa", "Ruta a llave privada SSH")
 	doToken := fs.String("do-token", "", "Token de API de DigitalOcean")
+	vultrToken := fs.String("vultr-token", "", "Token de API de Vultr")
 	isLocal := fs.Bool("local", false, "Configurar este equipo local (localhost)")
 	testConn := fs.Bool("test", true, "Probar conexión tras guardar configuración")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return
+	}
 
 	if !*isLocal && *host == "" {
 		if repo == nil {
@@ -205,8 +215,8 @@ func handleConfigCommand(repo *repositories.SQLiteRepository, args []string) {
 		if cfg.IsLocal() {
 			mode = "Local (Máquina actual)"
 		}
-		fmt.Printf("⚙️  Configuración Actual [%s]:\n • Host: %s\n • Puerto: %d\n • User: %s\n • Key: %s\n • DO Token: %s\n",
-			mode, cfg.Host, cfg.Port, cfg.User, cfg.PrivateKey, cfg.DOAPIToken)
+		fmt.Printf("⚙️  Configuración Actual [%s]:\n • Host: %s\n • Puerto: %d\n • User: %s\n • Key: %s\n • DO Token: %s\n • Vultr Token: %s\n",
+			mode, cfg.Host, cfg.Port, cfg.User, cfg.PrivateKey, cfg.DOAPIToken, cfg.VultrAPIToken)
 		return
 	}
 
@@ -235,6 +245,7 @@ func handleConfigCommand(repo *repositories.SQLiteRepository, args []string) {
 		User:          finalUser,
 		PrivateKey:    finalKey,
 		DOAPIToken:    strings.TrimSpace(*doToken),
+		VultrAPIToken: strings.TrimSpace(*vultrToken),
 		CloudProvider: cloudProvider,
 	}
 
@@ -666,7 +677,7 @@ func handleInitCommand(repo *repositories.SQLiteRepository, config *domain.Serve
 	fs.Parse(args)
 
 	if config == nil || config.Host == "" {
-		fmt.Println("❌ Configura tu VPS primero con: tarhiata config set --host <IP>")
+		fmt.Println("❌ Configura tu VPS primero con: tarhiata config --host <IP>")
 		return
 	}
 
@@ -687,7 +698,7 @@ func handleInitCommand(repo *repositories.SQLiteRepository, config *domain.Serve
 }
 
 func handleDeployServiceCommand(repo *repositories.SQLiteRepository, config *domain.ServerConfig, args []string) {
-	fs := flag.NewFlagSet("deploy", flag.ExitOnError)
+	fs := flag.NewFlagSet("deploy", flag.ContinueOnError)
 	name := fs.String("name", "", "Nombre del servicio (Requerido)")
 	image := fs.String("image", "", "Imagen Docker o URL ZIP (Requerido)")
 	port := fs.Int("port", 80, "Puerto interno de la app")
@@ -695,7 +706,9 @@ func handleDeployServiceCommand(repo *repositories.SQLiteRepository, config *dom
 	ssl := fs.Bool("ssl", true, "Habilitar SSL HTTPS automático")
 	healthCmd := fs.String("healthcheck", "", "Comando de healthcheck")
 	preHook := fs.String("pre-hook", "", "Pre-deploy migration hook (ej. npx prisma db push)")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return
+	}
 
 	if *name == "" || *image == "" {
 		fmt.Println("❌ Uso: tarhiata deploy --name <nombre> --image <imagen> [--port 80] [--domain app.com] [--pre-hook 'npx prisma db push']")
@@ -720,28 +733,30 @@ func handleDeployServiceCommand(repo *repositories.SQLiteRepository, config *dom
 
 	if config != nil && config.Host != "" {
 		sshExec := repositories.NewCryptoSSHExecutor()
-		if err := sshExec.Connect(*config); err == nil {
-			defer sshExec.Close()
-			deployConfig := domain.DeployConfig{
-				ImageSource:    svc.ImageSource,
-				Port:           svc.Port,
-				Domain:         svc.Domain,
-				Expose:         svc.Expose,
-				EnableSSL:      svc.EnableSSL,
-				HealthcheckCmd: svc.HealthcheckCmd,
-			}
-			customSvc := domain.CustomService{
-				Name:          svc.Name,
-				PreDeployHook: svc.PreDeployHook,
-			}
-			deployer := usecases.NewDeployServiceUseCase(sshExec)
-			if err := deployer.Execute(customSvc, deployConfig); err != nil {
-				fmt.Printf("⚠️ Guardado en SQLite pero falló deploy en VPS: %v\n", err)
-				return
-			}
-			fmt.Printf("🚀 ¡Servicio '%s' desplegado exitosamente en Swarm!\n", svc.Name)
+		if err := sshExec.Connect(*config); err != nil {
+			fmt.Printf("⚠️ Guardado en SQLite pero no se pudo conectar al VPS por SSH: %v\n", err)
 			return
 		}
+		defer sshExec.Close()
+		deployConfig := domain.DeployConfig{
+			ImageSource:    svc.ImageSource,
+			Port:           svc.Port,
+			Domain:         svc.Domain,
+			Expose:         svc.Expose,
+			EnableSSL:      svc.EnableSSL,
+			HealthcheckCmd: svc.HealthcheckCmd,
+		}
+		customSvc := domain.CustomService{
+			Name:          svc.Name,
+			PreDeployHook: svc.PreDeployHook,
+		}
+		deployer := usecases.NewDeployServiceUseCase(sshExec)
+		if err := deployer.Execute(customSvc, deployConfig); err != nil {
+			fmt.Printf("⚠️ Guardado en SQLite pero falló deploy en VPS: %v\n", err)
+			return
+		}
+		fmt.Printf("🚀 ¡Servicio '%s' desplegado exitosamente en Swarm!\n", svc.Name)
+		return
 	}
 	fmt.Printf("✅ Servicio '%s' registrado en catálogo local.\n", svc.Name)
 }
@@ -754,21 +769,25 @@ func handleDatabaseCommand(repo *repositories.SQLiteRepository, config *domain.S
 
 	subCmd := strings.ToLower(args[0])
 	if subCmd == "create" || subCmd == "deploy" {
-		fs := flag.NewFlagSet("db create", flag.ExitOnError)
+		fs := flag.NewFlagSet("db create", flag.ContinueOnError)
 		name := fs.String("name", "", "Nombre de la BD (Requerido)")
-		engine := fs.String("engine", "postgres", "Motor: postgres, mongodb, mysql, redis")
+		engine := fs.String("engine", "postgres", "Motor: postgres, mongodb, mongo, mysql, redis")
 		multiNode := fs.Bool("multi-node", false, "Modo multi-nodo con volumenes anclados")
-		fs.Parse(args[1:])
+		if err := fs.Parse(args[1:]); err != nil {
+			return
+		}
 
 		if *name == "" {
 			fmt.Println("❌ Debes especificar un nombre con --name <nombre>")
 			return
 		}
 
+		normalizedEngine := strings.ToLower(strings.TrimSpace(*engine))
 		defaultPort := 5432
-		switch *engine {
-		case "mongodb":
+		switch normalizedEngine {
+		case "mongodb", "mongo":
 			defaultPort = 27017
+			normalizedEngine = "mongodb"
 		case "mysql":
 			defaultPort = 3306
 		case "redis":
@@ -776,11 +795,13 @@ func handleDatabaseCommand(repo *repositories.SQLiteRepository, config *domain.S
 		}
 
 		deployType := "single-node"
-		if *multiNode { deployType = "multi-node" }
+		if *multiNode {
+			deployType = "multi-node"
+		}
 
 		db := domain.SavedDatabase{
 			Name:         *name,
-			Engine:       *engine,
+			Engine:       normalizedEngine,
 			InternalPort: defaultPort,
 			DeployType:   deployType,
 		}
@@ -794,16 +815,16 @@ func handleDatabaseCommand(repo *repositories.SQLiteRepository, config *domain.S
 			sshExec := repositories.NewCryptoSSHExecutor()
 			if err := sshExec.Connect(*config); err != nil {
 				fmt.Printf("⚠️ No se pudo conectar al servidor para desplegar la BD: %v\n", err)
-			} else {
-				defer sshExec.Close()
-				deployer := usecases.NewDeployDatabaseUseCase(sshExec)
-				if errDeploy := deployer.Execute(db, *config); errDeploy != nil {
-					fmt.Printf("❌ Error al desplegar BD '%s': %v\n", db.Name, errDeploy)
-					return
-				}
-				fmt.Printf("🗄️ ¡Base de Datos '%s' (%s) desplegada correctamente!\n", db.Name, db.Engine)
 				return
 			}
+			defer sshExec.Close()
+			deployer := usecases.NewDeployDatabaseUseCase(sshExec)
+			if errDeploy := deployer.Execute(db, *config); errDeploy != nil {
+				fmt.Printf("❌ Error al desplegar BD '%s': %v\n", db.Name, errDeploy)
+				return
+			}
+			fmt.Printf("🗄️ ¡Base de Datos '%s' (%s) desplegada correctamente!\n", db.Name, db.Engine)
+			return
 		}
 		fmt.Printf("✅ BD '%s' registrada en catálogo local.\n", db.Name)
 		return
@@ -979,7 +1000,11 @@ func handleNodeCommand(repo *repositories.SQLiteRepository, config *domain.Serve
 			fmt.Println("Uso: tarhiata node rm <node-id>")
 			return
 		}
-		nodeID := args[1]
+		nodeID := strings.TrimSpace(args[1])
+		if !isValidIdentifier(nodeID) {
+			fmt.Println("❌ ID de nodo inválido.")
+			return
+		}
 		if config == nil || config.Host == "" {
 			fmt.Println("❌ VPS no configurado.")
 			return
@@ -1024,16 +1049,20 @@ func handleNodeCommand(repo *repositories.SQLiteRepository, config *domain.Serve
 		nodeID := ""
 		for i := 1; i < len(args); i++ {
 			if args[i] == "--availability" && i+1 < len(args) {
-				avail = args[i+1]
+				avail = strings.ToLower(strings.TrimSpace(args[i+1]))
 				i++
 			} else if !strings.HasPrefix(args[i], "-") && nodeID == "" {
-				nodeID = args[i]
+				nodeID = strings.TrimSpace(args[i])
 			}
 		}
 		if avail == "" {
 			avail = "active"
 		}
-		if nodeID == "" {
+		if avail != "active" && avail != "drain" && avail != "pause" {
+			fmt.Println("❌ Disponibilidad inválida. Opciones permitidas: active, drain, pause")
+			return
+		}
+		if nodeID == "" || !isValidIdentifier(nodeID) {
 			fmt.Println("Uso: tarhiata node update [--availability active|drain|pause] <node-id>")
 			return
 		}
@@ -1161,7 +1190,11 @@ func handleRollbackCommand(config *domain.ServerConfig, args []string) {
 		fmt.Println("Uso: tarhiata rollback <nombre-del-servicio>")
 		return
 	}
-	svcName := args[0]
+	svcName := strings.TrimSpace(args[0])
+	if !isValidIdentifier(svcName) {
+		fmt.Println("❌ Nombre de servicio inválido. Solo se permiten letras, números, guiones y puntos.")
+		return
+	}
 
 	if config == nil || config.Host == "" {
 		fmt.Println("❌ VPS no configurado.")
@@ -1490,7 +1523,7 @@ func handleTopologyCommand(repo *repositories.SQLiteRepository) {
 
 func handlePruneCommand(config *domain.ServerConfig) {
 	if config == nil || config.Host == "" {
-		fmt.Println("❌ Error: Servidor no configurado. Ejecuta primero 'tarhiata config set'")
+		fmt.Println("❌ Error: Servidor no configurado. Ejecuta primero 'tarhiata config --host <IP>'")
 		return
 	}
 	fmt.Println("🧹 Limpiando imágenes y contenedores no utilizados en el servidor remoto...")
@@ -1677,7 +1710,7 @@ func handleBackupCommand(repo *repositories.SQLiteRepository, config *domain.Ser
 		return
 	}
 	if config == nil {
-		fmt.Println("❌ Error: No hay un servidor configurado. Ejecuta primero 'tarhiata config set'")
+		fmt.Println("❌ Error: No hay un servidor configurado. Ejecuta primero 'tarhiata config --host <IP>'")
 		return
 	}
 
@@ -2094,7 +2127,7 @@ Comandos disponibles:
 
 func handleSSHKeyCLICommand(config *domain.ServerConfig, args []string) {
 	if config == nil || config.Host == "" {
-		fmt.Println("❌ VPS no configurado. Ejecuta 'tarhiata config set'")
+		fmt.Println("❌ VPS no configurado. Ejecuta 'tarhiata config --host <IP>'")
 		return
 	}
 

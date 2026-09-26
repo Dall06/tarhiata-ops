@@ -19,6 +19,12 @@ type ServerConfig struct {
 	IsActive      bool   `json:"isActive"`      // Indica si es la conexión predeterminada/activa
 }
 
+// NodeProvisionResult contiene la IP pública y la clave privada SSH tras aprovisionar infraestructura en la nube.
+type NodeProvisionResult struct {
+	PublicIP   string `json:"publicIp"`
+	PrivateKey string `json:"privateKey"`
+}
+
 // IsLocal determina si la configuración apunta al equipo local donde corre Tarhiata.
 func (c ServerConfig) IsLocal() bool {
 	if c.CloudProvider == "local" {
