@@ -1332,10 +1332,34 @@ body {
    ========================================================================== */
 .tactical-table-wrap {
     width: 100%;
+    max-height: 420px;
     overflow-x: auto;
+    overflow-y: auto;
     border-radius: var(--radius-md);
     background: var(--surface-card);
     border: 1px solid var(--border-subtle);
+    position: relative;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+
+.tactical-table-wrap::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.tactical-table-wrap::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+}
+
+.tactical-table-wrap::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.16);
+    border-radius: 4px;
+}
+
+.tactical-table-wrap::-webkit-scrollbar-thumb:hover {
+    background: rgba(99, 102, 241, 0.5);
 }
 
 .t-table {
@@ -1347,7 +1371,10 @@ body {
 }
 
 .t-table thead th {
-    background: rgba(255, 255, 255, 0.02);
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: #111827;
     color: var(--text-muted);
     font-weight: 700;
     font-size: 0.72rem;
@@ -1355,6 +1382,7 @@ body {
     letter-spacing: 0.05em;
     padding: 10px 14px;
     border-bottom: 1px solid var(--border-subtle);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .t-table tbody td {
@@ -2772,6 +2800,10 @@ body.is-server-loading .skeleton-hide {
     padding: 18px 20px;
 }
 
+.hw-section-block .tactical-table-wrap {
+    max-height: 320px;
+}
+
 .hw-section-header {
     display: flex;
     align-items: center;
@@ -2793,6 +2825,30 @@ body.is-server-loading .skeleton-hide {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 12px;
+    max-height: 360px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+    padding: 2px;
+}
+
+.hw-cards-grid::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.hw-cards-grid::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+}
+
+.hw-cards-grid::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.16);
+    border-radius: 4px;
+}
+
+.hw-cards-grid::-webkit-scrollbar-thumb:hover {
+    background: rgba(99, 102, 241, 0.5);
 }
 
 .hw-device-card {
