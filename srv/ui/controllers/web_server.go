@@ -3074,16 +3074,23 @@ func (w *WebServer) handleBootstrapMaster(rw http.ResponseWriter, req *http.Requ
 		serverTarget = input.TargetNode
 	}
 	cfg := w.resolveTargetServer(serverTarget)
-	if cfg != nil && (cfg.Host != "" || cfg.IsLocal()) {
-		config = *cfg
-		se := repositories.NewCryptoSSHExecutor()
-		if err := se.Connect(config); err == nil {
-			sshExec = se
-			defer se.Close()
-		} else {
-			slog.Warn("web_server: falló conexión SSH en handleBootstrapMaster", "host", config.Host, "error", err)
-		}
+	if cfg == nil || (cfg.Host == "" && !cfg.IsLocal()) {
+		http.Error(rw, "VPS no configurado", http.StatusBadRequest)
+		return
 	}
+	config = *cfg
+	se := repositories.NewCryptoSSHExecutor()
+	if err := se.Connect(config); err != nil {
+		slog.Warn("web_server: falló conexión SSH en handleBootstrapMaster", "host", config.Host, "error", err)
+		http.Error(rw, fmt.Sprintf("Error SSH con VPS: %v", err), http.StatusInternalServerError)
+		return
+	}
+	sshExec = se
+	defer func() {
+		if clErr := se.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando SSH en handleBootstrapMaster", "error", clErr)
+		}
+	}()
 
 	linkUC := usecases.NewLinkServicesUseCase(w.repo, sshExec)
 	unlinkUC := usecases.NewUnlinkServicesUseCase(w.repo, sshExec)

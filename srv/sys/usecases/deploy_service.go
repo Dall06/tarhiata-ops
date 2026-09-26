@@ -24,6 +24,29 @@ func NewDeployServiceUseCase(ssh ports.SSHExecutor) ports.DeployServiceUseCase {
 
 // DeployService orquesta la subida de archivos, descarga de la imagen y el despliegue dinámico.
 func (uc *DeployServiceUseCase) Execute(service domain.CustomService, config domain.DeployConfig) error {
+	// 0. Pre-vuelo: Verificar disponibilidad de Docker en el servidor
+	resDocker, errDocker := uc.ssh.RunCommand("docker --version")
+	if errDocker != nil || resDocker == nil || resDocker.ExitCode != 0 {
+		return fmt.Errorf("Docker no está disponible o no está instalado en este servidor VPS. Inicialice el servidor o instale Docker antes de desplegar")
+	}
+
+	// 0.1 Pre-vuelo: Asegurar que Docker Swarm esté inicializado en el nodo
+	resSwarm, errSwarm := uc.ssh.RunCommand("docker info --format '{{.Swarm.LocalNodeState}}'")
+	if errSwarm != nil || resSwarm == nil || strings.TrimSpace(resSwarm.Output) != "active" {
+		advAddrCmd := "docker swarm init --advertise-addr $(hostname -I | awk '{print $1}') 2>/dev/null || docker swarm init 2>/dev/null || true"
+		if _, errInit := uc.ssh.RunCommand(advAddrCmd); errInit != nil {
+			slog.Warn("deploy_service: aviso al inicializar swarm", "error", errInit)
+		}
+	}
+
+	// 0.2 Pre-vuelo: Asegurar existencia de las redes overlay tarhiata_public y tarhiata_internal
+	if _, errNet := uc.ssh.RunCommand("docker network inspect tarhiata_public >/dev/null 2>&1 || docker network create --driver overlay --attachable tarhiata_public 2>/dev/null || true"); errNet != nil {
+		slog.Warn("deploy_service: aviso al crear red tarhiata_public", "error", errNet)
+	}
+	if _, errNetInt := uc.ssh.RunCommand("docker network inspect tarhiata_internal >/dev/null 2>&1 || docker network create --driver overlay --attachable tarhiata_internal 2>/dev/null || true"); errNetInt != nil {
+		slog.Warn("deploy_service: aviso al crear red tarhiata_internal", "error", errNetInt)
+	}
+
 	// 1. Aprovisionar Imagen (Remotamente en el servidor)
 	if err := uc.provisionImage(config); err != nil {
 		return fmt.Errorf("error aprovisionando imagen: %w", err)
@@ -31,7 +54,9 @@ func (uc *DeployServiceUseCase) Execute(service domain.CustomService, config dom
 
 	// 2. Crear directorio de trabajo en el servidor para este servicio
 	workDir := fmt.Sprintf("/opt/tarhiata/services/%s", service.Name)
-	uc.ssh.RunCommand(fmt.Sprintf("mkdir -p %s", workDir))
+	if _, errMkdir := uc.ssh.RunCommand(fmt.Sprintf("mkdir -p %s", workDir)); errMkdir != nil {
+		slog.Warn("deploy_service: fallo al crear workDir", "error", errMkdir)
+	}
 
 	// 3. Transferir archivos locales (ej. .env, secrets.json) del usuario al servidor
 	if err := uc.transferFiles(service.Files, workDir); err != nil {
@@ -46,7 +71,9 @@ func (uc *DeployServiceUseCase) Execute(service domain.CustomService, config dom
 		}
 		// Guardarlos en una carpeta config/ dentro del workdir
 		remoteConfDir := fmt.Sprintf("%s/configs", workDir)
-		uc.ssh.RunCommand(fmt.Sprintf("mkdir -p %s", remoteConfDir))
+		if _, errConfDir := uc.ssh.RunCommand(fmt.Sprintf("mkdir -p %s", remoteConfDir)); errConfDir != nil {
+			slog.Warn("deploy_service: fallo al crear remoteConfDir", "error", errConfDir)
+		}
 
 		fileName := filepath.Base(m.LocalPath)
 		remotePath := fmt.Sprintf("%s/%s", remoteConfDir, fileName)
@@ -64,7 +91,9 @@ func (uc *DeployServiceUseCase) Execute(service domain.CustomService, config dom
 				"if [ \"$node\" != \"$(hostname)\" ]; then "+
 				"rsync -avz --rsync-path='mkdir -p %s && rsync' %s/ $node:%s/ 2>/dev/null || true; "+
 				"fi; done", workDir, workDir, workDir)
-		uc.ssh.RunCommand(syncCmd)
+		if _, errSync := uc.ssh.RunCommand(syncCmd); errSync != nil {
+			slog.Warn("deploy_service: fallo al sincronizar archivos a workers", "error", errSync)
+		}
 	}
 
 	// 4. Generar e inyectar el Compose File dinámico (Con la magia de Traefik)
@@ -205,7 +234,7 @@ func (uc *DeployServiceUseCase) generateCompose(service domain.CustomService, co
 	compose += fmt.Sprintf("          - %s\n", constraint)
 
 	// Etiquetas de Traefik (La magia PaaS)
-	if config.Expose {
+	if config.Expose || config.Domain != "" {
 		compose += "      labels:\n"
 		compose += "        - \"traefik.enable=true\"\n"
 
@@ -215,7 +244,6 @@ func (uc *DeployServiceUseCase) generateCompose(service domain.CustomService, co
 		} else {
 			// Si no hay dominio, enrutamos por un Path Prefix como fallback
 			rule = fmt.Sprintf("PathPrefix(`/%s`)", service.Name)
-			// (Se removió StripPrefix intencionalmente para forzar consistencia de rutas en el navegador)
 		}
 
 		compose += fmt.Sprintf("        - \"traefik.http.routers.%s.rule=%s\"\n", service.Name, rule)
@@ -232,6 +260,11 @@ func (uc *DeployServiceUseCase) generateCompose(service domain.CustomService, co
 		}
 	}
 
+	// Si no hay dominio asignado y el puerto es diferente a los puertos de Traefik (80, 443), publicar puerto en ingress para acceso directo
+	if config.Domain == "" && config.Port > 0 && config.Port != 80 && config.Port != 443 {
+		compose += fmt.Sprintf("    ports:\n      - target: %d\n        published: %d\n        protocol: tcp\n        mode: ingress\n", config.Port, config.Port)
+	}
+
 	compose += "\nnetworks:\n  tarhiata_public:\n    external: true\n  tarhiata_internal:\n    external: true\n"
 	return compose
 }
@@ -246,6 +279,10 @@ func formatNodeConstraint(node string) string {
 	}
 	if strings.Contains(n, "==") {
 		return n
+	}
+	lower := strings.ToLower(n)
+	if strings.HasPrefix(lower, "vps") || strings.HasPrefix(lower, "server") || strings.HasPrefix(lower, "servidor") || strings.HasPrefix(lower, "default") {
+		return "node.role == manager"
 	}
 	return fmt.Sprintf("node.hostname == %s", n)
 }

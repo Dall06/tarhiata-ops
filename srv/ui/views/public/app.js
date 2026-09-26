@@ -2013,7 +2013,6 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             let res = null;
             const domain = depDomain.value.trim();
-            const isPublic = domain !== '';
             const targetServer = selectedServerName || '';
 
             if (depDB.value) {
@@ -2025,10 +2024,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         image: depImage.value.trim(),
                         port: parseInt(depPort.value || '80', 10),
                         domain: domain,
-                        expose_public: isPublic,
+                        expose_public: true,
                         db_engine: depDB.value,
                         env_var_name: depEnv.value.trim() || 'DATABASE_URL',
-                        target_node: targetServer
+                        target_node: 'manager'
                     })
                 });
             } else {
@@ -2040,8 +2039,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         imageSource: depImage.value.trim(),
                         port: parseInt(depPort.value || '80', 10),
                         domain: domain,
-                        expose: isPublic,
-                        targetNode: targetServer
+                        expose: true,
+                        targetNode: 'manager'
                     })
                 });
             }
