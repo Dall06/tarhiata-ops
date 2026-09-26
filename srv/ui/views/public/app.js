@@ -1703,10 +1703,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnFleetAddServer) {
         btnFleetAddServer.addEventListener('click', openAddModal);
     }
-    btnCloseModal.addEventListener('click', () => serverModal.style.display = 'none');
-    if (btnCancelServer) btnCancelServer.addEventListener('click', () => serverModal.style.display = 'none');
+    function closeServerModal() {
+        formServer.reset();
+        modalTestResult.innerHTML = '';
+        serverModal.style.display = 'none';
+    }
+    btnCloseModal.addEventListener('click', closeServerModal);
+    if (btnCancelServer) btnCancelServer.addEventListener('click', closeServerModal);
     serverModal.addEventListener('click', (e) => {
-        if (e.target === serverModal) serverModal.style.display = 'none';
+        if (e.target === serverModal) closeServerModal();
     });
 
     formServer.addEventListener('submit', async (e) => {
@@ -2234,11 +2239,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    if (btnCloseWorkerModal) btnCloseWorkerModal.addEventListener('click', () => { workerModal.style.display = 'none'; });
-    if (btnCancelWorker) btnCancelWorker.addEventListener('click', () => { workerModal.style.display = 'none'; });
+    function closeWorkerModal() {
+        if (formWorker) formWorker.reset();
+        if (workerLogsBox) workerLogsBox.style.display = 'none';
+        if (workerLogsContent) workerLogsContent.innerHTML = '';
+        if (workerModal) workerModal.style.display = 'none';
+    }
+    if (btnCloseWorkerModal) btnCloseWorkerModal.addEventListener('click', closeWorkerModal);
+    if (btnCancelWorker) btnCancelWorker.addEventListener('click', closeWorkerModal);
     if (workerModal) {
         workerModal.addEventListener('click', (e) => {
-            if (e.target === workerModal) workerModal.style.display = 'none';
+            if (e.target === workerModal) closeWorkerModal();
         });
     }
 
