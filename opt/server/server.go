@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Dall06/tarhiata-ops/opt/middlewares"
 	"github.com/Dall06/tarhiata-ops/pkg/exs"
 	"github.com/labstack/echo/v4"
 	echomw "github.com/labstack/echo/v4/middleware"
@@ -60,6 +61,8 @@ func New(cfg Config) *echo.Echo {
 
 	// Middlewares perimetrales estándar
 	e.Use(echomw.Recover())
+	e.Use(middlewares.RequestLogger())
+	e.Use(middlewares.SecurityPerimeter())
 	e.Use(echomw.CORSWithConfig(echomw.CORSConfig{
 		AllowOrigins: []string{"*"},
 		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions},
