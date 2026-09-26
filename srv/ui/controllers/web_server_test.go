@@ -3,6 +3,8 @@ package controllers
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -1176,6 +1178,202 @@ func TestVultrPlans_Cache(t *testing.T) {
 		t.Errorf("expected cached plan vc2-1c-1gb, got %+v", res)
 	}
 }
+
+type targetMockRepo struct {
+	mockRepo
+	servers map[string]*domain.ServerConfig
+}
+
+func (m *targetMockRepo) GetServerConfigByName(name string) (*domain.ServerConfig, error) {
+	if cfg, ok := m.servers[name]; ok {
+		return cfg, nil
+	}
+	return nil, fmt.Errorf("server %s not found", name)
+}
+
+func TestWebServer_ResolveTargetServer_TableDriven(t *testing.T) {
+	defaultCfg := &domain.ServerConfig{Name: "default-vps", Host: "10.0.0.1"}
+	vps2Cfg := &domain.ServerConfig{Name: "vps-secondary", Host: "10.0.0.2"}
+
+	repo := &targetMockRepo{
+		servers: map[string]*domain.ServerConfig{
+			"vps-secondary": vps2Cfg,
+		},
+	}
+
+	ws := NewWebServer(repo, defaultCfg)
+
+	tests := []struct {
+		name       string
+		targetName string
+		expectedIP string
+	}{
+		{
+			name:       "empty target returns default server",
+			targetName: "",
+			expectedIP: "10.0.0.1",
+		},
+		{
+			name:       "unknown target returns default server",
+			targetName: "unknown-vps",
+			expectedIP: "10.0.0.1",
+		},
+		{
+			name:       "existing target returns requested server",
+			targetName: "vps-secondary",
+			expectedIP: "10.0.0.2",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := ws.resolveTargetServer(tt.targetName)
+			if res == nil {
+				t.Fatalf("expected non-nil server config")
+			}
+			if res.Host != tt.expectedIP {
+				t.Errorf("expected host %s, got %s", tt.expectedIP, res.Host)
+			}
+		})
+	}
+}
+
+func TestHandleServices_TargetServerAndStream_TableDriven(t *testing.T) {
+	defaultCfg := &domain.ServerConfig{Name: "default-vps", Host: "10.0.0.1"}
+	vps2Cfg := &domain.ServerConfig{Name: "vps-secondary", Host: "10.0.0.2"}
+
+	repo := &targetMockRepo{
+		servers: map[string]*domain.ServerConfig{
+			"vps-secondary": vps2Cfg,
+		},
+	}
+
+	ws := NewWebServer(repo, defaultCfg)
+
+	tests := []struct {
+		name           string
+		method         string
+		url            string
+		body           string
+		expectedStatus int
+	}{
+		{
+			name:           "POST invalid json returns 400",
+			method:         http.MethodPost,
+			url:            "/api/deploy-service",
+			body:           `{invalid}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "POST invalid service name returns 400",
+			method:         http.MethodPost,
+			url:            "/api/deploy-service",
+			body:           `{"name":"invalid name with spaces!","imageSource":"nginx"}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "DELETE missing name returns 400",
+			method:         http.MethodDelete,
+			url:            "/api/deploy-service",
+			body:           "",
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "DELETE with target server resolves without error",
+			method:         http.MethodDelete,
+			url:            "/api/deploy-service?name=valid-svc&server=vps-secondary",
+			body:           "",
+			expectedStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var bodyReader io.Reader
+			if tt.body != "" {
+				bodyReader = strings.NewReader(tt.body)
+			}
+			req := httptest.NewRequest(tt.method, tt.url, bodyReader)
+			req.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+
+			ws.handleServices(rr, req)
+
+			if rr.Code != tt.expectedStatus {
+				t.Errorf("expected status %d, got %d", tt.expectedStatus, rr.Code)
+			}
+		})
+	}
+}
+
+func TestHandleDatabases_TargetServerAndStream_TableDriven(t *testing.T) {
+	defaultCfg := &domain.ServerConfig{Name: "default-vps", Host: "10.0.0.1"}
+	vps2Cfg := &domain.ServerConfig{Name: "vps-secondary", Host: "10.0.0.2"}
+
+	repo := &targetMockRepo{
+		servers: map[string]*domain.ServerConfig{
+			"vps-secondary": vps2Cfg,
+		},
+	}
+
+	ws := NewWebServer(repo, defaultCfg)
+
+	tests := []struct {
+		name           string
+		method         string
+		url            string
+		body           string
+		expectedStatus int
+	}{
+		{
+			name:           "POST invalid json returns 400",
+			method:         http.MethodPost,
+			url:            "/api/deploy-db",
+			body:           `{invalid}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "POST invalid db name returns 400",
+			method:         http.MethodPost,
+			url:            "/api/deploy-db",
+			body:           `{"name":"invalid db name!","engine":"postgres"}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "DELETE missing db name returns 400",
+			method:         http.MethodDelete,
+			url:            "/api/deploy-db",
+			body:           "",
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "DELETE with target server resolves without error",
+			method:         http.MethodDelete,
+			url:            "/api/deploy-db?name=valid-db&server=vps-secondary",
+			body:           "",
+			expectedStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var bodyReader io.Reader
+			if tt.body != "" {
+				bodyReader = strings.NewReader(tt.body)
+			}
+			req := httptest.NewRequest(tt.method, tt.url, bodyReader)
+			req.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+
+			ws.handleDatabases(rr, req)
+
+			if rr.Code != tt.expectedStatus {
+				t.Errorf("expected status %d, got %d", tt.expectedStatus, rr.Code)
+			}
+		})
+	}
+}
+
 
 
 

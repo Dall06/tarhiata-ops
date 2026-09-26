@@ -56,6 +56,23 @@ func (w *WebServer) setConfig(cfg *domain.ServerConfig) {
 	w.config = cfg
 }
 
+// resolveTargetServer obtiene la configuración del servidor solicitado por nombre o query param,
+// recurriendo a w.getConfig() si no se especifica o no se encuentra en el repositorio.
+func (w *WebServer) resolveTargetServer(serverName string) *domain.ServerConfig {
+	serverName = strings.TrimSpace(serverName)
+	if serverName != "" && w.repo != nil {
+		found, err := w.repo.GetServerConfigByName(serverName)
+		if err != nil {
+			slog.Debug("web_server: servidor no encontrado por nombre, recurriendo a default", "server", serverName, "error", err)
+		}
+		if found != nil && (found.Host != "" || found.IsLocal()) {
+			return found
+		}
+	}
+	return w.getConfig()
+}
+
+
 // SetExposed define si el servidor opera en modo de red expuesto (0.0.0.0).
 func (w *WebServer) SetExposed(exposed bool) {
 	w.mu.Lock()
@@ -1037,8 +1054,12 @@ func (w *WebServer) handleServices(rw http.ResponseWriter, req *http.Request) {
 		}
 		send("log", "💾 Registro del Servicio guardado en catálogo local")
 
-		cfg := w.getConfig()
-		if cfg != nil && cfg.Host != "" {
+		serverTarget := req.URL.Query().Get("server")
+		if serverTarget == "" && svc.TargetNode != "" {
+			serverTarget = svc.TargetNode
+		}
+		cfg := w.resolveTargetServer(serverTarget)
+		if cfg != nil && (cfg.Host != "" || cfg.IsLocal()) {
 			send("step", fmt.Sprintf("🔗 Conectando por SSH a %s...", cfg.Host))
 			sshExec := repositories.NewCryptoSSHExecutor()
 			if err := sshExec.Connect(*cfg); err != nil {
@@ -1109,8 +1130,9 @@ func (w *WebServer) handleServices(rw http.ResponseWriter, req *http.Request) {
 			http.Error(rw, "Nombre de servicio inválido o ausente", http.StatusBadRequest)
 			return
 		}
-		cfg := w.getConfig()
-		if cfg != nil && cfg.Host != "" {
+		serverTarget := req.URL.Query().Get("server")
+		cfg := w.resolveTargetServer(serverTarget)
+		if cfg != nil && (cfg.Host != "" || cfg.IsLocal()) {
 			sshExec := repositories.NewCryptoSSHExecutor()
 			if err := sshExec.Connect(*cfg); err == nil {
 				defer sshExec.Close()
@@ -1191,8 +1213,12 @@ func (w *WebServer) handleServiceItem(rw http.ResponseWriter, req *http.Request)
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		cfg := w.getConfig()
-		if cfg != nil && cfg.Host != "" {
+		serverTarget := req.URL.Query().Get("server")
+		if serverTarget == "" && svc.TargetNode != "" {
+			serverTarget = svc.TargetNode
+		}
+		cfg := w.resolveTargetServer(serverTarget)
+		if cfg != nil && (cfg.Host != "" || cfg.IsLocal()) {
 			sshExec := repositories.NewCryptoSSHExecutor()
 			if err := sshExec.Connect(*cfg); err == nil {
 				defer sshExec.Close()
@@ -1229,8 +1255,9 @@ func (w *WebServer) handleServiceItem(rw http.ResponseWriter, req *http.Request)
 		return
 	}
 	if req.Method == http.MethodDelete {
-		cfg := w.getConfig()
-		if cfg != nil && cfg.Host != "" {
+		serverTarget := req.URL.Query().Get("server")
+		cfg := w.resolveTargetServer(serverTarget)
+		if cfg != nil && (cfg.Host != "" || cfg.IsLocal()) {
 			sshExec := repositories.NewCryptoSSHExecutor()
 			if err := sshExec.Connect(*cfg); err == nil {
 				defer sshExec.Close()
@@ -1316,8 +1343,12 @@ func (w *WebServer) handleDatabases(rw http.ResponseWriter, req *http.Request) {
 		}
 		send("log", "💾 Registro de Base de Datos guardado en catálogo local")
 
-		cfg := w.getConfig()
-		if cfg != nil && cfg.Host != "" {
+		serverTarget := req.URL.Query().Get("server")
+		if serverTarget == "" && db.TargetNode != "" {
+			serverTarget = db.TargetNode
+		}
+		cfg := w.resolveTargetServer(serverTarget)
+		if cfg != nil && (cfg.Host != "" || cfg.IsLocal()) {
 			send("step", fmt.Sprintf("🔗 Conectando por SSH a %s...", cfg.Host))
 			sshExec := repositories.NewCryptoSSHExecutor()
 			if err := sshExec.Connect(*cfg); err != nil {
@@ -1365,8 +1396,9 @@ func (w *WebServer) handleDatabases(rw http.ResponseWriter, req *http.Request) {
 			http.Error(rw, "Nombre de base de datos inválido o ausente", http.StatusBadRequest)
 			return
 		}
-		cfg := w.getConfig()
-		if cfg != nil && cfg.Host != "" {
+		serverTarget := req.URL.Query().Get("server")
+		cfg := w.resolveTargetServer(serverTarget)
+		if cfg != nil && (cfg.Host != "" || cfg.IsLocal()) {
 			sshExec := repositories.NewCryptoSSHExecutor()
 			if err := sshExec.Connect(*cfg); err == nil {
 				defer sshExec.Close()
@@ -1593,7 +1625,15 @@ func (w *WebServer) handleBootstrap(rw http.ResponseWriter, req *http.Request) {
 		streamJSON(rw, flusher, t, m)
 	}
 
-	send("step", "🚀 Iniciando bootstrap del framework...")
+	serverTarget := req.URL.Query().Get("server")
+	if reqData.Host == "" && serverTarget != "" {
+		if found := w.resolveTargetServer(serverTarget); found != nil && found.Host != "" {
+			reqData.Host = found.Host
+			reqData.Port = found.Port
+			reqData.User = found.User
+			reqData.PrivateKey = found.PrivateKey
+		}
+	}
 
 	if reqData.Host != "" {
 		if reqData.Port <= 0 {
@@ -2062,7 +2102,8 @@ func (w *WebServer) handleServiceRollback(rw http.ResponseWriter, req *http.Requ
 	}
 
 	var reqData struct {
-		Name string `json:"name"`
+		Name   string `json:"name"`
+		Server string `json:"server,omitempty"`
 	}
 	err := json.NewDecoder(req.Body).Decode(&reqData)
 	if err != nil || strings.TrimSpace(reqData.Name) == "" {
@@ -2076,13 +2117,18 @@ func (w *WebServer) handleServiceRollback(rw http.ResponseWriter, req *http.Requ
 		return
 	}
 
-	if w.config == nil || w.config.Host == "" {
+	serverTarget := req.URL.Query().Get("server")
+	if serverTarget == "" && reqData.Server != "" {
+		serverTarget = reqData.Server
+	}
+	cfg := w.resolveTargetServer(serverTarget)
+	if cfg == nil || (cfg.Host == "" && !cfg.IsLocal()) {
 		jsonError(rw, "VPS no configurado", http.StatusBadRequest)
 		return
 	}
 
 	sshExec := repositories.NewCryptoSSHExecutor()
-	if err := sshExec.Connect(*w.config); err != nil {
+	if err := sshExec.Connect(*cfg); err != nil {
 		jsonError(rw, fmt.Sprintf("Error SSH: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -2110,14 +2156,21 @@ func (w *WebServer) handleServiceRestart(rw http.ResponseWriter, req *http.Reque
 	}
 
 	name := strings.TrimSpace(req.URL.Query().Get("name"))
-	if name == "" && req.Body != nil {
+	serverTarget := strings.TrimSpace(req.URL.Query().Get("server"))
+	if req.Body != nil {
 		var reqData struct {
-			Name string `json:"name"`
+			Name   string `json:"name"`
+			Server string `json:"server,omitempty"`
 		}
 		if err := json.NewDecoder(req.Body).Decode(&reqData); err != nil {
 			slog.Debug("handleServiceRestart: json decode omitido o inválido", "error", err)
 		} else {
-			name = strings.TrimSpace(reqData.Name)
+			if name == "" {
+				name = strings.TrimSpace(reqData.Name)
+			}
+			if serverTarget == "" {
+				serverTarget = strings.TrimSpace(reqData.Server)
+			}
 		}
 	}
 
@@ -2132,15 +2185,8 @@ func (w *WebServer) handleServiceRestart(rw http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	cfg := w.getConfig()
-	if cfg == nil || cfg.Host == "" {
-		if loaded, err := w.repo.GetServerConfig(); err == nil && loaded != nil && loaded.Host != "" {
-			w.setConfig(loaded)
-			cfg = loaded
-		}
-	}
-
-	if cfg == nil || cfg.Host == "" {
+	cfg := w.resolveTargetServer(serverTarget)
+	if cfg == nil || (cfg.Host == "" && !cfg.IsLocal()) {
 		jsonError(rw, "VPS no configurado", http.StatusBadRequest)
 		return
 	}
@@ -2860,12 +2906,7 @@ func (w *WebServer) handleTerminalExec(rw http.ResponseWriter, req *http.Request
 		cmdStr = fmt.Sprintf("docker exec %s sh -c %q 2>&1 || docker exec %s %s", sanitizedContainer, cmdStr, sanitizedContainer, cmdStr)
 	}
 
-	targetCfg := w.getConfig()
-	if serverTarget != "" {
-		if found, err := w.repo.GetServerConfigByName(serverTarget); err == nil && found != nil {
-			targetCfg = found
-		}
-	}
+	targetCfg := w.resolveTargetServer(serverTarget)
 
 	if targetCfg != nil && (targetCfg.Host != "" || targetCfg.IsLocal()) {
 		sshExec := repositories.NewCryptoSSHExecutor()
@@ -2995,12 +3036,19 @@ func (w *WebServer) handleBootstrapMaster(rw http.ResponseWriter, req *http.Requ
 
 	var sshExec ports.SSHExecutor
 	var config domain.ServerConfig
-	if w.config != nil && w.config.Host != "" {
-		config = *w.config
+	serverTarget := req.URL.Query().Get("server")
+	if serverTarget == "" && input.TargetNode != "" {
+		serverTarget = input.TargetNode
+	}
+	cfg := w.resolveTargetServer(serverTarget)
+	if cfg != nil && (cfg.Host != "" || cfg.IsLocal()) {
+		config = *cfg
 		se := repositories.NewCryptoSSHExecutor()
 		if err := se.Connect(config); err == nil {
 			sshExec = se
 			defer se.Close()
+		} else {
+			slog.Warn("web_server: falló conexión SSH en handleBootstrapMaster", "host", config.Host, "error", err)
 		}
 	}
 

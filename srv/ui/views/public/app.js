@@ -967,7 +967,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const name = btn.getAttribute('data-name');
                 if (!confirm(`¿Estás seguro de eliminar el servicio '${name}' de Docker Swarm?`)) return;
                 try {
-                    const res = await fetch(`/api/services/${encodeURIComponent(name)}`, { method: 'DELETE' });
+                    const res = await fetch(`/api/services/${encodeURIComponent(name)}?server=${encodeURIComponent(selectedServerName || '')}`, { method: 'DELETE' });
                     if (res.ok) {
                         showToast(`Servicio '${name}' eliminado.`, 'info');
                         if (selectedServerName) {
@@ -1107,7 +1107,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const name = btn.getAttribute('data-name');
                 if (!confirm(`¿Estás seguro de eliminar la base de datos '${name}'?`)) return;
                 try {
-                    const delRes = await fetch(`/api/databases?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
+                    const delRes = await fetch(`/api/databases?name=${encodeURIComponent(name)}&server=${encodeURIComponent(selectedServerName || '')}`, { method: 'DELETE' });
                     if (delRes.ok) {
                         showToast(`Base de datos '${name}' eliminada`, 'info');
                         if (selectedServerName) {
@@ -1275,6 +1275,48 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // --- Helper: Consumo y decodificación de Streams NDJSON con reporte de progreso ---
+    async function consumeNDJSONStream(res, onStep, onError) {
+        if (!res || !res.body) {
+            return { hasError: false, lastError: '' };
+        }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let hasError = false;
+        let lastError = '';
+
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const rawLine of lines) {
+                const trimmed = rawLine.trim();
+                if (!trimmed) continue;
+                try {
+                    const event = JSON.parse(trimmed.startsWith('data: ') ? trimmed.substring(6) : trimmed);
+                    const eventType = event.t || event.type;
+                    const msg = event.m || event.message || (event.d && event.d.message) || '';
+                    if (eventType === 'step' && typeof onStep === 'function') {
+                        onStep(msg);
+                    } else if (eventType === 'error') {
+                        hasError = true;
+                        lastError = msg;
+                        if (typeof onError === 'function') {
+                            onError(msg);
+                        }
+                    }
+                } catch (parseErr) {
+                    console.debug('Error parseando chunk NDJSON:', parseErr);
+                }
+            }
+        }
+        return { hasError, lastError };
+    }
+
     // --- Bootstrap Swarm / Install Framework Action ---
     btnBootstrapSwarm.addEventListener('click', async () => {
         if (!selectedServerName) {
@@ -1302,7 +1344,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         try {
-            const res = await fetch('/api/bootstrap', {
+            const res = await fetch(`/api/bootstrap?server=${encodeURIComponent(selectedServerName || '')}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -1317,42 +1359,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // Stream NDJSON response
-            if (res.body) {
-                const reader = res.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
-                let hasError = false;
+            const streamResult = await consumeNDJSONStream(
+                res,
+                (msg) => showToast(msg, 'info'),
+                (msg) => showToast(`Error: ${msg}`, 'error')
+            );
 
-                while (true) {
-                    const { value, done } = await reader.read();
-                    if (done) break;
-                    buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop();
-
-                    for (const rawLine of lines) {
-                        const trimmed = rawLine.trim();
-                        if (!trimmed) continue;
-                        try {
-                            const event = JSON.parse(trimmed.startsWith('data: ') ? trimmed.substring(6) : trimmed);
-                            const eventType = event.t || event.type;
-                            const msg = event.m || event.message || (event.d && event.d.message) || '';
-                            if (eventType === 'step') {
-                                showToast(msg, 'info');
-                            } else if (eventType === 'error') {
-                                hasError = true;
-                                showToast(`Error: ${msg}`, 'error');
-                            }
-                        } catch (_) {}
-                    }
-                }
-
-                if (!hasError) {
-                    showToast(`¡Framework instalado con éxito en '${selectedServerName}'!`, 'success');
-                }
-            } else {
-                showToast(`¡Framework instalado con éxito!`, 'success');
+            if (!streamResult.hasError) {
+                showToast(`¡Framework instalado con éxito en '${selectedServerName}'!`, 'success');
             }
 
             await loadSwarmStatus(selectedServerName);
@@ -1853,9 +1867,10 @@ document.addEventListener('DOMContentLoaded', () => {
             let res = null;
             const domain = depDomain.value.trim();
             const isPublic = domain !== '';
+            const targetServer = selectedServerName || '';
 
             if (depDB.value) {
-                res = await fetch('/api/bootstrap-master', {
+                res = await fetch(`/api/bootstrap-master?server=${encodeURIComponent(targetServer)}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1865,11 +1880,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         domain: domain,
                         expose_public: isPublic,
                         db_engine: depDB.value,
-                        env_var_name: depEnv.value.trim() || 'DATABASE_URL'
+                        env_var_name: depEnv.value.trim() || 'DATABASE_URL',
+                        target_node: targetServer
                     })
                 });
             } else {
-                res = await fetch('/api/deploy-service', {
+                res = await fetch(`/api/deploy-service?server=${encodeURIComponent(targetServer)}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1877,7 +1893,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         imageSource: depImage.value.trim(),
                         port: parseInt(depPort.value || '80', 10),
                         domain: domain,
-                        expose: isPublic
+                        expose: isPublic,
+                        targetNode: targetServer
                     })
                 });
             }
@@ -1888,7 +1905,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            showToast(`¡Aplicación '${depName.value}' desplegada con éxito!`, 'success');
+            const streamResult = await consumeNDJSONStream(
+                res,
+                (stepMsg) => showToast(stepMsg, 'info'),
+                (errMsg) => showToast(`Error en despliegue: ${errMsg}`, 'error')
+            );
+
+            if (streamResult.hasError) {
+                return;
+            }
+
+            showToast(`¡Aplicación '${depName.value}' desplegada con éxito en '${targetServer || 'servidor'}'!`, 'success');
             deployModal.style.display = 'none';
             formDeploy.reset();
             if (selectedServerName) {
@@ -1962,6 +1989,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btnSubmitDBText.textContent = 'Creando...';
 
         try {
+            const targetServer = selectedServerName || '';
             const payload = {
                 name: dbName.value.trim(),
                 engine: dbEngine.value,
@@ -1969,10 +1997,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 externalUrl: dbExternalURL.value.trim(),
                 volumeHostPath: dbVolumePath.value.trim(),
                 internalPort: parseInt(dbPort.value || getDefaultPort(dbEngine.value), 10),
-                targetNode: dbTargetNode.value.trim()
+                targetNode: dbTargetNode.value.trim() || targetServer
             };
 
-            const res = await fetch('/api/deploy-db', {
+            const res = await fetch(`/api/deploy-db?server=${encodeURIComponent(targetServer)}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -1984,7 +2012,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            showToast(`¡Base de datos '${payload.name}' creada exitosamente!`, 'success');
+            const streamResult = await consumeNDJSONStream(
+                res,
+                (stepMsg) => showToast(stepMsg, 'info'),
+                (errMsg) => showToast(`Error al crear BD: ${errMsg}`, 'error')
+            );
+
+            if (streamResult.hasError) {
+                return;
+            }
+
+            showToast(`¡Base de datos '${payload.name}' creada exitosamente en '${targetServer || 'servidor'}'!`, 'success');
             dbModal.style.display = 'none';
             formDeployDB.reset();
             if (selectedServerName) {
