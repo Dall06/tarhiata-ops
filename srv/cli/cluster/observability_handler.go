@@ -35,7 +35,8 @@ func (h *observabilityHandler) Execute(config domain.ServerConfig) {
 
 	if obs == nil {
 		options = append(options, huh.NewOption("➕ Configurar Stack de Observabilidad", "configure"))
-	} else {
+	}
+	if obs != nil {
 		options = append(options, huh.NewOption(fmt.Sprintf("📊 Administrar Stack (Tipo: %s)", obs.DeployType), "manage"))
 	}
 	options = append(options, huh.NewOption("🔙 Volver al Menú Principal", "back"))
@@ -55,9 +56,9 @@ func (h *observabilityHandler) Execute(config domain.ServerConfig) {
 
 	if selectedAction == "configure" {
 		h.runConfigureWizard()
-	} else {
-		h.runManageMenu(obs, config)
+		return
 	}
+	h.runManageMenu(obs, config)
 }
 
 func (h *observabilityHandler) runConfigureWizard() {
@@ -166,23 +167,25 @@ func (h *observabilityHandler) runManageMenu(obs *domain.SavedObservability, con
 		obsUC := usecases.NewDeployObservabilityUseCase(sshExec)
 		if err := obsUC.ExecutePersistent(exposePublic, obs.DeployType, obs.GrafanaPassword); err != nil {
 			fmt.Println("❌ Error en despliegue:", err)
-		} else {
-			fmt.Println("✅ ¡Stack de Observabilidad desplegado exitosamente!")
-			fmt.Println("\n========================================================")
-			fmt.Println("📌 PARA ACCEDER A TUS PANELES (Vía VPN o Local):")
-			fmt.Println("   1. Abre tu archivo local (en tu PC): /etc/hosts")
-			fmt.Println("   2. Agrega la siguiente línea al final:")
-			fmt.Printf("      %s grafana.tarhiata.local portainer.tarhiata.local dozzle.tarhiata.local\n", config.Host)
-			fmt.Println("   3. Abre en tu navegador:")
-			fmt.Println("      - Grafana: http://grafana.tarhiata.local")
-			fmt.Println("      - Portainer: http://portainer.tarhiata.local")
-			fmt.Println("      - Dozzle (logs): http://dozzle.tarhiata.local")
-			fmt.Println("========================================================")
-			if obs.DeployType == "multi-node" {
-				fmt.Printf("✅ Logs anclados al nodo Worker: %s\n", obs.NodeIP)
-			}
+			return
 		}
-	} else if action == "delete" {
+		fmt.Println("✅ ¡Stack de Observabilidad desplegado exitosamente!")
+		fmt.Println("\n========================================================")
+		fmt.Println("📌 PARA ACCEDER A TUS PANELES (Vía VPN o Local):")
+		fmt.Println("   1. Abre tu archivo local (en tu PC): /etc/hosts")
+		fmt.Println("   2. Agrega la siguiente línea al final:")
+		fmt.Printf("      %s grafana.tarhiata.local portainer.tarhiata.local dozzle.tarhiata.local\n", config.Host)
+		fmt.Println("   3. Abre en tu navegador:")
+		fmt.Println("      - Grafana: http://grafana.tarhiata.local")
+		fmt.Println("      - Portainer: http://portainer.tarhiata.local")
+		fmt.Println("      - Dozzle (logs): http://dozzle.tarhiata.local")
+		fmt.Println("========================================================")
+		if obs.DeployType == "multi-node" {
+			fmt.Printf("✅ Logs anclados al nodo Worker: %s\n", obs.NodeIP)
+		}
+		return
+	}
+	if action == "delete" {
 		var confirm bool
 
 		msg := "⚠️ ¿Seguro que quieres apagar y eliminar el Stack? (Los datos en el servidor principal persistirán)"

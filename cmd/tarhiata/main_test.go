@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Dall06/tarhiata-ops/srv/cli/app"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
 )
@@ -363,3 +364,23 @@ func TestHandleSyncCLICommand_Validation(t *testing.T) {
 		t.Errorf("expected unconfigured VPS warning, got: %s", outNoVPS)
 	}
 }
+
+func TestTUICommand_Execution(t *testing.T) {
+	repo, cleanup := setupTempRepo(t)
+	defer cleanup()
+
+	cfg := &domain.ServerConfig{
+		Name: "test-vps",
+		Host: "192.168.1.100",
+		User: "root",
+	}
+
+	out := captureOutput(func() {
+		app.NewDashboardHandler(repo).RenderDashboard(cfg)
+	})
+
+	if !strings.Contains(out, "TARHIATA") {
+		t.Errorf("expected TUI render output to contain 'TARHIATA', got: %s", out)
+	}
+}
+

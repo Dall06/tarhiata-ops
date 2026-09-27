@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dall06/tarhiata-ops/srv/cli/app"
 	"github.com/Dall06/tarhiata-ops/srv/cli/sys"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
@@ -118,6 +119,9 @@ func main() {
 	switch command {
 	case "dashboard", "ui":
 		runDashboard(repo, serverConfig)
+
+	case "tui":
+		app.NewDashboardHandler(repo).RenderDashboard(serverConfig)
 
 	case "config":
 		handleConfigCommand(repo, subArgs)
