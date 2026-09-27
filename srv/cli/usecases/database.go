@@ -1,4 +1,4 @@
-package db
+package usecases
 
 import (
 	"crypto/rand"
@@ -10,10 +10,11 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
-	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
-	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
-	"github.com/Dall06/tarhiata-ops/srv/sys/usecases"
+	"github.com/Dall06/tarhiata-ops/opt/cloud"
+	"github.com/Dall06/tarhiata-ops/srv/cli/ports"
+	sysdomain "github.com/Dall06/tarhiata-ops/srv/sys/domain"
+	sysrepositories "github.com/Dall06/tarhiata-ops/srv/sys/repositories"
+	sysusecases "github.com/Dall06/tarhiata-ops/srv/sys/usecases"
 	"github.com/charmbracelet/huh"
 )
 
@@ -21,11 +22,12 @@ type databaseHandler struct {
 	repo ports.ConfigRepository
 }
 
+// NewDatabaseHandler inicializa el caso de uso de gestión de bases de datos para CLI.
 func NewDatabaseHandler(repo ports.ConfigRepository) ports.DatabaseHandler {
 	return &databaseHandler{repo: repo}
 }
 
-func (h *databaseHandler) Execute(config domain.ServerConfig) {
+func (h *databaseHandler) Execute(config sysdomain.ServerConfig) {
 	dbs, err := h.repo.GetDatabases()
 	if err != nil {
 		fmt.Printf("❌ Error leyendo bases de datos: %v\n", err)
@@ -57,10 +59,11 @@ func (h *databaseHandler) Execute(config domain.ServerConfig) {
 
 	if selectedAction == "add_new" {
 		h.runAddDatabaseWizard()
-	} else {
-		dbName := strings.TrimPrefix(selectedAction, "manage_")
-		h.runManageDatabaseMenu(dbName, config)
+		return
 	}
+
+	dbName := strings.TrimPrefix(selectedAction, "manage_")
+	h.runManageDatabaseMenu(dbName, config)
 }
 
 func (h *databaseHandler) runAddDatabaseWizard() {
@@ -101,34 +104,32 @@ func (h *databaseHandler) runAddDatabaseWizard() {
 
 	switch deployType {
 	case "external":
-		if err := huh.NewForm(huh.NewGroup(huh.NewInput().Title("URL de Conexión (ej. postgres://user:pass@...)").Value(&externalURL))).Run(); err != nil {
+		if errForm := huh.NewForm(huh.NewGroup(huh.NewInput().Title("URL de Conexión (ej. postgres://user:pass@...)").Value(&externalURL))).Run(); errForm != nil {
 			return
 		}
 	case "single-node":
+		internalPort = 27017
 		if engine == "postgres" {
 			internalPort = 5432
-		} else {
-			internalPort = 27017
 		}
 		defaultPath := fmt.Sprintf("/opt/tarhiata/data/%s", dbName)
-		if err := huh.NewForm(huh.NewGroup(huh.NewInput().Title("Ruta del Volumen en Host").Value(&defaultPath))).Run(); err != nil {
+		if errForm := huh.NewForm(huh.NewGroup(huh.NewInput().Title("Ruta del Volumen en Host").Value(&defaultPath))).Run(); errForm != nil {
 			return
 		}
 		hostPath = defaultPath
 	case "multi-node":
+		internalPort = 27017
 		if engine == "postgres" {
 			internalPort = 5432
-		} else {
-			internalPort = 27017
 		}
 		defaultPath := fmt.Sprintf("/opt/tarhiata/data/%s", dbName)
-		if err := huh.NewForm(huh.NewGroup(huh.NewInput().Title("Ruta del Volumen en Host del Nuevo Servidor").Value(&defaultPath))).Run(); err != nil {
+		if errForm := huh.NewForm(huh.NewGroup(huh.NewInput().Title("Ruta del Volumen en Host del Nuevo Servidor").Value(&defaultPath))).Run(); errForm != nil {
 			return
 		}
 		hostPath = defaultPath
 	}
 
-	newDB := domain.SavedDatabase{
+	newDB := sysdomain.SavedDatabase{
 		Name:           dbName,
 		Engine:         engine,
 		DeployType:     deployType,
@@ -139,8 +140,8 @@ func (h *databaseHandler) runAddDatabaseWizard() {
 
 	if deployType != "external" {
 		b := make([]byte, 16)
-		if _, err := rand.Read(b); err != nil {
-			slog.Warn("falló lectura de entropía para password de base de datos", "error", err)
+		if _, errEnt := rand.Read(b); errEnt != nil {
+			slog.Warn("falló lectura de entropía para password de base de datos", "error", errEnt)
 		}
 		newDB.Password = hex.EncodeToString(b)
 	}
@@ -152,7 +153,7 @@ func (h *databaseHandler) runAddDatabaseWizard() {
 	fmt.Printf("✅ Base de datos %s guardada exitosamente.\n", dbName)
 }
 
-func (h *databaseHandler) runManageDatabaseMenu(dbName string, config domain.ServerConfig) {
+func (h *databaseHandler) runManageDatabaseMenu(dbName string, config sysdomain.ServerConfig) {
 	db, err := h.repo.GetDatabase(dbName)
 	if err != nil || db == nil {
 		fmt.Println("❌ No se encontró la base de datos.")
@@ -184,39 +185,47 @@ func (h *databaseHandler) runManageDatabaseMenu(dbName string, config domain.Ser
 		}
 
 		fmt.Println("\n⏳ Conectando al servidor principal...")
-		sshExec := repositories.NewCryptoSSHExecutor()
+		sshExec := sysrepositories.NewCryptoSSHExecutor()
 		if err := sshExec.Connect(config); err != nil {
 			fmt.Println("❌ Error SSH:", err)
 			return
 		}
-		defer sshExec.Close()
+		defer func() {
+			if errClose := sshExec.Close(); errClose != nil {
+				slog.Warn("cli: error cerrando ssh en deploy database", "error", errClose)
+			}
+		}()
 
 		if db.DeployType == "multi-node" {
 			if db.NodeIP == "" {
-				// Necesitamos provisionar el nodo
-				workerUC := usecases.NewProvisionWorkerUseCase(sshExec)
+				workerUC := sysusecases.NewProvisionWorkerUseCase(sshExec)
 				nodeName := fmt.Sprintf("tarhiata-db-%s", db.Name)
-				newIP, err := workerUC.Execute(config, nodeName, "db_"+db.Name)
+				newIP, errProv := workerUC.Execute(config, nodeName, "db_"+db.Name)
 				if newIP != "" {
 					db.NodeIP = newIP
-					h.repo.SaveDatabase(*db) // Actualizamos la BD con la nueva IP (Evita Nodos Zombie)
+					if errSave := h.repo.SaveDatabase(*db); errSave != nil {
+						slog.Warn("cli: error actualizando IP de nodo en base de datos", "error", errSave)
+					}
 				}
-				if err != nil {
-					fmt.Println("❌ Error provisionando nodo:", err)
+				if errProv != nil {
+					fmt.Println("❌ Error provisionando nodo:", errProv)
 					return
 				}
 			}
 		}
 
-		dbUC := usecases.NewDeployDatabaseUseCase(sshExec)
+		dbUC := sysusecases.NewDeployDatabaseUseCase(sshExec)
 		if err := dbUC.Execute(*db, config); err != nil {
 			fmt.Println("❌ Error en despliegue:", err)
-		} else {
-			if db.DeployType == "multi-node" {
-				fmt.Printf("✅ Base de Datos anclada al nodo Worker: %s\n", db.NodeIP)
-			}
+			return
 		}
-	} else if action == "delete" {
+		if db.DeployType == "multi-node" {
+			fmt.Printf("✅ Base de Datos anclada al nodo Worker: %s\n", db.NodeIP)
+		}
+		return
+	}
+
+	if action == "delete" {
 		var confirm bool
 
 		if db.DeployType == "multi-node" {
@@ -253,16 +262,19 @@ func (h *databaseHandler) runManageDatabaseMenu(dbName string, config domain.Ser
 			}
 
 			if db.DeployType != "external" {
-				sshExec := repositories.NewCryptoSSHExecutor()
-				if err := sshExec.Connect(config); err == nil {
-					defer sshExec.Close()
+				sshExec := sysrepositories.NewCryptoSSHExecutor()
+				if errConn := sshExec.Connect(config); errConn == nil {
+					defer func() {
+						if errClose := sshExec.Close(); errClose != nil {
+							slog.Warn("cli: error cerrando ssh en delete database", "error", errClose)
+						}
+					}()
 					serviceName := fmt.Sprintf("tarhiata-db-%s", db.Name)
 					if res, errCmd := sshExec.RunCommand(fmt.Sprintf("docker service rm %s", serviceName)); errCmd != nil || (res != nil && res.ExitCode != 0) {
 						slog.Warn("falló comando docker service rm para bd", "service", serviceName, "error", errCmd)
 					}
 
 					if db.DeployType == "single-node" && deleteVolume {
-						// SECURITY CHECK: Solo permitir borrar dentro de un path seguro para evitar Inyección de Rutas (rm -rf /)
 						if !strings.HasPrefix(db.VolumeHostPath, "/opt/") && !strings.HasPrefix(db.VolumeHostPath, "/var/lib/docker/") {
 							fmt.Println("❌ Operación abortada: Ruta de volumen inválida o insegura para borrado automático.")
 							return
@@ -288,10 +300,10 @@ func (h *databaseHandler) runManageDatabaseMenu(dbName string, config domain.Ser
 					}
 					nodeName := fmt.Sprintf("tarhiata-db-%s", db.Name)
 					workspace := filepath.Join(homeDir, ".config", "tarhiata", "terraform", "worker_"+nodeName)
-					prov := repositories.NewVultrProvisioner(workspace)
+					prov := cloud.NewProvisioner("vultr", workspace)
 
-					if err := prov.DestroyNode(config.VultrAPIToken, nodeName); err != nil {
-						fmt.Printf("⚠️ Hubo un problema al intentar destruir la instancia: %v (Por favor verifique en su panel de Vultr)\n", err)
+					if errDestroy := prov.DestroyNode(config.VultrAPIToken, nodeName); errDestroy != nil {
+						fmt.Printf("⚠️ Hubo un problema al intentar destruir la instancia: %v (Por favor verifique en su panel de Vultr)\n", errDestroy)
 						fmt.Println("❌ Operación abortada para evitar pérdida de estado. Repare el nodo manualmente o reintente.")
 						return
 					}

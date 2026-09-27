@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dall06/tarhiata-ops/opt/cloud"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
@@ -63,7 +64,7 @@ func (uc *ProvisionWorkerUseCase) ExecuteWithPlanAndRegion(config domain.ServerC
 	if uc.Provisioner == nil {
 		workspace := filepath.Join(homeDir, ".config", "tarhiata", "terraform", "worker_"+nodeName)
 		if config.CloudProvider == "digitalocean" && config.DOAPIToken != "" {
-			provisioner = repositories.NewDigitalOceanProvisioner(workspace)
+			provisioner = cloud.NewProvisioner("digitalocean", workspace)
 			activeToken = config.DOAPIToken
 			region = "nyc1"
 			if requestedRegion != "" {
@@ -71,7 +72,7 @@ func (uc *ProvisionWorkerUseCase) ExecuteWithPlanAndRegion(config domain.ServerC
 			}
 		}
 		if config.CloudProvider != "digitalocean" || config.DOAPIToken == "" {
-			provisioner = repositories.NewVultrProvisioner(workspace)
+			provisioner = cloud.NewProvisioner("vultr", workspace)
 			activeToken = token
 			region = "mex"
 			if requestedRegion != "" {

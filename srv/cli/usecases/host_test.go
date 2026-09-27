@@ -1,14 +1,14 @@
-package sys
+package usecases
 
 import (
 	"testing"
 
-	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
-	"github.com/Dall06/tarhiata-ops/srv/sys/tests/mocks"
+	sysdomain "github.com/Dall06/tarhiata-ops/srv/sys/domain"
+	sysmocks "github.com/Dall06/tarhiata-ops/srv/sys/tests/mocks"
 )
 
 func TestNewHostHandler(t *testing.T) {
-	mockRepo := &mocks.MockConfigRepository{}
+	mockRepo := &sysmocks.MockConfigRepository{}
 	handler := NewHostHandler(mockRepo)
 	if handler == nil {
 		t.Fatal("expected non-nil HostHandler")
@@ -16,11 +16,10 @@ func TestNewHostHandler(t *testing.T) {
 }
 
 func TestResolveTargetConfig(t *testing.T) {
-	mockRepo := &mocks.MockConfigRepository{
-		Config: &domain.ServerConfig{Name: "active-node", Host: "5.6.7.8", IsActive: true},
+	mockRepo := &sysmocks.MockConfigRepository{
+		Config: &sysdomain.ServerConfig{Name: "active-node", Host: "5.6.7.8", IsActive: true},
 	}
 	handler := NewHostHandler(mockRepo)
-
 
 	tests := []struct {
 		name         string
@@ -88,7 +87,7 @@ func TestRenderBar(t *testing.T) {
 }
 
 func TestHostHandler_HandleDevices_ServerNotFound(t *testing.T) {
-	mockRepo := &mocks.MockConfigRepository{}
+	mockRepo := &sysmocks.MockConfigRepository{}
 	handler := NewHostHandler(mockRepo)
 
 	err := handler.HandleDevices("non-existent-server")
@@ -96,4 +95,3 @@ func TestHostHandler_HandleDevices_ServerNotFound(t *testing.T) {
 		t.Fatal("expected error for non-existent server, got nil")
 	}
 }
-

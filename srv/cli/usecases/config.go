@@ -1,4 +1,4 @@
-package sys
+package usecases
 
 import (
 	"fmt"
@@ -8,9 +8,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
-	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
-	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
+	"github.com/Dall06/tarhiata-ops/opt/cloud"
+	"github.com/Dall06/tarhiata-ops/srv/cli/ports"
+	sysdomain "github.com/Dall06/tarhiata-ops/srv/sys/domain"
+	sysports "github.com/Dall06/tarhiata-ops/srv/sys/ports"
 	"github.com/charmbracelet/huh"
 )
 
@@ -18,11 +19,12 @@ type configHandler struct {
 	repo ports.ConfigRepository
 }
 
+// NewConfigHandler crea el caso de uso interactivo para configurar el servidor.
 func NewConfigHandler(repo ports.ConfigRepository) ports.ConfigHandler {
 	return &configHandler{repo: repo}
 }
 
-func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConfig {
+func (h *configHandler) Execute(current *sysdomain.ServerConfig) *sysdomain.ServerConfig {
 	var configType string
 
 	err := huh.NewForm(
@@ -85,7 +87,6 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 	}
 
 	if configType == "new" {
-		// Modo Terraform (Desde cero)
 		var providerName string
 		if err := huh.NewForm(
 			huh.NewGroup(
@@ -101,10 +102,8 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 			return current
 		}
 
-		var tokenPtr *string
-		if providerName == "vultr" {
-			tokenPtr = &vultrToken
-		} else {
+		tokenPtr := &vultrToken
+		if providerName != "vultr" {
 			tokenPtr = &doToken
 		}
 
@@ -112,7 +111,7 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 			huh.NewGroup(
 				huh.NewInput().Title(fmt.Sprintf("%s API Token (Obligatorio)", strings.Title(providerName))).Value(tokenPtr).Validate(func(s string) error {
 					if strings.TrimSpace(s) == "" {
-						return fmt.Errorf("El Token es obligatorio")
+						return fmt.Errorf("el Token es obligatorio")
 					}
 					return nil
 				}),
@@ -124,18 +123,16 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 		}
 
 		var selectedPlan string
-		planOptions := []huh.Option[string]{}
+		planOptions := []huh.Option[string]{
+			huh.NewOption("🪙 Micro ($6/mes) - 1 vCPU / 1GB RAM", "s-1vcpu-1gb"),
+			huh.NewOption("🌿 Starter ($12/mes) - 1 vCPU / 2GB RAM", "s-1vcpu-2gb"),
+			huh.NewOption("🚀 Scale ($24/mes) - 2 vCPU / 4GB RAM", "s-2vcpu-4gb"),
+		}
 		if providerName == "vultr" {
 			planOptions = []huh.Option[string]{
 				huh.NewOption("🪙 Micro ($5/mes) - 1 vCPU / 1GB RAM", "vc2-1c-1gb"),
 				huh.NewOption("🌿 Starter ($10/mes) - 1 vCPU / 2GB RAM", "vc2-1c-2gb"),
 				huh.NewOption("🚀 Scale ($20/mes) - 2 vCPU / 4GB RAM", "vc2-2c-4gb"),
-			}
-		} else {
-			planOptions = []huh.Option[string]{
-				huh.NewOption("🪙 Micro ($6/mes) - 1 vCPU / 1GB RAM", "s-1vcpu-1gb"),
-				huh.NewOption("🌿 Starter ($12/mes) - 1 vCPU / 2GB RAM", "s-1vcpu-2gb"),
-				huh.NewOption("🚀 Scale ($24/mes) - 2 vCPU / 4GB RAM", "s-2vcpu-4gb"),
 			}
 		}
 
@@ -158,15 +155,16 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 		}
 		workspace := filepath.Join(homeDir, ".config", "tarhiata", "terraform", "tarhiata_master")
 
-		var provisioner ports.Provisioner
+		var provisioner sysports.Provisioner
 		var region string
 		var activeToken string
 		if providerName == "vultr" {
-			provisioner = repositories.NewVultrProvisioner(workspace)
+			provisioner = cloud.NewProvisioner("vultr", workspace)
 			region = "ewr"
 			activeToken = vultrToken
-		} else {
-			provisioner = repositories.NewDigitalOceanProvisioner(workspace)
+		}
+		if providerName != "vultr" {
+			provisioner = cloud.NewProvisioner("digitalocean", workspace)
 			region = "nyc1"
 			activeToken = doToken
 		}
@@ -180,10 +178,8 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 		privKeyContent := provRes.PrivateKey
 
 		host = newIP
-		user = "root" // Ubuntu DO Droplet default root
+		user = "root"
 		portStr = "22"
-
-		// Guardar llave privada localmente
 
 		keyDir := filepath.Join(homeDir, ".ssh")
 		if errMk := os.MkdirAll(keyDir, 0700); errMk != nil {
@@ -201,19 +197,19 @@ func (h *configHandler) Execute(current *domain.ServerConfig) *domain.ServerConf
 	}
 
 	if cloudProvider == "" {
-		cloudProvider = "vultr" // Default fallback
+		cloudProvider = "vultr"
 	}
 
 	port, errPort := strconv.Atoi(portStr)
 	if errPort != nil || port <= 0 {
 		port = 22
 	}
-	newConfig := domain.ServerConfig{
-		Host:       host,
-		Port:       port,
-		User:       user,
-		PrivateKey: key,
-		DOAPIToken: doToken,
+	newConfig := sysdomain.ServerConfig{
+		Host:          host,
+		Port:          port,
+		User:          user,
+		PrivateKey:    key,
+		DOAPIToken:    doToken,
 		VultrAPIToken: vultrToken,
 		CloudProvider: cloudProvider,
 	}

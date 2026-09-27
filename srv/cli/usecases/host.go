@@ -1,14 +1,14 @@
-package sys
+package usecases
 
 import (
 	"fmt"
 	"log/slog"
 	"strings"
 
-	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
-	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
-	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
-	"github.com/Dall06/tarhiata-ops/srv/sys/usecases"
+	"github.com/Dall06/tarhiata-ops/srv/cli/ports"
+	sysdomain "github.com/Dall06/tarhiata-ops/srv/sys/domain"
+	sysrepositories "github.com/Dall06/tarhiata-ops/srv/sys/repositories"
+	sysusecases "github.com/Dall06/tarhiata-ops/srv/sys/usecases"
 )
 
 // HostHandler gestiona los comandos CLI relacionados con la inspección del host/VPS directo.
@@ -22,7 +22,7 @@ func NewHostHandler(repo ports.ConfigRepository) *HostHandler {
 }
 
 // resolveTargetConfig obtiene la configuración del servidor por nombre o la activa.
-func (h *HostHandler) resolveTargetConfig(serverName string) (*domain.ServerConfig, error) {
+func (h *HostHandler) resolveTargetConfig(serverName string) (*sysdomain.ServerConfig, error) {
 	name := strings.TrimSpace(serverName)
 	if name != "" {
 		cfg, err := h.repo.GetServerConfigByName(name)
@@ -52,14 +52,14 @@ func (h *HostHandler) HandleMetrics(serverName string) error {
 		return err
 	}
 
-	sshExec := repositories.NewCryptoSSHExecutor()
+	sshExec := sysrepositories.NewCryptoSSHExecutor()
 	defer func() {
 		if clErr := sshExec.Close(); clErr != nil {
 			slog.Warn("cli: error cerrando sshExec en host metrics", "error", clErr)
 		}
 	}()
 
-	uc := usecases.NewInspectHostUseCase(sshExec)
+	uc := sysusecases.NewInspectHostUseCase(sshExec)
 	m, err := uc.ExecuteMetricsOnly(*cfg)
 	if err != nil {
 		return fmt.Errorf("fallo inspeccionando host: %w", err)
@@ -84,14 +84,14 @@ func (h *HostHandler) HandleServices(serverName string) error {
 		return err
 	}
 
-	sshExec := repositories.NewCryptoSSHExecutor()
+	sshExec := sysrepositories.NewCryptoSSHExecutor()
 	defer func() {
 		if clErr := sshExec.Close(); clErr != nil {
 			slog.Warn("cli: error cerrando sshExec en host services", "error", clErr)
 		}
 	}()
 
-	uc := usecases.NewInspectHostUseCase(sshExec)
+	uc := sysusecases.NewInspectHostUseCase(sshExec)
 	services, err := uc.ExecuteServicesOnly(*cfg)
 	if err != nil {
 		return fmt.Errorf("fallo obteniendo servicios: %w", err)
@@ -124,21 +124,21 @@ func (h *HostHandler) HandleInspect(serverName string) error {
 	return h.HandleServices(serverName)
 }
 
-// HandleDevices lista los dispositivos de hardware conectados al VPS (almacenamiento, GPU, USB, pantallas, PCI).
+// HandleDevices lista los dispositivos de hardware conectados al VPS.
 func (h *HostHandler) HandleDevices(serverName string) error {
 	cfg, err := h.resolveTargetConfig(serverName)
 	if err != nil {
 		return err
 	}
 
-	sshExec := repositories.NewCryptoSSHExecutor()
+	sshExec := sysrepositories.NewCryptoSSHExecutor()
 	defer func() {
 		if clErr := sshExec.Close(); clErr != nil {
 			slog.Warn("cli: error cerrando sshExec en host devices", "error", clErr)
 		}
 	}()
 
-	uc := usecases.NewListDevicesUseCase(sshExec)
+	uc := sysusecases.NewListDevicesUseCase(sshExec)
 	devs, err := uc.Execute(*cfg)
 	if err != nil {
 		return fmt.Errorf("fallo inspeccionando dispositivos de hardware: %w", err)
@@ -149,7 +149,6 @@ func (h *HostHandler) HandleDevices(serverName string) error {
 	fmt.Printf("│ Dirección: %-59s │\n", cfg.Host)
 	fmt.Println("└─────────────────────────────────────────────────────────────────────────────┘")
 
-	// 1. Almacenamiento
 	fmt.Printf("\n💾 ALMACENAMIENTO (%d unidades detectadas):\n", len(devs.Storage))
 	if len(devs.Storage) == 0 {
 		fmt.Println("   (No se detectaron unidades de almacenamiento)")
@@ -178,7 +177,6 @@ func (h *HostHandler) HandleDevices(serverName string) error {
 		}
 	}
 
-	// 2. Unidades GPU
 	fmt.Printf("\n🎮 ACELERADORES GRÁFICOS / GPU (%d detectados):\n", len(devs.GPUs))
 	if len(devs.GPUs) == 0 {
 		fmt.Println("   (No se detectaron GPUs dedicadas o aceleradores)")
@@ -198,7 +196,6 @@ func (h *HostHandler) HandleDevices(serverName string) error {
 		}
 	}
 
-	// 3. Dispositivos USB
 	fmt.Printf("\n🔌 PERIFÉRICOS USB (%d detectados):\n", len(devs.USB))
 	if len(devs.USB) == 0 {
 		fmt.Println("   (No se detectaron periféricos USB)")
@@ -209,7 +206,6 @@ func (h *HostHandler) HandleDevices(serverName string) error {
 		}
 	}
 
-	// 4. Salidas de Pantalla / Video
 	fmt.Printf("\n🖥️  SALIDAS DE VIDEO Y PANTALLAS (%d detectadas):\n", len(devs.Displays))
 	if len(devs.Displays) == 0 {
 		fmt.Println("   (No se detectaron salidas de video o pantallas conectadas)")
@@ -228,7 +224,6 @@ func (h *HostHandler) HandleDevices(serverName string) error {
 		}
 	}
 
-	// 5. Buses PCI Principales
 	if len(devs.PCI) > 0 {
 		fmt.Printf("\n🖧  BUSES Y CONTROLADORES PCI (%d componentes):\n", len(devs.PCI))
 		for _, p := range devs.PCI {

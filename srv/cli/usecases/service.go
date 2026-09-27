@@ -1,4 +1,4 @@
-package app
+package usecases
 
 import (
 	"encoding/json"
@@ -11,10 +11,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
-	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
-	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
-	"github.com/Dall06/tarhiata-ops/srv/sys/usecases"
+	"github.com/Dall06/tarhiata-ops/srv/cli/ports"
+	sysdomain "github.com/Dall06/tarhiata-ops/srv/sys/domain"
+	sysports "github.com/Dall06/tarhiata-ops/srv/sys/ports"
+	sysrepositories "github.com/Dall06/tarhiata-ops/srv/sys/repositories"
+	sysusecases "github.com/Dall06/tarhiata-ops/srv/sys/usecases"
 	"github.com/charmbracelet/huh"
 )
 
@@ -22,20 +23,24 @@ type serviceHandler struct {
 	repo ports.ConfigRepository
 }
 
+// NewServiceHandler crea el caso de uso para administrar servicios en CLI.
 func NewServiceHandler(repo ports.ConfigRepository) ports.ServiceHandler {
 	return &serviceHandler{repo: repo}
 }
 
-func (h *serviceHandler) Execute(config domain.ServerConfig) {
+func (h *serviceHandler) Execute(config sysdomain.ServerConfig) {
 	fmt.Printf("\n⏳ Conectando al clúster para sincronizar estado de servicios...")
-	sshExec := repositories.NewCryptoSSHExecutor()
+	sshExec := sysrepositories.NewCryptoSSHExecutor()
 	if err := sshExec.Connect(config); err != nil {
 		fmt.Printf("❌ Error conectando por SSH: %v\n", err)
 		return
 	}
-	defer sshExec.Close()
+	defer func() {
+		if errClose := sshExec.Close(); errClose != nil {
+			slog.Warn("cli: error cerrando ssh en service handler", "error", errClose)
+		}
+	}()
 
-	// 1. Obtener los que están corriendo en Swarm
 	res, err := sshExec.RunCommand("docker stack ls --format '{{.Name}}'")
 	runningStacks := make(map[string]bool)
 	if err == nil && res.ExitCode == 0 {
@@ -47,14 +52,12 @@ func (h *serviceHandler) Execute(config domain.ServerConfig) {
 		}
 	}
 
-	// 2. Obtener el catálogo guardado en SQLite
 	savedServices, err := h.repo.GetServices()
 	if err != nil {
 		fmt.Printf("❌ Error leyendo catálogo local: %v\n", err)
 		return
 	}
 
-	// 3. Construir Menú
 	var selectedAction string
 	options := []huh.Option[string]{
 		huh.NewOption("➕ Agregar Servicio al Catálogo", "add_new"),
@@ -86,14 +89,19 @@ func (h *serviceHandler) Execute(config domain.ServerConfig) {
 
 	if selectedAction == "add_new" {
 		h.runAddServiceWizard()
-	} else if selectedAction == "map" {
-		h.showNetworkMap(config)
-	} else if selectedAction == "global_link" {
-		h.runGlobalLinkWizard()
-	} else {
-		stackName := strings.TrimPrefix(selectedAction, "manage_")
-		h.runManageServiceMenu(stackName, sshExec)
+		return
 	}
+	if selectedAction == "map" {
+		h.showNetworkMap(config)
+		return
+	}
+	if selectedAction == "global_link" {
+		h.runGlobalLinkWizard()
+		return
+	}
+
+	stackName := strings.TrimPrefix(selectedAction, "manage_")
+	h.runManageServiceMenu(stackName, sshExec)
 }
 
 func (h *serviceHandler) runGlobalLinkWizard() {
@@ -127,7 +135,6 @@ func (h *serviceHandler) runGlobalLinkWizard() {
 		return
 	}
 
-	// Obtener el servicio original para poder guardar su .env
 	svc, err := h.repo.GetService(originName)
 	if err != nil || svc == nil {
 		fmt.Println("❌ Error leyendo el servicio origen.")
@@ -182,9 +189,9 @@ func (h *serviceHandler) runGlobalLinkWizard() {
 			}
 		}
 
-		f, err := os.OpenFile(svc.EnvFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			fmt.Printf("❌ Error abriendo archivo .env: %v\n", err)
+		f, errFile := os.OpenFile(svc.EnvFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if errFile != nil {
+			fmt.Printf("❌ Error abriendo archivo .env: %v\n", errFile)
 			return
 		}
 		defer f.Close()
@@ -195,16 +202,16 @@ func (h *serviceHandler) runGlobalLinkWizard() {
 		}
 
 		lineToAdd := fmt.Sprintf("\n%s=%s\n", envVarName, finalURL)
-		if _, err := f.WriteString(lineToAdd); err != nil {
-			fmt.Printf("❌ Error escribiendo archivo .env: %v\n", err)
-		} else {
-			fmt.Printf("✅ ¡Conexión establecida! %s ahora conoce a %s a través de la variable '%s'.\n", svc.Name, targetHost, envVarName)
-			fmt.Println("👉 Recuerda entrar a Administrar el servicio origen y 'Desplegar / Actualizar' para aplicar los cambios al clúster.")
+		if _, errWrite := f.WriteString(lineToAdd); errWrite != nil {
+			fmt.Printf("❌ Error escribiendo archivo .env: %v\n", errWrite)
+			return
 		}
+		fmt.Printf("✅ ¡Conexión establecida! %s ahora conoce a %s a través de la variable '%s'.\n", svc.Name, targetHost, envVarName)
+		fmt.Println("👉 Recuerda entrar a Administrar el servicio origen y 'Desplegar / Actualizar' para aplicar los cambios al clúster.")
 	}
 }
 
-func (h *serviceHandler) showNetworkMap(config domain.ServerConfig) {
+func (h *serviceHandler) showNetworkMap(config sysdomain.ServerConfig) {
 	services, errSvc := h.repo.GetServices()
 	if errSvc != nil {
 		slog.Warn("topology: fallo leyendo servicios", "error", errSvc)
@@ -214,7 +221,7 @@ func (h *serviceHandler) showNetworkMap(config domain.ServerConfig) {
 		slog.Warn("topology: fallo leyendo bases de datos", "error", errDB)
 	}
 
-	fmt.Printf("\n\033[1;36m========================================================\033[0m")
+	fmt.Printf("\n\033[1;36m========================================================\033[0m\n")
 	fmt.Println("\033[1;36m      🗺️   T A R H I A T A   T O P O L O G Y   M A P    \033[0m")
 	fmt.Println("\033[1;36m========================================================\033[0m")
 	fmt.Println()
@@ -224,32 +231,34 @@ func (h *serviceHandler) showNetworkMap(config domain.ServerConfig) {
 		fmt.Printf(" ├─ 🔌 \033[33mDNS Interno\033[0m : http://%s:%d \033[90m(Visible en Swarm)\033[0m\n", svc.Name, svc.Port)
 
 		if svc.Expose {
+			protocol := "http://"
+			if svc.EnableSSL {
+				protocol = "https://"
+			}
 			if svc.Domain != "" {
-				protocol := "http://"
-				if svc.EnableSSL {
-					protocol = "https://"
-				}
 				fmt.Printf(" ├─ 🌐 \033[34mRed Pública\033[0m : %s%s\n", protocol, svc.Domain)
-			} else {
+			}
+			if svc.Domain == "" {
 				fmt.Printf(" ├─ 🌐 \033[34mRed Pública\033[0m : http://%s/%s\n", config.Host, svc.Name)
 			}
-		} else {
+		}
+		if !svc.Expose {
 			fmt.Printf(" ├─ 🔒 \033[31mRed Pública\033[0m : [ACCESO DENEGADO - Privado]\n")
 		}
 
-		var mounts []domain.ServiceMount
+		var mounts []sysdomain.ServiceMount
 		if svc.MountsJSON != "" && svc.MountsJSON != "[]" {
 			if err := json.Unmarshal([]byte(svc.MountsJSON), &mounts); err != nil {
 				slog.Debug("error decodificando mounts json", "error", err)
 			}
 			fmt.Printf(" ├─ 📁 \033[35mMounts\033[0m      : %d archivos inyectados\n", len(mounts))
-		} else {
+		}
+		if svc.MountsJSON == "" || svc.MountsJSON == "[]" {
 			fmt.Printf(" ├─ 📁 \033[35mMounts\033[0m      : [Ninguno]\n")
 		}
 
 		if svc.EnvFilePath != "" {
 			fmt.Printf(" └─ 📝 \033[36mVariables\033[0m   : %s\n", svc.EnvFilePath)
-			// Leer el archivo .env e imprimir las variables vinculadas
 			content, err := os.ReadFile(svc.EnvFilePath)
 			if err == nil {
 				lines := strings.Split(string(content), "\n")
@@ -259,7 +268,8 @@ func (h *serviceHandler) showNetworkMap(config domain.ServerConfig) {
 					}
 				}
 			}
-		} else {
+		}
+		if svc.EnvFilePath == "" {
 			fmt.Printf(" └─ 📝 \033[36mVariables\033[0m   : [Ninguno]\n")
 		}
 		fmt.Println()
@@ -309,9 +319,11 @@ func (h *serviceHandler) showNetworkMap(config domain.ServerConfig) {
 		fmt.Println(" \033[90mNingún servicio está interconectado mediante variables aún.\033[0m")
 	}
 
-	fmt.Printf("\n\033[1;36m========================================================\033[0m")
+	fmt.Printf("\n\033[1;36m========================================================\033[0m\n")
 	fmt.Println("\033[90mPresiona Enter para continuar...\033[0m")
-	fmt.Scanln()
+	if _, errScan := fmt.Scanln(); errScan != nil {
+		slog.Debug("scanln skipped", "error", errScan)
+	}
 }
 
 func (h *serviceHandler) runAddServiceWizard() {
@@ -333,11 +345,11 @@ func (h *serviceHandler) runAddServiceWizard() {
 			huh.NewInput().Title("Nombre del Servicio (ej. api)").Value(&serviceName).Validate(func(s string) error {
 				s = strings.TrimSpace(s)
 				if s == "" {
-					return fmt.Errorf("El nombre no puede estar vacío")
+					return fmt.Errorf("el nombre no puede estar vacío")
 				}
 				matched, errMatch := regexp.MatchString(`^[a-zA-Z0-9_-]+$`, s)
 				if errMatch != nil || !matched {
-					return fmt.Errorf("El nombre debe contener únicamente letras, números, guiones y guiones bajos")
+					return fmt.Errorf("el nombre debe contener únicamente letras, números, guiones y guiones bajos")
 				}
 				return nil
 			}),
@@ -348,7 +360,7 @@ func (h *serviceHandler) runAddServiceWizard() {
 				).Value(&imageType),
 			huh.NewInput().Title("Nombre de Imagen o URL").Value(&imageSource).Validate(func(s string) error {
 				if strings.TrimSpace(s) == "" {
-					return fmt.Errorf("La imagen no puede estar vacía")
+					return fmt.Errorf("la imagen no puede estar vacía")
 				}
 				return nil
 			}),
@@ -359,34 +371,34 @@ func (h *serviceHandler) runAddServiceWizard() {
 		return
 	}
 
-	if err := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("¿Hacer este servicio accesible desde Internet?").Value(&isPublic))).Run(); err != nil {
+	if errConfirm := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("¿Hacer este servicio accesible desde Internet?").Value(&isPublic))).Run(); errConfirm != nil {
 		return
 	}
 
 	if isPublic {
-		if err := huh.NewForm(huh.NewGroup(huh.NewInput().Title("Dominio (Opcional)\n⚠️ Recomendado si tu app usa rutas absolutas y no soporta base-paths.").Value(&domainName))).Run(); err != nil {
+		if errDomain := huh.NewForm(huh.NewGroup(huh.NewInput().Title("Dominio (Opcional)\n⚠️ Recomendado si tu app usa rutas absolutas y no soporta base-paths.").Value(&domainName))).Run(); errDomain != nil {
 			return
 		}
 
 		if domainName != "" {
-			if err := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("¿Habilitar SSL Automático (HTTPS) para este dominio?").Value(&enableSSL))).Run(); err != nil {
+			if errSSL := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("¿Habilitar SSL Automático (HTTPS) para este dominio?").Value(&enableSSL))).Run(); errSSL != nil {
 				return
 			}
 		}
 	}
 
-	if err := huh.NewForm(huh.NewGroup(huh.NewInput().Title("Ruta local de archivo .env (Opcional, vacío para crear después)").Value(&envFilePath))).Run(); err != nil {
+	if errEnv := huh.NewForm(huh.NewGroup(huh.NewInput().Title("Ruta local de archivo .env (Opcional, vacío para crear después)").Value(&envFilePath))).Run(); errEnv != nil {
 		return
 	}
 
 	var healthcheckCmd string
-	if err := huh.NewForm(huh.NewGroup(huh.NewInput().Title("Comando Healthcheck (ej. curl -f http://localhost:3000 || exit 1) [Vacío para omitir]").Value(&healthcheckCmd))).Run(); err != nil {
+	if errHealth := huh.NewForm(huh.NewGroup(huh.NewInput().Title("Comando Healthcheck (ej. curl -f http://localhost:3000 || exit 1) [Vacío para omitir]").Value(&healthcheckCmd))).Run(); errHealth != nil {
 		return
 	}
 
 	if envFilePath == "" {
 		var createEnv bool
-		if err := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("No proveíste un archivo. ¿Deseas abrir el editor para crearlo ahora?").Value(&createEnv))).Run(); err != nil {
+		if errPrompt := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("No proveíste un archivo. ¿Deseas abrir el editor para crearlo ahora?").Value(&createEnv))).Run(); errPrompt != nil {
 			return
 		}
 
@@ -402,7 +414,7 @@ func (h *serviceHandler) runAddServiceWizard() {
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
-			if err := cmd.Run(); err == nil {
+			if errExec := cmd.Run(); errExec == nil {
 				if _, statErr := os.Stat(tempFile); statErr == nil {
 					envFilePath = tempFile
 				}
@@ -414,7 +426,7 @@ func (h *serviceHandler) runAddServiceWizard() {
 	if errPort != nil || port <= 0 {
 		port = 80
 	}
-	newService := domain.SavedService{
+	newService := sysdomain.SavedService{
 		Name:           serviceName,
 		ImageSource:    imageSource,
 		IsURL:          imageType == "url",
@@ -426,8 +438,8 @@ func (h *serviceHandler) runAddServiceWizard() {
 		HealthcheckCmd: healthcheckCmd,
 	}
 
-	if err := h.repo.SaveService(newService); err != nil {
-		fmt.Printf("❌ Error guardando servicio: %v\n", err)
+	if errSave := h.repo.SaveService(newService); errSave != nil {
+		fmt.Printf("❌ Error guardando servicio: %v\n", errSave)
 		return
 	}
 
@@ -446,7 +458,7 @@ func getEnvPath(serviceName string) string {
 	return filepath.Join(envDir, serviceName+".env")
 }
 
-func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.SSHExecutor) {
+func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec sysports.SSHExecutor) {
 	svc, err := h.repo.GetService(serviceName)
 	if err != nil || svc == nil {
 		fmt.Println("❌ No se encontró el servicio en la base de datos.")
@@ -481,23 +493,21 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 	switch action {
 	case "logs":
 		fmt.Printf("\n📊 Conectando a los logs de %s (Presiona Ctrl+C para salir)...\n", svc.Name)
-		// Swarm nombra el servicio combinando <nombre_stack>_<nombre_servicio>
 		cmd := fmt.Sprintf("docker service logs -f %s_%s", svc.Name, svc.Name)
-		if err := sshExec.InteractiveCommand(cmd); err != nil {
-			// Es normal que salga con error al hacer Ctrl+C
+		if errLogs := sshExec.InteractiveCommand(cmd); errLogs != nil {
 			fmt.Println("Desconectado de los logs.")
 		}
 
 	case "change_image":
 		var newImage string
-		err := huh.NewForm(
+		errForm := huh.NewForm(
 			huh.NewGroup(
 				huh.NewInput().
 					Title(fmt.Sprintf("Imagen actual: %s\nIngresa la nueva imagen:tag (ej. node:18-alpine)", svc.ImageSource)).
 					Value(&newImage),
 			),
 		).Run()
-		if err == nil && newImage != "" {
+		if errForm == nil && newImage != "" {
 			svc.ImageSource = newImage
 			if errSave := h.repo.SaveService(*svc); errSave != nil {
 				fmt.Printf("❌ Error guardando servicio: %v\n", errSave)
@@ -508,29 +518,29 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 
 	case "edit_network":
 		portStr := fmt.Sprintf("%d", svc.Port)
-		err := huh.NewForm(
+		errForm := huh.NewForm(
 			huh.NewGroup(
 				huh.NewInput().Title("Puerto interno de tu app (ej. 3000)").Value(&portStr).Validate(func(s string) error {
-					if p, err := strconv.Atoi(s); err != nil || p <= 0 {
-						return fmt.Errorf("Puerto inválido. Debe ser un número mayor a 0")
+					if p, errVal := strconv.Atoi(s); errVal != nil || p <= 0 {
+						return fmt.Errorf("puerto inválido. Debe ser un número mayor a 0")
 					}
 					return nil
 				}),
 			),
 		).Run()
-		if err != nil {
+		if errForm != nil {
 			return
 		}
 
 		var isPublic bool = svc.Expose
 		var domainName string = svc.Domain
 
-		if err := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("¿Hacer este servicio accesible desde Internet?").Value(&isPublic))).Run(); err != nil {
+		if errPublic := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("¿Hacer este servicio accesible desde Internet?").Value(&isPublic))).Run(); errPublic != nil {
 			return
 		}
 
 		if isPublic {
-			if err := huh.NewForm(huh.NewGroup(huh.NewInput().Title("Dominio (Opcional)\n⚠️ Recomendado si tu app usa rutas absolutas y no soporta base-paths.").Value(&domainName))).Run(); err != nil {
+			if errDomain := huh.NewForm(huh.NewGroup(huh.NewInput().Title("Dominio (Opcional)\n⚠️ Recomendado si tu app usa rutas absolutas y no soporta base-paths.").Value(&domainName))).Run(); errDomain != nil {
 				return
 			}
 		}
@@ -564,19 +574,18 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err == nil {
+		if errRun := cmd.Run(); errRun == nil {
 			if _, statErr := os.Stat(svc.EnvFilePath); statErr == nil {
-				// Guardamos la nueva ruta por si antes no tenía
 				if errSave := h.repo.SaveService(*svc); errSave != nil {
 					slog.Warn("falló al guardar servicio tras editar env", "error", errSave)
 				}
 				fmt.Println("✅ Archivo .env guardado localmente. Recuerda hacer un 'Desplegar / Actualizar' para aplicar los cambios.")
-			} else {
-				fmt.Println("⚠️  No se guardó ningún archivo.")
+				return
 			}
-		} else {
-			fmt.Println("❌ Error al abrir el editor.")
+			fmt.Println("⚠️  No se guardó ningún archivo.")
+			return
 		}
+		fmt.Println("❌ Error al abrir el editor.")
 
 	case "link_service":
 		allSvc, errSvc := h.repo.GetServices()
@@ -608,7 +617,7 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 		}
 
 		var targetHost, protocol, envVarName string
-		err := huh.NewForm(
+		errForm := huh.NewForm(
 			huh.NewGroup(
 				huh.NewSelect[string]().Title("Selecciona el objetivo a vincular").Options(linkOptions...).Value(&targetHost),
 				huh.NewSelect[string]().Title("Protocolo de conexión (Para servicios)").Options(
@@ -623,7 +632,7 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 			),
 		).Run()
 
-		if err == nil && envVarName != "" {
+		if errForm == nil && envVarName != "" {
 			matched, errMatch := regexp.MatchString(`^[A-Za-z0-9_]+$`, envVarName)
 			if errMatch != nil || !matched {
 				fmt.Println("❌ Nombre de variable inválido. Solo se permiten letras, números y guiones bajos.")
@@ -636,7 +645,6 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 				}
 			}
 
-			// Si el targetHost ya contiene un protocolo (ej. BDs postgres://), no agregamos el seleccionado
 			finalURL := fmt.Sprintf("%s%s", protocol, targetHost)
 			if strings.Contains(targetHost, "://") {
 				finalURL = targetHost
@@ -652,49 +660,54 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 			prefix := envVarName + "="
 			for _, line := range lines {
 				if strings.HasPrefix(line, prefix) {
-					newLines = append(newLines, prefix+finalURL) // Replace
+					newLines = append(newLines, prefix+finalURL)
 					found = true
-				} else if strings.TrimSpace(line) != "" {
+				}
+				if !strings.HasPrefix(line, prefix) && strings.TrimSpace(line) != "" {
 					newLines = append(newLines, line)
 				}
 			}
 			if !found {
-				newLines = append(newLines, prefix+finalURL) // Append
+				newLines = append(newLines, prefix+finalURL)
 			}
 
-			if err := os.WriteFile(svc.EnvFilePath, []byte(strings.Join(newLines, "\n")+"\n"), 0644); err != nil {
-				fmt.Printf("❌ Error guardando archivo .env: %v\n", err)
-			} else {
-				fmt.Printf("✅ Variable '%s' vinculada exitosamente.\n", envVarName)
-				var redeploy bool
-				huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("🔄 ¿Deseas redesplegar el servicio ahora para aplicar los cambios?").Value(&redeploy))).Run()
-				if redeploy {
-					fmt.Printf("\n🚀 Redesplegando %s en el clúster...\n", svc.Name)
-					deployConfig := domain.DeployConfig{ImageSource: svc.ImageSource, IsURL: svc.IsURL, Port: svc.Port, Domain: svc.Domain, Expose: svc.Expose, EnableSSL: svc.EnableSSL, HealthcheckCmd: svc.HealthcheckCmd}
-					customService := domain.CustomService{Name: svc.Name, EnvVars: make(map[string]string)}
-					if svc.EnvFilePath != "" {
-						customService.Files = append(customService.Files, domain.ServiceFile{FileName: ".env", LocalPath: svc.EnvFilePath})
-					}
-					if svc.MountsJSON != "" && svc.MountsJSON != "[]" {
-						var mounts []domain.ServiceMount
-						if err := json.Unmarshal([]byte(svc.MountsJSON), &mounts); err != nil {
-							slog.Debug("error decodificando mounts json al redesplegar", "error", err)
-						}
-						customService.Mounts = mounts
-					}
-					if err := usecases.NewDeployServiceUseCase(sshExec).Execute(customService, deployConfig); err != nil {
-						fmt.Printf("❌ Falló el despliegue: %v\n", err)
-					} else {
-						fmt.Printf("✅ ¡%s redesplegado exitosamente!\n", svc.Name)
-					}
+			if errWrite := os.WriteFile(svc.EnvFilePath, []byte(strings.Join(newLines, "\n")+"\n"), 0644); errWrite != nil {
+				fmt.Printf("❌ Error guardando archivo .env: %v\n", errWrite)
+				return
+			}
+			fmt.Printf("✅ Variable '%s' vinculada exitosamente.\n", envVarName)
+			var redeploy bool
+			if errPrompt := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("🔄 ¿Deseas redesplegar el servicio ahora para aplicar los cambios?").Value(&redeploy))).Run(); errPrompt != nil {
+				return
+			}
+			if redeploy {
+				fmt.Printf("\n🚀 Redesplegando %s en el clúster...\n", svc.Name)
+				deployConfig := sysdomain.DeployConfig{ImageSource: svc.ImageSource, IsURL: svc.IsURL, Port: svc.Port, Domain: svc.Domain, Expose: svc.Expose, EnableSSL: svc.EnableSSL, HealthcheckCmd: svc.HealthcheckCmd}
+				customService := sysdomain.CustomService{Name: svc.Name, EnvVars: make(map[string]string)}
+				if svc.EnvFilePath != "" {
+					customService.Files = append(customService.Files, sysdomain.ServiceFile{FileName: ".env", LocalPath: svc.EnvFilePath})
 				}
+				if svc.MountsJSON != "" && svc.MountsJSON != "[]" {
+					var mounts []sysdomain.ServiceMount
+					if errDec := json.Unmarshal([]byte(svc.MountsJSON), &mounts); errDec != nil {
+						slog.Debug("error decodificando mounts json al redesplegar", "error", errDec)
+					}
+					customService.Mounts = mounts
+				}
+				if errDeploy := sysusecases.NewDeployServiceUseCase(sshExec).Execute(customService, deployConfig); errDeploy != nil {
+					fmt.Printf("❌ Falló el despliegue: %v\n", errDeploy)
+					return
+				}
+				fmt.Printf("✅ ¡%s redesplegado exitosamente!\n", svc.Name)
 			}
 		}
 
 	case "add_mount":
-		var mounts []domain.ServiceMount
+		var mounts []sysdomain.ServiceMount
 		if svc.MountsJSON != "" && svc.MountsJSON != "[]" {
-			json.Unmarshal([]byte(svc.MountsJSON), &mounts)
+			if errMounts := json.Unmarshal([]byte(svc.MountsJSON), &mounts); errMounts != nil {
+				slog.Warn("fallo deserializando montajes", "error", errMounts)
+			}
 		}
 
 		fmt.Printf("\n📁 Archivos Inyectados Actualmente (%d):\n", len(mounts))
@@ -703,7 +716,7 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 		}
 
 		var mountAction string
-		err := huh.NewForm(
+		errForm := huh.NewForm(
 			huh.NewGroup(
 				huh.NewSelect[string]().
 					Title("¿Qué deseas hacer?").
@@ -714,7 +727,7 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 					).Value(&mountAction),
 			),
 		).Run()
-		if err != nil || mountAction == "back" {
+		if errForm != nil || mountAction == "back" {
 			return
 		}
 
@@ -724,7 +737,6 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 				slog.Warn("fallo guardando servicio tras limpiar montajes", "error", errSave)
 			}
 
-			// Limpiar en el servidor físico también si está desplegado
 			if _, errRm := sshExec.RunCommand(fmt.Sprintf("rm -rf /opt/tarhiata/services/%s/configs", svc.Name)); errRm != nil {
 				slog.Warn("fallo al limpiar configs en host", "error", errRm)
 			}
@@ -734,15 +746,15 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 		}
 
 		var localPath, destPath string
-		err = huh.NewForm(
+		errForm = huh.NewForm(
 			huh.NewGroup(
 				huh.NewInput().Title("Ruta local del archivo (ej. /Users/diego/config.json)").Value(&localPath),
 				huh.NewInput().Title("Ruta destino en el contenedor (ej. /app/config.json)").Value(&destPath),
 			),
 		).Run()
 
-		if err == nil && localPath != "" && destPath != "" {
-			mounts = append(mounts, domain.ServiceMount{
+		if errForm == nil && localPath != "" && destPath != "" {
+			mounts = append(mounts, sysdomain.ServiceMount{
 				LocalPath: localPath,
 				DestPath:  destPath,
 			})
@@ -761,7 +773,7 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 	case "deploy":
 		fmt.Printf("\n🚀 Desplegando %s en el clúster...\n", svc.Name)
 
-		deployConfig := domain.DeployConfig{
+		deployConfig := sysdomain.DeployConfig{
 			ImageSource:    svc.ImageSource,
 			IsURL:          svc.IsURL,
 			Port:           svc.Port,
@@ -771,63 +783,60 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec ports.
 			HealthcheckCmd: svc.HealthcheckCmd,
 		}
 
-		customService := domain.CustomService{
+		customService := sysdomain.CustomService{
 			Name:    svc.Name,
 			EnvVars: make(map[string]string),
 		}
 
 		if svc.EnvFilePath != "" {
-			customService.Files = append(customService.Files, domain.ServiceFile{
+			customService.Files = append(customService.Files, sysdomain.ServiceFile{
 				FileName:  ".env",
 				LocalPath: svc.EnvFilePath,
 			})
 		}
 
 		if svc.MountsJSON != "" && svc.MountsJSON != "[]" {
-			var mounts []domain.ServiceMount
+			var mounts []sysdomain.ServiceMount
 			if errU := json.Unmarshal([]byte(svc.MountsJSON), &mounts); errU != nil {
 				slog.Warn("fallo deserializando montajes", "error", errU)
 			}
 			customService.Mounts = mounts
 		}
 
-		deployer := usecases.NewDeployServiceUseCase(sshExec)
-		if err := deployer.Execute(customService, deployConfig); err != nil {
-			fmt.Printf("❌ Falló el despliegue: %v\n", err)
+		deployer := sysusecases.NewDeployServiceUseCase(sshExec)
+		if errDeploy := deployer.Execute(customService, deployConfig); errDeploy != nil {
+			fmt.Printf("❌ Falló el despliegue: %v\n", errDeploy)
 			return
 		}
 		fmt.Printf("✅ ¡%s desplegado exitosamente!\n", svc.Name)
 
 	case "stop":
 		fmt.Printf("\n🛑 Apagando %s...\n", svc.Name)
-		res, err := sshExec.RunCommand(fmt.Sprintf("docker stack rm %s", svc.Name))
-		if err != nil || res == nil || res.ExitCode != 0 {
+		res, errCmd := sshExec.RunCommand(fmt.Sprintf("docker stack rm %s", svc.Name))
+		if errCmd != nil || res == nil || res.ExitCode != 0 {
 			out := ""
 			if res != nil {
 				out = res.Output
 			}
-			if out == "" && err != nil {
-				out = err.Error()
+			if out == "" && errCmd != nil {
+				out = errCmd.Error()
 			}
 			fmt.Printf("❌ Error apagando servicio: %s\n", out)
-		} else {
-			fmt.Println("✅ Servicio apagado. Aún existe en tu catálogo local.")
+			return
 		}
+		fmt.Println("✅ Servicio apagado. Aún existe en tu catálogo local.")
 
 	case "delete":
-		// Apagamos y limpiamos toda la basura del host
 		if _, errRm := sshExec.RunCommand(fmt.Sprintf("docker stack rm %s", svc.Name)); errRm != nil {
 			slog.Debug("aviso al apagar stack al borrar", "error", errRm)
 		}
 		if _, errRmDir := sshExec.RunCommand(fmt.Sprintf("rm -rf /opt/tarhiata/services/%s", svc.Name)); errRmDir != nil {
 			slog.Debug("aviso al limpiar directorio de servicio", "error", errRmDir)
 		}
-		if err := h.repo.DeleteService(svc.Name); err != nil {
-			fmt.Printf("❌ Error eliminando del catálogo: %v\n", err)
-		} else {
-			fmt.Println("✅ Servicio eliminado del catálogo local.")
+		if errDel := h.repo.DeleteService(svc.Name); errDel != nil {
+			fmt.Printf("❌ Error eliminando del catálogo: %v\n", errDel)
+			return
 		}
+		fmt.Println("✅ Servicio eliminado del catálogo local.")
 	}
 }
-
-// --- Gestión de Bases de Datos ---

@@ -1,4 +1,4 @@
-package cluster
+package usecases
 
 import (
 	"crypto/rand"
@@ -8,10 +8,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
-	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
-	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
-	"github.com/Dall06/tarhiata-ops/srv/sys/usecases"
+	"github.com/Dall06/tarhiata-ops/opt/cloud"
+	"github.com/Dall06/tarhiata-ops/srv/cli/ports"
+	sysdomain "github.com/Dall06/tarhiata-ops/srv/sys/domain"
+	sysrepositories "github.com/Dall06/tarhiata-ops/srv/sys/repositories"
+	sysusecases "github.com/Dall06/tarhiata-ops/srv/sys/usecases"
 	"github.com/charmbracelet/huh"
 )
 
@@ -19,11 +20,12 @@ type observabilityHandler struct {
 	repo ports.ConfigRepository
 }
 
+// NewObservabilityHandler crea el caso de uso de observabilidad interactiva para CLI.
 func NewObservabilityHandler(repo ports.ConfigRepository) ports.ObservabilityHandler {
 	return &observabilityHandler{repo: repo}
 }
 
-func (h *observabilityHandler) Execute(config domain.ServerConfig) {
+func (h *observabilityHandler) Execute(config sysdomain.ServerConfig) {
 	obs, err := h.repo.GetObservability()
 	if err != nil {
 		fmt.Printf("❌ Error leyendo configuración de observabilidad: %v\n", err)
@@ -83,18 +85,18 @@ func (h *observabilityHandler) runConfigureWizard() {
 
 	switch deployType {
 	case "external":
-		if err := huh.NewForm(huh.NewGroup(huh.NewInput().Title("URL del Panel de Observabilidad (ej. https://mi-grafana.com)").Value(&externalURL))).Run(); err != nil {
+		if errForm := huh.NewForm(huh.NewGroup(huh.NewInput().Title("URL del Panel de Observabilidad (ej. https://mi-grafana.com)").Value(&externalURL))).Run(); errForm != nil {
 			return
 		}
 	}
 
 	bytes := make([]byte, 8)
-	if _, err := rand.Read(bytes); err != nil {
-		slog.Warn("falló lectura de entropía para password de grafana", "error", err)
+	if _, errRand := rand.Read(bytes); errRand != nil {
+		slog.Warn("falló lectura de entropía para password de grafana", "error", errRand)
 	}
 	grafanaPassword := hex.EncodeToString(bytes)
 
-	newObs := domain.SavedObservability{
+	newObs := sysdomain.SavedObservability{
 		ID:              1,
 		DeployType:      deployType,
 		ExternalURL:     externalURL,
@@ -108,7 +110,7 @@ func (h *observabilityHandler) runConfigureWizard() {
 	fmt.Println("✅ Configuración de Observabilidad guardada exitosamente.")
 }
 
-func (h *observabilityHandler) runManageMenu(obs *domain.SavedObservability, config domain.ServerConfig) {
+func (h *observabilityHandler) runManageMenu(obs *sysdomain.SavedObservability, config sysdomain.ServerConfig) {
 	var action string
 	err := huh.NewForm(
 		huh.NewGroup(
@@ -134,27 +136,36 @@ func (h *observabilityHandler) runManageMenu(obs *domain.SavedObservability, con
 		}
 
 		var exposePublic bool
-		huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("⚠️ ¿Exponer Grafana/Portainer al internet público? (Se recomienda No, para usar VPN)").Value(&exposePublic))).Run()
+		if errPrompt := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("⚠️ ¿Exponer Grafana/Portainer al internet público? (Se recomienda No, para usar VPN)").Value(&exposePublic))).Run(); errPrompt != nil {
+			slog.Warn("cli: cancelado prompt expose public", "error", errPrompt)
+			return
+		}
 
 		fmt.Println("\n⏳ Conectando al servidor principal...")
-		sshExec := repositories.NewCryptoSSHExecutor()
+		sshExec := sysrepositories.NewCryptoSSHExecutor()
 		if err := sshExec.Connect(config); err != nil {
 			fmt.Println("❌ Error SSH:", err)
 			return
 		}
-		defer sshExec.Close()
+		defer func() {
+			if errClose := sshExec.Close(); errClose != nil {
+				slog.Warn("cli: error cerrando ssh en observability deploy", "error", errClose)
+			}
+		}()
 
 		if obs.DeployType == "multi-node" {
 			if obs.NodeIP == "" {
-				workerUC := usecases.NewProvisionWorkerUseCase(sshExec)
+				workerUC := sysusecases.NewProvisionWorkerUseCase(sshExec)
 				nodeName := "tarhiata-obs-worker"
-				newIP, err := workerUC.Execute(config, nodeName, "obs")
+				newIP, errProv := workerUC.Execute(config, nodeName, "obs")
 				if newIP != "" {
 					obs.NodeIP = newIP
-					h.repo.SaveObservability(*obs) // (Evita Nodos Zombie)
+					if errSave := h.repo.SaveObservability(*obs); errSave != nil {
+						slog.Warn("cli: error guardando IP de nodo en observabilidad", "error", errSave)
+					}
 				}
-				if err != nil {
-					fmt.Println("❌ Error provisionando nodo de logs:", err)
+				if errProv != nil {
+					fmt.Println("❌ Error provisionando nodo de logs:", errProv)
 					return
 				}
 			}
@@ -163,8 +174,7 @@ func (h *observabilityHandler) runManageMenu(obs *domain.SavedObservability, con
 		fmt.Println("🚀 Desplegando Stack de Logs y Métricas...")
 		fmt.Printf("🔒 Credenciales de Grafana generadas automáticamente: admin / %s\n", obs.GrafanaPassword)
 
-		// Llamar al UseCase
-		obsUC := usecases.NewDeployObservabilityUseCase(sshExec)
+		obsUC := sysusecases.NewDeployObservabilityUseCase(sshExec)
 		if err := obsUC.ExecutePersistent(exposePublic, obs.DeployType, obs.GrafanaPassword); err != nil {
 			fmt.Println("❌ Error en despliegue:", err)
 			return
@@ -185,6 +195,7 @@ func (h *observabilityHandler) runManageMenu(obs *domain.SavedObservability, con
 		}
 		return
 	}
+
 	if action == "delete" {
 		var confirm bool
 
@@ -193,12 +204,20 @@ func (h *observabilityHandler) runManageMenu(obs *domain.SavedObservability, con
 			msg = "⚠️ PELIGRO: Esto DESTRUIRÁ el servidor dedicado y borrará TODOS los logs guardados de forma irreversible. ¿Continuar?"
 		}
 
-		huh.NewForm(huh.NewGroup(huh.NewConfirm().Title(msg).Value(&confirm))).Run()
+		if errForm := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title(msg).Value(&confirm))).Run(); errForm != nil {
+			slog.Warn("cli: cancelado prompt confirm delete observability", "error", errForm)
+			return
+		}
+
 		if confirm {
 			if obs.DeployType != "external" {
-				sshExec := repositories.NewCryptoSSHExecutor()
-				if err := sshExec.Connect(config); err == nil {
-					defer sshExec.Close()
+				sshExec := sysrepositories.NewCryptoSSHExecutor()
+				if errConn := sshExec.Connect(config); errConn == nil {
+					defer func() {
+						if errClose := sshExec.Close(); errClose != nil {
+							slog.Warn("cli: error cerrando ssh en observability delete", "error", errClose)
+						}
+					}()
 					if res, errCmd := sshExec.RunCommand("docker stack rm tarhiata_obs"); errCmd != nil || (res != nil && res.ExitCode != 0) {
 						slog.Warn("falló comando docker stack rm", "error", errCmd)
 					}
@@ -218,10 +237,10 @@ func (h *observabilityHandler) runManageMenu(obs *domain.SavedObservability, con
 					}
 					nodeName := "tarhiata-obs-worker"
 					workspace := filepath.Join(homeDir, ".config", "tarhiata", "terraform", "worker_"+nodeName)
-					prov := repositories.NewVultrProvisioner(workspace)
+					prov := cloud.NewProvisioner("vultr", workspace)
 
-					if err := prov.DestroyNode(config.VultrAPIToken, nodeName); err != nil {
-						fmt.Printf("⚠️ Hubo un problema al intentar destruir la instancia: %v (Por favor verifique en su panel de Vultr)\n", err)
+					if errDestroy := prov.DestroyNode(config.VultrAPIToken, nodeName); errDestroy != nil {
+						fmt.Printf("⚠️ Hubo un problema al intentar destruir la instancia: %v (Por favor verifique en su panel de Vultr)\n", errDestroy)
 						fmt.Println("❌ Operación abortada para evitar pérdida de estado. Repare el nodo manualmente o reintente.")
 						return
 					}

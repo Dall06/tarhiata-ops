@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Dall06/tarhiata-ops/opt/banner"
+	"github.com/Dall06/tarhiata-ops/opt/cloud"
 	"github.com/Dall06/tarhiata-ops/opt/server"
 	"github.com/Dall06/tarhiata-ops/pkg/dockerutil"
 	"github.com/Dall06/tarhiata-ops/pkg/exs"
@@ -1882,12 +1883,11 @@ func (w *WebServer) handleCreateVMBootstrap(rw http.ResponseWriter, req *http.Re
 	}
 	workspace := filepath.Join(homeDir, ".config", "tarhiata", "terraform", reqData.Provider+"_"+reqData.NodeName)
 
-	var provisioner ports.Provisioner
+	providerName := "vultr"
 	if reqData.Provider == "digitalocean" {
-		provisioner = repositories.NewDigitalOceanProvisioner(workspace)
-	} else {
-		provisioner = repositories.NewVultrProvisioner(workspace)
+		providerName = "digitalocean"
 	}
+	provisioner := cloud.NewProvisioner(providerName, workspace)
 
 	send("step", "⏳ [1/5] Aprovisionando VM con Terraform (1-3 minutos)...")
 	send("log", "📦 Descargando providers y preparando infraestructura...")

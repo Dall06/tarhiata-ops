@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dall06/tarhiata-ops/srv/cli/app"
+	cliusecases "github.com/Dall06/tarhiata-ops/srv/cli/usecases"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
 )
@@ -376,7 +376,7 @@ func TestTUICommand_Execution(t *testing.T) {
 	}
 
 	out := captureOutput(func() {
-		app.NewDashboardHandler(repo).RenderDashboard(cfg)
+		cliusecases.NewDashboardHandler(repo).RenderDashboard(cfg)
 	})
 
 	if !strings.Contains(out, "TARHIATA") {

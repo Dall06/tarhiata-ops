@@ -10,10 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dall06/tarhiata-ops/srv/cli/app"
 	"github.com/Dall06/tarhiata-ops/pkg/prompt"
 	"github.com/Dall06/tarhiata-ops/pkg/validator"
-	"github.com/Dall06/tarhiata-ops/srv/cli/sys"
+	cliusecases "github.com/Dall06/tarhiata-ops/srv/cli/usecases"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
@@ -112,7 +111,7 @@ func main() {
 		runDashboard(repo, serverConfig)
 
 	case "tui":
-		app.NewDashboardHandler(repo).RenderDashboard(serverConfig)
+		cliusecases.NewDashboardHandler(repo).RenderDashboard(serverConfig)
 
 	case "config":
 		handleConfigCommand(repo, subArgs)
@@ -666,7 +665,7 @@ func printConnectionReport(res *domain.ConnectionResult) {
 }
 
 func handleHostCommand(repo ports.ConfigRepository, args []string) {
-	handler := sys.NewHostHandler(repo)
+	handler := cliusecases.NewHostHandler(repo)
 	if len(args) == 0 {
 		if err := handler.HandleInspect(""); err != nil {
 			fmt.Printf("❌ Error: %v\n", err)
@@ -706,7 +705,7 @@ func handleHostCommand(repo ports.ConfigRepository, args []string) {
 }
 
 func handleDevicesCommand(repo *repositories.SQLiteRepository, args []string) {
-	handler := sys.NewHostHandler(repo)
+	handler := cliusecases.NewHostHandler(repo)
 	targetServer := ""
 	if len(args) > 0 {
 		targetServer = args[0]

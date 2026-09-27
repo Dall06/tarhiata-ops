@@ -1,11 +1,11 @@
-package app
+package usecases
 
 import (
 	"fmt"
 	"log/slog"
 
-	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
-	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
+	"github.com/Dall06/tarhiata-ops/srv/cli/ports"
+	sysdomain "github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -13,23 +13,24 @@ type DashboardHandler struct {
 	repo ports.ConfigRepository
 }
 
+// NewDashboardHandler inicializa el caso de uso del dashboard visual para CLI.
 func NewDashboardHandler(repo ports.ConfigRepository) *DashboardHandler {
 	return &DashboardHandler{repo: repo}
 }
 
-// RenderDashboard dibuja el Dashboard estético estilo Vercel / Railway
-func (h *DashboardHandler) RenderDashboard(config *domain.ServerConfig) {
-	fmt.Print("\033[H\033[2J") // Clear
+// RenderDashboard dibuja el Dashboard estético estilo Vercel / Railway.
+func (h *DashboardHandler) RenderDashboard(config *sysdomain.ServerConfig) {
+	fmt.Print("\033[H\033[2J")
 
 	const (
-		ColorBg       = "#000000"
-		ColorCardBg   = "#0A0A0A"
-		ColorBorder   = "#333333"
-		ColorText     = "#EDEDED"
-		ColorSubtext  = "#888888"
-		ColorAccent   = "#3291FF"
-		ColorSuccess  = "#50E3C2"
-		ColorError    = "#FF0000"
+		ColorBg      = "#000000"
+		ColorCardBg  = "#0A0A0A"
+		ColorBorder  = "#333333"
+		ColorText    = "#EDEDED"
+		ColorSubtext = "#888888"
+		ColorAccent  = "#3291FF"
+		ColorSuccess = "#50E3C2"
+		ColorError   = "#FF0000"
 	)
 
 	var (
@@ -67,9 +68,9 @@ func (h *DashboardHandler) RenderDashboard(config *domain.ServerConfig) {
 			Render("● ACTIVE")
 
 		badgeOff = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ColorError)).
-			Bold(true).
-			Render("● OFFLINE")
+				Foreground(lipgloss.Color(ColorError)).
+				Bold(true).
+				Render("● OFFLINE")
 	)
 
 	fmt.Println(lipgloss.NewStyle().Padding(1, 2).Render(
@@ -86,7 +87,8 @@ func (h *DashboardHandler) RenderDashboard(config *domain.ServerConfig) {
 			prov = "vps-direct"
 		}
 		c1Text += fmt.Sprintf("%s %s", labelStyle.Render("Cloud: "), valueStyle.Render(prov))
-	} else {
+	}
+	if config == nil {
 		c1Text += fmt.Sprintf("%s %s\n", labelStyle.Render("Status:"), badgeOff)
 		c1Text += labelStyle.Render("\nNot configured.")
 	}
@@ -104,10 +106,10 @@ func (h *DashboardHandler) RenderDashboard(config *domain.ServerConfig) {
 	c2Text := titleStyle.Render("Platform") + "\n\n"
 	c2Text += fmt.Sprintf("%s %s\n", labelStyle.Render("Services: "), valueStyle.Render(fmt.Sprintf("%d running", len(services))))
 	c2Text += fmt.Sprintf("%s %s\n\n", labelStyle.Render("Databases:"), valueStyle.Render(fmt.Sprintf("%d online", len(dbs))))
-	
+
 	c2Text += lipgloss.NewStyle().Foreground(lipgloss.Color(ColorSuccess)).Render("✔ Swarm Node Active") + "\n"
 	c2Text += lipgloss.NewStyle().Foreground(lipgloss.Color(ColorSuccess)).Render("✔ SSL Active")
-	
+
 	card2 := cardStyle.Render(c2Text)
 
 	grid := lipgloss.JoinHorizontal(lipgloss.Top, card1, "  ", card2)

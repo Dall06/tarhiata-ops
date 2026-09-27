@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dall06/tarhiata-ops/opt/cloud"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
-	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
 )
 
 type ProvisionCloudServerUseCase struct {
@@ -26,10 +26,7 @@ func NewProvisionCloudServerUseCase(repo ports.ConfigRepository, connectUC ports
 		configRepo: repo,
 		connectUC:  connectUC,
 		provisionerFactory: func(provider, workspace string) ports.Provisioner {
-			if strings.ToLower(provider) == "digitalocean" {
-				return repositories.NewDigitalOceanProvisioner(workspace)
-			}
-			return repositories.NewVultrProvisioner(workspace)
+			return cloud.NewProvisioner(provider, workspace)
 		},
 		maxSSHRetries: 24,
 		retryDelay:    5 * time.Second,
