@@ -277,3 +277,93 @@ type SwarmStatus struct {
 	Nodes         []SwarmNodeInfo    `json:"nodes"`
 	Dashboards    map[string]string  `json:"dashboards"`
 }
+
+// MetricPoint representa un punto temporal de uso de recursos de un servicio.
+type MetricPoint struct {
+	Timestamp string  `json:"timestamp"`
+	CPU       float64 `json:"cpu"`     // %
+	Memory    float64 `json:"memory"`  // MB
+	Network   float64 `json:"network"` // KB/s
+	Disk      float64 `json:"disk"`    // MB/s
+}
+
+// ServiceMetrics consolida el historial de métricas para un rango temporal.
+type ServiceMetrics struct {
+	ServiceName string        `json:"serviceName"`
+	Range       string        `json:"range"`
+	Points      []MetricPoint `json:"points"`
+}
+
+// SSLStatusItem representa el estado del certificado SSL de un servicio expuesto.
+type SSLStatusItem struct {
+	Domain        string `json:"domain"`
+	ServiceName   string `json:"serviceName"`
+	IsSSL         bool   `json:"isSSL"`
+	Status        string `json:"status"` // "active", "expiring_soon", "expired", "http_only"
+	DaysRemaining int    `json:"daysRemaining"`
+	Issuer        string `json:"issuer"`
+	ExpiryDate    string `json:"expiryDate"`
+}
+
+// NodeInfo representa los detalles de un nodo Swarm incluyendo etiquetas y rol.
+type NodeInfo struct {
+	ID            string            `json:"id"`
+	Hostname      string            `json:"hostname"`
+	Role          string            `json:"role"`
+	Status        string            `json:"status"`
+	Availability  string            `json:"availability"`
+	IsLeader      bool              `json:"isLeader"`
+	EngineVersion string            `json:"engineVersion"`
+	Labels        map[string]string `json:"labels"`
+}
+
+// ProvisionCloudRequest encapsula los parámetros para aprovisionar un servidor en la nube vía IaC.
+type ProvisionCloudRequest struct {
+	Name        string `json:"name"`
+	Provider    string `json:"provider"` // "vultr" | "digitalocean"
+	APIToken    string `json:"apiToken"`
+	Region      string `json:"region"`
+	Plan        string `json:"plan"`
+	SetAsActive bool   `json:"isActive"`
+}
+
+// BootstrapMasterInput define los parámetros de arranque inicial rápido de una app con base de datos.
+type BootstrapMasterInput struct {
+	AppName      string `json:"app_name"`
+	Image        string `json:"image"`
+	Port         int    `json:"port"`
+	Domain       string `json:"domain"`
+	ExposePublic bool   `json:"expose_public"`
+	DBEngine     string `json:"db_engine"`
+	EnvVarName   string `json:"env_var_name"`
+	TargetNode   string `json:"target_node,omitempty"`
+}
+
+// BootstrapMasterResult consolida el resultado del arranque del stack master.
+type BootstrapMasterResult struct {
+	App         SavedService   `json:"app"`
+	Database    *SavedDatabase `json:"database,omitempty"`
+	Link        *ServiceLink   `json:"link,omitempty"`
+	UnlinkedOld []string       `json:"unlinked_old,omitempty"`
+}
+
+// CreatePreviewEnvInput encapsula los datos para instanciar un entorno efímero.
+type CreatePreviewEnvInput struct {
+	Name        string `json:"name"`
+	Image       string `json:"image"`
+	ImageSource string `json:"imageSource,omitempty"`
+	Port        int    `json:"port"`
+	Domain      string `json:"domain"`
+	LinkDBName  string `json:"link_db_name,omitempty"`
+	LinkDbName  string `json:"linkDbName,omitempty"`
+	TargetNode  string `json:"target_node,omitempty"`
+	NodeTarget  string `json:"targetNode,omitempty"`
+}
+
+// SnapshotDownloadResult contiene los bytes decodificados y el nombre del archivo de backup.
+type SnapshotDownloadResult struct {
+	Data     []byte `json:"-"`
+	Filename string `json:"filename"`
+}
+
+

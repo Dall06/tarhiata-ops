@@ -12,7 +12,7 @@ type DefaultUnlinkServicesUseCase struct {
 	ssh  ports.SSHExecutor
 }
 
-func NewUnlinkServicesUseCase(repo ports.ConfigRepository, ssh ports.SSHExecutor) *DefaultUnlinkServicesUseCase {
+func NewUnlinkServicesUseCase(repo ports.ConfigRepository, ssh ports.SSHExecutor) ports.UnlinkServicesUseCase {
 	return &DefaultUnlinkServicesUseCase{
 		repo: repo,
 		ssh:  ssh,

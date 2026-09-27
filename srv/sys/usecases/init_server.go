@@ -25,9 +25,11 @@ func (uc *InitServerUseCase) Execute(acmeEmail string) error {
 
 	// 0. Liberar posibles bloqueos de apt por procesos de cloud-init atascados (ej. get-docker.sh sin noninteractive)
 	fmt.Println("⏳ [Bootstrapper] Comprobando integridad del servidor y liberando dpkg locks si es necesario...")
-	if resClean, errClean := uc.ssh.RunCommand("export DEBIAN_FRONTEND=noninteractive; killall -9 apt apt-get dpkg 2>/dev/null; dpkg --configure -a 2>/dev/null"); errClean != nil {
+	resClean, errClean := uc.ssh.RunCommand("export DEBIAN_FRONTEND=noninteractive; killall -9 apt apt-get dpkg 2>/dev/null; dpkg --configure -a 2>/dev/null")
+	if errClean != nil {
 		slog.Debug("aviso al liberar bloqueos dpkg", "error", errClean)
-	} else if resClean != nil && resClean.ExitCode != 0 {
+	}
+	if resClean != nil && resClean.ExitCode != 0 {
 		slog.Debug("aviso código de salida en dpkg cleanup", "exitCode", resClean.ExitCode)
 	}
 

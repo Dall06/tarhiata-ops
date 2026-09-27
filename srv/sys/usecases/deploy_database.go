@@ -31,7 +31,49 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 
 	fmt.Printf("\n🚀 Desplegando Base de Datos: %s (%s)...\n", db.Name, db.Engine)
 
-	// 0. Pre-flight: Verificar Docker disponible en el VPS
+	if err := uc.ensurePreflight(); err != nil {
+		return fmt.Errorf("pre-flight check fallido: %w", err)
+	}
+
+	constraint := uc.resolveConstraint(db, config)
+	uc.prepareStorage(db.VolumeHostPath, db.CleanExistingData, db.Engine, db.DeployType)
+
+	serviceName := fmt.Sprintf("tarhiata-db-%s", db.Name)
+
+	// Apagar la BD si ya existía para actualizarla
+	if _, errRmSvc := uc.ssh.RunCommand(fmt.Sprintf("docker service rm %s", serviceName)); errRmSvc != nil {
+		slog.Debug("aviso al remover servicio previo (si existía)", "service", serviceName, "error", errRmSvc)
+	}
+
+	createCmd, errBuild := uc.buildCreateCommand(db, serviceName, constraint)
+	if errBuild != nil {
+		return errBuild
+	}
+
+	res, err := uc.ssh.RunCommand(createCmd)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		errMsg := ""
+		if res != nil {
+			errMsg = res.Output
+		}
+		if errMsg == "" && err != nil {
+			errMsg = err.Error()
+		}
+		return fmt.Errorf("error creando servicio de BD/Storage: %s", errMsg)
+	}
+
+	fmt.Printf("✅ ¡Servidor de Almacenamiento/BD '%s' (%s) desplegado correctamente en %s!\n", db.Name, db.Engine, db.VolumeHostPath)
+	fmt.Printf("🔌 URI Interna (Oculta): %s\n", formatSafeURI(db.Engine, serviceName, db.InternalPort))
+
+	syncUC := NewSyncClusterStateUseCase(nil, uc.ssh)
+	if errSync := syncUC.ExportStateToRemote(); errSync != nil {
+		slog.Warn("Fallo al exportar estado de sincronización al VPS", "error", errSync)
+	}
+
+	return nil
+}
+
+func (uc *DeployDatabaseUseCase) ensurePreflight() error {
 	resDocker, errDocker := uc.ssh.RunCommand("command -v docker")
 	if errDocker != nil || resDocker == nil || resDocker.ExitCode != 0 || strings.TrimSpace(resDocker.Output) == "" {
 		errMsg := "Docker no está instalado o no se encuentra en el PATH del VPS"
@@ -41,10 +83,9 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 		if errDocker != nil {
 			errMsg = fmt.Sprintf("%s (%v)", errMsg, errDocker)
 		}
-		return fmt.Errorf("pre-flight check fallido: %s", errMsg)
+		return fmt.Errorf("%s", errMsg)
 	}
 
-	// 1. Pre-flight: Verificar e inicializar Docker Swarm si está inactivo
 	resSwarm, errSwarm := uc.ssh.RunCommand("docker info --format '{{.Swarm.LocalNodeState}}'")
 	swarmState := ""
 	if resSwarm != nil {
@@ -62,7 +103,6 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 		}
 	}
 
-	// 2. Pre-flight: Asegurar que las redes overlay existan de forma idempotente
 	resNet, errNet := uc.ssh.RunCommand("docker network create --driver overlay --attachable tarhiata_internal 2>&1 || true")
 	if errNet != nil {
 		slog.Warn("aviso al asegurar red overlay tarhiata_internal", "error", errNet)
@@ -70,139 +110,107 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 	if resNet != nil && strings.Contains(resNet.Output, "error") && !strings.Contains(resNet.Output, "already exists") {
 		slog.Warn("aviso al crear red tarhiata_internal", "output", resNet.Output)
 	}
+	return nil
+}
 
-	constraint := `"node.role == manager"`
-	if db.TargetNode != "" {
-		if db.TargetNode == "worker" {
-			resNode, errNode := uc.ssh.RunCommand("docker node ls --filter role=worker --format '{{.ID}}'")
-			if errNode == nil && resNode != nil && strings.TrimSpace(resNode.Output) != "" {
-				constraint = `"node.role == worker"`
-			} else {
-				token := config.VultrAPIToken
-				if token == "" { token = config.DOAPIToken }
-				if token != "" {
-					nodeName := fmt.Sprintf("worker-%s", db.Name)
-					fmt.Printf("🏗️  No hay nodos Worker activos. Aprovisionando VM '%s' en la nube vía Terraform...\n", nodeName)
-					workerUC := NewProvisionWorkerUseCase(uc.ssh)
-					_, errProv := workerUC.ExecuteWithRegion(config, nodeName, "worker", "")
-					if errProv == nil {
-						constraint = `"node.role == worker"`
-					} else {
-						fmt.Printf("⚠️ No se pudo aprovisionar VM Worker automática (%v). Usando nodo Manager como respaldo...\n", errProv)
-						constraint = `"node.role == manager"`
-					}
-				} else {
-					fmt.Println("⚠️  No hay nodos Worker activos y no se ha configurado un Token de API de Nube. Usando nodo Manager...")
-					constraint = `"node.role == manager"`
+func (uc *DeployDatabaseUseCase) resolveConstraint(db domain.SavedDatabase, config domain.ServerConfig) string {
+	if db.DeployType == "multi-node" && db.TargetNode == "" {
+		return fmt.Sprintf(`"node.labels.type == db_%s"`, db.Name)
+	}
+	if db.TargetNode == "" || db.TargetNode == "manager" {
+		return `"node.role == manager"`
+	}
+
+	if db.TargetNode == "worker" {
+		return uc.resolveWorkerConstraint(db.Name, "worker", config, `"node.role == worker"`)
+	}
+	if db.TargetNode == "db" {
+		return uc.resolveWorkerConstraint(db.Name, "db", config, `"node.labels.type == db"`)
+	}
+
+	// Validar si coincide con un nodo o hostname real
+	resCheckNode, errCheckNode := uc.ssh.RunCommand("docker node ls --format '{{.Hostname}}|{{.ID}}'")
+	if errCheckNode == nil && resCheckNode != nil && resCheckNode.ExitCode == 0 {
+		for _, line := range strings.Split(resCheckNode.Output, "\n") {
+			parts := strings.Split(strings.TrimSpace(line), "|")
+			for _, part := range parts {
+				if strings.EqualFold(strings.TrimSpace(part), db.TargetNode) {
+					return fmt.Sprintf(`"node.hostname == %s"`, db.TargetNode)
 				}
-			}
-		} else if db.TargetNode == "db" {
-			resNode, errNode := uc.ssh.RunCommand("docker node ls --filter label=type=db --format '{{.ID}}'")
-			if errNode == nil && resNode != nil && strings.TrimSpace(resNode.Output) != "" {
-				constraint = `"node.labels.type == db"`
-			} else {
-				token := config.VultrAPIToken
-				if token == "" { token = config.DOAPIToken }
-				if token != "" {
-					nodeName := fmt.Sprintf("worker-db-%s", db.Name)
-					fmt.Printf("🏗️  No hay nodos Worker DB activos. Aprovisionando VM '%s' en la nube vía Terraform...\n", nodeName)
-					workerUC := NewProvisionWorkerUseCase(uc.ssh)
-					_, errProv := workerUC.ExecuteWithRegion(config, nodeName, "db", "")
-					if errProv == nil {
-						constraint = `"node.labels.type == db"`
-					} else {
-						fmt.Printf("⚠️ No se pudo aprovisionar VM Worker DB automática (%v). Usando nodo Manager como respaldo...\n", errProv)
-						constraint = `"node.role == manager"`
-					}
-				} else {
-					fmt.Println("⚠️  No hay nodos Worker DB activos y no se ha configurado un Token de API de Nube. Usando nodo Manager...")
-					constraint = `"node.role == manager"`
-				}
-			}
-		} else if db.TargetNode == "manager" {
-			constraint = `"node.role == manager"`
-		} else {
-			// Validar si el targetNode coincide con un hostname o ID real en Swarm
-			isRealNode := false
-			resCheckNode, errCheckNode := uc.ssh.RunCommand("docker node ls --format '{{.Hostname}}|{{.ID}}'")
-			if errCheckNode == nil && resCheckNode != nil && resCheckNode.ExitCode == 0 {
-				for _, line := range strings.Split(resCheckNode.Output, "\n") {
-					line = strings.TrimSpace(line)
-					if line == "" {
-						continue
-					}
-					parts := strings.Split(line, "|")
-					for _, part := range parts {
-						if strings.EqualFold(strings.TrimSpace(part), db.TargetNode) {
-							isRealNode = true
-							break
-						}
-					}
-					if isRealNode {
-						break
-					}
-				}
-			}
-			if isRealNode {
-				constraint = fmt.Sprintf(`"node.hostname == %s"`, db.TargetNode)
-			} else {
-				slog.Info("TargetNode no corresponde a un hostname de Swarm. Usando node.role == manager", "targetNode", db.TargetNode)
-				constraint = `"node.role == manager"`
 			}
 		}
-	} else if db.DeployType == "multi-node" {
-		constraint = fmt.Sprintf(`"node.labels.type == db_%s"`, db.Name)
 	}
 
-	fmt.Printf("📁 Preparando almacenamiento persistente en el nodo (%s)...\n", db.DeployType)
-	var uid string
-	engineLower := strings.ToLower(db.Engine)
-	if engineLower == "postgres" {
+	slog.Info("TargetNode no corresponde a un hostname de Swarm. Usando node.role == manager", "targetNode", db.TargetNode)
+	return `"node.role == manager"`
+}
+
+func (uc *DeployDatabaseUseCase) resolveWorkerConstraint(dbName, nodeType string, config domain.ServerConfig, targetConstraint string) string {
+	filter := "role=worker"
+	if nodeType == "db" {
+		filter = "label=type=db"
+	}
+	resNode, errNode := uc.ssh.RunCommand(fmt.Sprintf("docker node ls --filter %s --format '{{.ID}}'", filter))
+	if errNode == nil && resNode != nil && strings.TrimSpace(resNode.Output) != "" {
+		return targetConstraint
+	}
+
+	token := config.VultrAPIToken
+	if token == "" {
+		token = config.DOAPIToken
+	}
+	if token == "" {
+		fmt.Printf("⚠️ No hay nodos %s activos y no hay token de nube configurado. Usando Manager...\n", nodeType)
+		return `"node.role == manager"`
+	}
+
+	nodeName := fmt.Sprintf("worker-%s", dbName)
+	if nodeType == "db" {
+		nodeName = fmt.Sprintf("worker-db-%s", dbName)
+	}
+	fmt.Printf("🏗️ No hay nodos %s activos. Aprovisionando VM '%s' en la nube...\n", nodeType, nodeName)
+	workerUC := NewProvisionWorkerUseCase(uc.ssh)
+	_, errProv := workerUC.ExecuteWithRegion(config, nodeName, nodeType, "")
+	if errProv != nil {
+		fmt.Printf("⚠️ No se pudo aprovisionar VM %s automática (%v). Usando Manager...\n", nodeType, errProv)
+		return `"node.role == manager"`
+	}
+	return targetConstraint
+}
+
+func (uc *DeployDatabaseUseCase) prepareStorage(volumeHostPath string, cleanExisting bool, engine string, deployType string) {
+	fmt.Printf("📁 Preparando almacenamiento persistente en el nodo (%s)...\n", deployType)
+	uid := "999:999"
+	if strings.EqualFold(engine, "postgres") {
 		uid = "70:70"
-	} else {
-		uid = "999:999"
 	}
 
-	// Preparar directorio host directamente por SSH sin contenedores efímeros
-	checkCmd := fmt.Sprintf("test -d %s && ls -A %s", db.VolumeHostPath, db.VolumeHostPath)
+	checkCmd := fmt.Sprintf("test -d %s && ls -A %s", volumeHostPath, volumeHostPath)
 	resCheck, errCheck := uc.ssh.RunCommand(checkCmd)
 	hasExistingData := errCheck == nil && resCheck != nil && strings.TrimSpace(resCheck.Output) != ""
 
-	if hasExistingData {
-		if db.CleanExistingData {
-			fmt.Printf("🧹 [Recovery Mode] Limpiando datos antiguos en %s antes de desplegar...\n", db.VolumeHostPath)
-			if _, errRm := uc.ssh.RunCommand(fmt.Sprintf("rm -rf %s/*", db.VolumeHostPath)); errRm != nil {
-				slog.Warn("aviso al limpiar datos antiguos", "path", db.VolumeHostPath, "error", errRm)
-			}
-			if _, errMk := uc.ssh.RunCommand(fmt.Sprintf("mkdir -p %s && chown -R %s %s", db.VolumeHostPath, uid, db.VolumeHostPath)); errMk != nil {
-				slog.Warn("aviso al preparar permisos de directorio", "path", db.VolumeHostPath, "error", errMk)
-			}
-		} else {
-			fmt.Printf("📦 [Recovery Mode] ¡Se detectaron datos previos en %s! Reutilizando volumen host para recuperación de base de datos...\n", db.VolumeHostPath)
-			if _, errMk := uc.ssh.RunCommand(fmt.Sprintf("mkdir -p %s && chown -R %s %s", db.VolumeHostPath, uid, db.VolumeHostPath)); errMk != nil {
-				slog.Warn("aviso al preparar permisos de directorio", "path", db.VolumeHostPath, "error", errMk)
-			}
-		}
-	} else {
-		if _, errMk := uc.ssh.RunCommand(fmt.Sprintf("mkdir -p %s && chown -R %s %s", db.VolumeHostPath, uid, db.VolumeHostPath)); errMk != nil {
-			slog.Warn("aviso al crear directorio de datos", "path", db.VolumeHostPath, "error", errMk)
+	if hasExistingData && cleanExisting {
+		fmt.Printf("🧹 [Recovery Mode] Limpiando datos antiguos en %s antes de desplegar...\n", volumeHostPath)
+		if _, errRm := uc.ssh.RunCommand(fmt.Sprintf("rm -rf %s/*", volumeHostPath)); errRm != nil {
+			slog.Warn("aviso al limpiar datos antiguos", "path", volumeHostPath, "error", errRm)
 		}
 	}
-
-	serviceName := fmt.Sprintf("tarhiata-db-%s", db.Name)
-
-	// 2. Apagar la BD si ya existía para actualizarla
-	if _, errRmSvc := uc.ssh.RunCommand(fmt.Sprintf("docker service rm %s", serviceName)); errRmSvc != nil {
-		slog.Debug("aviso al remover servicio previo (si existía)", "service", serviceName, "error", errRmSvc)
+	if hasExistingData && !cleanExisting {
+		fmt.Printf("📦 [Recovery Mode] ¡Se detectaron datos previos en %s! Reutilizando volumen host...\n", volumeHostPath)
 	}
 
-	// 3. Construir el comando de docker service create
+	if _, errMk := uc.ssh.RunCommand(fmt.Sprintf("mkdir -p %s && chown -R %s %s", volumeHostPath, uid, volumeHostPath)); errMk != nil {
+		slog.Warn("aviso al preparar permisos de directorio", "path", volumeHostPath, "error", errMk)
+	}
+}
+
+func (uc *DeployDatabaseUseCase) buildCreateCommand(db domain.SavedDatabase, serviceName, constraint string) (string, error) {
 	safePassword := strings.ReplaceAll(db.Password, "'", `'"'"'`)
+	engineLower := strings.ToLower(db.Engine)
 
-	var createCmd string
 	switch engineLower {
 	case "postgres":
-		createCmd = fmt.Sprintf(
+		return fmt.Sprintf(
 			`docker service create \
 			--name %s \
 			--detach=true \
@@ -214,9 +222,9 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 			--constraint %s \
 			postgres:15-alpine`,
 			serviceName, db.VolumeHostPath, safePassword, constraint,
-		)
+		), nil
 	case "mongo", "mongodb":
-		createCmd = fmt.Sprintf(
+		return fmt.Sprintf(
 			`docker service create \
 			--name %s \
 			--detach=true \
@@ -227,9 +235,9 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 			--constraint %s \
 			mongo:6`,
 			serviceName, db.VolumeHostPath, safePassword, constraint,
-		)
+		), nil
 	case "mysql", "mariadb":
-		createCmd = fmt.Sprintf(
+		return fmt.Sprintf(
 			`docker service create \
 			--name %s \
 			--detach=true \
@@ -240,9 +248,9 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 			--constraint %s \
 			mysql:8`,
 			serviceName, db.VolumeHostPath, safePassword, constraint,
-		)
+		), nil
 	case "redis":
-		createCmd = fmt.Sprintf(
+		return fmt.Sprintf(
 			`docker service create \
 			--name %s \
 			--detach=true \
@@ -251,9 +259,9 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 			--constraint %s \
 			redis:7-alpine redis-server --requirepass '%s'`,
 			serviceName, db.VolumeHostPath, constraint, safePassword,
-		)
+		), nil
 	case "minio", "s3":
-		createCmd = fmt.Sprintf(
+		return fmt.Sprintf(
 			`docker service create \
 			--name %s \
 			--detach=true \
@@ -264,41 +272,22 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 			--constraint %s \
 			minio/minio:latest server /data --console-address ":9001"`,
 			serviceName, db.VolumeHostPath, safePassword, constraint,
-		)
+		), nil
 	default:
-		return fmt.Errorf("motor de base de datos no soportado: %s", db.Engine)
+		return "", fmt.Errorf("motor de base de datos no soportado: %s", db.Engine)
 	}
+}
 
-	// 4. Ejecutar el despliegue
-	res, err := uc.ssh.RunCommand(createCmd)
-	if err != nil || res == nil || res.ExitCode != 0 {
-		errMsg := ""
-		if res != nil {
-			errMsg = res.Output
-		}
-		if errMsg == "" && err != nil {
-			errMsg = err.Error()
-		}
-		return fmt.Errorf("error creando servicio de BD/Storage: %s", errMsg)
+func formatSafeURI(engine, serviceName string, port int) string {
+	engineLower := strings.ToLower(engine)
+	switch engineLower {
+	case "mongo", "mongodb":
+		return fmt.Sprintf("mongodb://admin:********@%s:27017/?authSource=admin", serviceName)
+	case "redis":
+		return fmt.Sprintf("redis://:********@%s:6379", serviceName)
+	case "minio", "s3":
+		return fmt.Sprintf("s3://admin:********@%s:9000 (Console :9001)", serviceName)
+	default:
+		return fmt.Sprintf("%s://admin:********@%s:%d/db", engine, serviceName, port)
 	}
-
-	fmt.Printf("✅ ¡Servidor de Almacenamiento/BD '%s' (%s) desplegado correctamente en %s!\n", db.Name, db.Engine, db.VolumeHostPath)
-
-	safeUri := fmt.Sprintf("%s://admin:********@%s:%d/db", db.Engine, serviceName, db.InternalPort)
-	if engineLower == "mongo" || engineLower == "mongodb" {
-		safeUri = fmt.Sprintf("mongodb://admin:********@%s:27017/?authSource=admin", serviceName)
-	} else if engineLower == "redis" {
-		safeUri = fmt.Sprintf("redis://:********@%s:6379", serviceName)
-	} else if engineLower == "minio" || engineLower == "s3" {
-		safeUri = fmt.Sprintf("s3://admin:********@%s:9000 (Console :9001)", serviceName)
-	}
-
-	fmt.Printf("🔌 URI Interna (Oculta): %s\n", safeUri)
-
-	syncUC := NewSyncClusterStateUseCase(nil, uc.ssh)
-	if errSync := syncUC.ExportStateToRemote(); errSync != nil {
-		slog.Warn("Fallo al exportar estado de sincronización al VPS", "error", errSync)
-	}
-
-	return nil
 }

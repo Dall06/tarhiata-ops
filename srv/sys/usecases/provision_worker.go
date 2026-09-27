@@ -59,7 +59,8 @@ func (uc *ProvisionWorkerUseCase) ExecuteWithPlanAndRegion(config domain.ServerC
 	if uc.Provisioner != nil {
 		provisioner = uc.Provisioner
 		activeToken = "mock"
-	} else {
+	}
+	if uc.Provisioner == nil {
 		workspace := filepath.Join(homeDir, ".config", "tarhiata", "terraform", "worker_"+nodeName)
 		if config.CloudProvider == "digitalocean" && config.DOAPIToken != "" {
 			provisioner = repositories.NewDigitalOceanProvisioner(workspace)
@@ -68,7 +69,8 @@ func (uc *ProvisionWorkerUseCase) ExecuteWithPlanAndRegion(config domain.ServerC
 			if requestedRegion != "" {
 				region = requestedRegion
 			}
-		} else {
+		}
+		if config.CloudProvider != "digitalocean" || config.DOAPIToken == "" {
 			provisioner = repositories.NewVultrProvisioner(workspace)
 			activeToken = token
 			region = "mex"
@@ -116,7 +118,8 @@ func (uc *ProvisionWorkerUseCase) ExecuteWithPlanAndRegion(config domain.ServerC
 	var workerSSH ports.SSHExecutor
 	if uc.WorkerSSHFactory != nil {
 		workerSSH = uc.WorkerSSHFactory()
-	} else {
+	}
+	if uc.WorkerSSHFactory == nil {
 		workerSSH = repositories.NewCryptoSSHExecutor()
 	}
 
@@ -148,15 +151,20 @@ func (uc *ProvisionWorkerUseCase) ExecuteWithPlanAndRegion(config domain.ServerC
 
 	fmt.Println("🔗 [5/6] Asegurando red y clúster Swarm...")
 	// Asegurar que el Firewall UFW del Manager permita los puertos del clúster Swarm
-	if resUfw, errUfw := uc.managerSSH.RunCommand("ufw allow 2377/tcp && ufw allow 7946/tcp && ufw allow 7946/udp && ufw allow 4789/udp"); errUfw != nil {
+	resUfw, errUfw := uc.managerSSH.RunCommand("ufw allow 2377/tcp && ufw allow 7946/tcp && ufw allow 7946/udp && ufw allow 4789/udp")
+	if errUfw != nil {
 		slog.Debug("aviso al abrir puertos swarm en manager", "error", errUfw)
-	} else if resUfw != nil && resUfw.ExitCode != 0 {
+	}
+	if resUfw != nil && resUfw.ExitCode != 0 {
 		slog.Debug("código de salida al abrir puertos swarm en manager", "exitCode", resUfw.ExitCode)
 	}
+
 	// Asegurar que el Worker tenga Docker arriba y sus puertos de Swarm abiertos
-	if resWkrUfw, errWkrUfw := workerSSH.RunCommand("systemctl start docker || service docker start && ufw allow 2377/tcp && ufw allow 7946/tcp && ufw allow 7946/udp && ufw allow 4789/udp"); errWkrUfw != nil {
+	resWkrUfw, errWkrUfw := workerSSH.RunCommand("systemctl start docker || service docker start && ufw allow 2377/tcp && ufw allow 7946/tcp && ufw allow 7946/udp && ufw allow 4789/udp")
+	if errWkrUfw != nil {
 		slog.Debug("aviso al encender docker y abrir puertos swarm en worker", "error", errWkrUfw)
-	} else if resWkrUfw != nil && resWkrUfw.ExitCode != 0 {
+	}
+	if resWkrUfw != nil && resWkrUfw.ExitCode != 0 {
 		slog.Debug("código de salida al encender docker en worker", "exitCode", resWkrUfw.ExitCode)
 	}
 

@@ -73,79 +73,48 @@ func (uc *ManageDBMigrationsUseCase) Execute(req domain.DatabaseMigrationRequest
 
 	serviceName := fmt.Sprintf("tarhiata-db-%s", targetDB.Name)
 
+	if len(req.Filenames) > 0 {
+		return uc.executeFiles(req, targetDB, allFiles, serviceName)
+	}
+
+	if req.SqlContent != "" {
+		return uc.executeDirectSQL(req.SqlContent, targetDB, serviceName)
+	}
+
+	return nil, nil
+}
+
+func (uc *ManageDBMigrationsUseCase) executeFiles(req domain.DatabaseMigrationRequest, targetDB *domain.SavedDatabase, allFiles []domain.MigrationFile, serviceName string) ([]domain.MigrationFile, error) {
+	fileMap := make(map[string]domain.MigrationFile)
+	for _, f := range allFiles {
+		fileMap[f.Filename] = f
+	}
+
+	isDownAction := req.Action == "down"
 	var executed []domain.MigrationFile
 
-	if len(req.Filenames) > 0 {
-		fileMap := make(map[string]domain.MigrationFile)
-		for _, f := range allFiles {
-			fileMap[f.Filename] = f
+	for _, fname := range req.Filenames {
+		mf, exists := fileMap[fname]
+		if !exists {
+			continue
 		}
 
-		isDownAction := req.Action == "down"
-
-		for _, fname := range req.Filenames {
-			mf, exists := fileMap[fname]
-			if !exists {
-				continue
+		sqlToRun := mf.Content
+		if isDownAction {
+			if mf.DownContent == "" {
+				return nil, fmt.Errorf("el archivo de migración '%s' no tiene sentencias SQL de regresión (DownContent) definidas", fname)
 			}
-
-			sqlToRun := mf.Content
-			if isDownAction {
-				if mf.DownContent == "" {
-					return nil, fmt.Errorf("el archivo de migración '%s' no tiene sentencias SQL de regresión (DownContent) definidas", fname)
-				}
-				sqlToRun = mf.DownContent
-			}
-
-			b64Content := base64.StdEncoding.EncodeToString([]byte(sqlToRun))
-			var execCmd string
-
-			if targetDB.Engine == "postgres" {
-				execCmd = fmt.Sprintf("echo '%s' | base64 -d | docker exec -i $(docker ps -q -f name=%s | head -n 1) psql -U admin -d db", b64Content, serviceName)
-			} else if targetDB.Engine == "mongo" {
-				execCmd = fmt.Sprintf("echo '%s' | base64 -d | docker exec -i $(docker ps -q -f name=%s | head -n 1) mongosh -u admin -p '%s' db", b64Content, serviceName, targetDB.Password)
-			} else {
-				execCmd = fmt.Sprintf("echo '%s' | base64 -d | docker exec -i $(docker ps -q -f name=%s | head -n 1) mysql -u admin -p'%s' db", b64Content, serviceName, targetDB.Password)
-			}
-
-			res, errExec := uc.ssh.RunCommand(execCmd)
-			status := "applied"
-			if isDownAction {
-				status = "reverted"
-			}
-			logs := ""
-			if res != nil {
-				logs = res.Output
-			}
-			if errExec != nil || (res != nil && res.ExitCode != 0) {
-				status = "failed"
-				if logs == "" && errExec != nil {
-					logs = errExec.Error()
-				}
-			}
-
-			if recErr := uc.repo.RecordMigrationExecution(targetDB.Name, fname, status, logs); recErr != nil {
-				fmt.Printf("⚠️ Error registrando ejecución de migración: %v\n", recErr)
-			}
-			mf.Status = status
-			mf.LogOutput = logs
-			executed = append(executed, mf)
-
-			if status == "failed" {
-				break
-			}
+			sqlToRun = mf.DownContent
 		}
-	} else if req.SqlContent != "" {
-		b64Content := base64.StdEncoding.EncodeToString([]byte(req.SqlContent))
-		var execCmd string
-		if targetDB.Engine == "postgres" {
-			execCmd = fmt.Sprintf("echo '%s' | base64 -d | docker exec -i $(docker ps -q -f name=%s | head -n 1) psql -U admin -d db", b64Content, serviceName)
-		} else {
-			execCmd = fmt.Sprintf("echo '%s' | base64 -d | docker exec -i $(docker ps -q -f name=%s | head -n 1) mysql -u admin -p'%s' db", b64Content, serviceName, targetDB.Password)
-		}
+
+		b64Content := base64.StdEncoding.EncodeToString([]byte(sqlToRun))
+		execCmd := buildMigrationCommand(targetDB.Engine, targetDB.Password, serviceName, b64Content)
 
 		res, errExec := uc.ssh.RunCommand(execCmd)
 		status := "applied"
+		if isDownAction {
+			status = "reverted"
+		}
 		logs := ""
 		if res != nil {
 			logs = res.Output
@@ -157,15 +126,55 @@ func (uc *ManageDBMigrationsUseCase) Execute(req domain.DatabaseMigrationRequest
 			}
 		}
 
-		directFile := domain.MigrationFile{
-			DBName:    targetDB.Name,
-			Filename:  "direct_sql_execution.sql",
-			Content:   req.SqlContent,
-			Status:    status,
-			LogOutput: logs,
+		if recErr := uc.repo.RecordMigrationExecution(targetDB.Name, fname, status, logs); recErr != nil {
+			fmt.Printf("⚠️ Error registrando ejecución de migración: %v\n", recErr)
 		}
-		executed = append(executed, directFile)
+		mf.Status = status
+		mf.LogOutput = logs
+		executed = append(executed, mf)
+
+		if status == "failed" {
+			break
+		}
 	}
 
 	return executed, nil
+}
+
+func (uc *ManageDBMigrationsUseCase) executeDirectSQL(sqlContent string, targetDB *domain.SavedDatabase, serviceName string) ([]domain.MigrationFile, error) {
+	b64Content := base64.StdEncoding.EncodeToString([]byte(sqlContent))
+	execCmd := buildMigrationCommand(targetDB.Engine, targetDB.Password, serviceName, b64Content)
+
+	res, errExec := uc.ssh.RunCommand(execCmd)
+	status := "applied"
+	logs := ""
+	if res != nil {
+		logs = res.Output
+	}
+	if errExec != nil || (res != nil && res.ExitCode != 0) {
+		status = "failed"
+		if logs == "" && errExec != nil {
+			logs = errExec.Error()
+		}
+	}
+
+	directFile := domain.MigrationFile{
+		DBName:    targetDB.Name,
+		Filename:  "direct_sql_execution.sql",
+		Content:   sqlContent,
+		Status:    status,
+		LogOutput: logs,
+	}
+	return []domain.MigrationFile{directFile}, nil
+}
+
+func buildMigrationCommand(engine, password, serviceName, b64Content string) string {
+	switch engine {
+	case "postgres":
+		return fmt.Sprintf("echo '%s' | base64 -d | docker exec -i $(docker ps -q -f name=%s | head -n 1) psql -U admin -d db", b64Content, serviceName)
+	case "mongo", "mongodb":
+		return fmt.Sprintf("echo '%s' | base64 -d | docker exec -i $(docker ps -q -f name=%s | head -n 1) mongosh -u admin -p '%s' db", b64Content, serviceName, password)
+	default:
+		return fmt.Sprintf("echo '%s' | base64 -d | docker exec -i $(docker ps -q -f name=%s | head -n 1) mysql -u admin -p'%s' db", b64Content, serviceName, password)
+	}
 }

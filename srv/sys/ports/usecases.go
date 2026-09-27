@@ -13,15 +13,11 @@ type InspectHostUseCase interface {
 }
 
 
-// ProvisionCloudRequest encapsula los parámetros para aprovisionar un servidor en la nube vía IaC
-type ProvisionCloudRequest struct {
-	Name        string `json:"name"`
-	Provider    string `json:"provider"` // "vultr" | "digitalocean"
-	APIToken    string `json:"apiToken"`
-	Region      string `json:"region"`
-	Plan        string `json:"plan"`
-	SetAsActive bool   `json:"isActive"`
-}
+// Aliases de structs de dominio para preservar compatibilidad en puertos
+type ProvisionCloudRequest = domain.ProvisionCloudRequest
+type BootstrapMasterInput = domain.BootstrapMasterInput
+type BootstrapMasterResult = domain.BootstrapMasterResult
+type CreatePreviewEnvInput = domain.CreatePreviewEnvInput
 
 type ProvisionCloudServerUseCase interface {
 	Execute(req ProvisionCloudRequest) (*domain.ConnectionResult, error)
@@ -30,8 +26,6 @@ type ProvisionCloudServerUseCase interface {
 type InitServerUseCase interface {
 	Execute(acmeEmail string) error
 }
-
-
 
 type DeployObservabilityUseCase interface {
 	Execute(exposePublic bool) error
@@ -65,40 +59,8 @@ type UnlinkServicesUseCase interface {
 	Execute(sourceSvc string, targetSvc string) error
 }
 
-type BootstrapMasterInput struct {
-	AppName      string `json:"app_name"`
-	Image        string `json:"image"`
-	Port         int    `json:"port"`
-	Domain       string `json:"domain"`
-	ExposePublic bool   `json:"expose_public"`
-	DBEngine     string `json:"db_engine"`
-	EnvVarName   string `json:"env_var_name"`
-	TargetNode   string `json:"target_node,omitempty"`
-}
-
-type BootstrapMasterResult struct {
-	App         domain.SavedService   `json:"app"`
-	Database    *domain.SavedDatabase `json:"database,omitempty"`
-	Link        *domain.ServiceLink   `json:"link,omitempty"`
-	UnlinkedOld []string              `json:"unlinked_old,omitempty"`
-}
-
 type BootstrapMasterServiceUseCase interface {
 	Execute(input BootstrapMasterInput, config domain.ServerConfig) (*BootstrapMasterResult, error)
-}
-
-// --- Manage Preview Environments (Entornos Temporales Efímeros) ---
-
-type CreatePreviewEnvInput struct {
-	Name        string `json:"name"`
-	Image       string `json:"image"`
-	ImageSource string `json:"imageSource,omitempty"`
-	Port        int    `json:"port"`
-	Domain      string `json:"domain"`
-	LinkDBName  string `json:"link_db_name,omitempty"`
-	LinkDbName  string `json:"linkDbName,omitempty"`
-	TargetNode  string `json:"target_node,omitempty"`
-	NodeTarget  string `json:"targetNode,omitempty"`
 }
 
 type ManagePreviewEnvUseCase interface {

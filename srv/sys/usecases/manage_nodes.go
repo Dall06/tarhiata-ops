@@ -8,16 +8,7 @@ import (
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 )
 
-type NodeInfo struct {
-	ID            string            `json:"id"`
-	Hostname      string            `json:"hostname"`
-	Role          string            `json:"role"`         // "manager" o "worker"
-	Status        string            `json:"status"`       // "Ready", "Down"
-	Availability  string            `json:"availability"` // "active", "pause", "drain"
-	IsLeader      bool              `json:"isLeader"`
-	EngineVersion string            `json:"engineVersion"`
-	Labels        map[string]string `json:"labels"`
-}
+type NodeInfo = domain.NodeInfo
 
 type ManageNodesUseCase struct {
 	repo ports.ConfigRepository
@@ -26,6 +17,17 @@ type ManageNodesUseCase struct {
 
 func NewManageNodesUseCase(repo ports.ConfigRepository, ssh ports.SSHExecutor) *ManageNodesUseCase {
 	return &ManageNodesUseCase{repo: repo, ssh: ssh}
+}
+
+func parseNodeRole(mgrStatus string) (string, bool) {
+	statusLower := strings.ToLower(mgrStatus)
+	if strings.Contains(statusLower, "leader") {
+		return "manager", true
+	}
+	if strings.Contains(statusLower, "reachable") {
+		return "manager", false
+	}
+	return "worker", false
 }
 
 // ListNodes obtiene la lista detallada de nodos del clúster Docker Swarm
@@ -74,14 +76,7 @@ func (uc *ManageNodesUseCase) ListNodes(config domain.ServerConfig) ([]NodeInfo,
 				engineVer = parts[5]
 			}
 
-			role := "worker"
-			isLeader := false
-			if strings.Contains(strings.ToLower(mgrStatus), "leader") {
-				role = "manager"
-				isLeader = true
-			} else if strings.Contains(strings.ToLower(mgrStatus), "reachable") {
-				role = "manager"
-			}
+			role, isLeader := parseNodeRole(mgrStatus)
 
 			// Obtener etiquetas del nodo
 			labels := uc.getNodeLabels(id)

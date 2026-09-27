@@ -187,21 +187,7 @@ func enrichSwarmServicesWithInspect(services []domain.SwarmServiceInfo, rawInspe
 			if len(parts) >= 3 {
 				rule = parts[2]
 			}
-			// Extraer dominio de Host(`...`) si existe
-			domainName := ""
-			if strings.Contains(rule, "Host(`") {
-				start := strings.Index(rule, "Host(`") + 6
-				end := strings.Index(rule[start:], "`)")
-				if end != -1 {
-					domainName = rule[start : start+end]
-				}
-			} else if strings.Contains(rule, "PathPrefix(`") {
-				start := strings.Index(rule, "PathPrefix(`") + 12
-				end := strings.Index(rule[start:], "`)")
-				if end != -1 {
-					domainName = rule[start : start+end]
-				}
-			}
+			domainName := extractDomainFromRule(rule)
 			metaMap[name] = svcMeta{expose: enabled, domain: domainName}
 		}
 	}
@@ -212,6 +198,24 @@ func enrichSwarmServicesWithInspect(services []domain.SwarmServiceInfo, rawInspe
 			services[i].Domain = meta.domain
 		}
 	}
+}
+
+func extractDomainFromRule(rule string) string {
+	if strings.Contains(rule, "Host(`") {
+		start := strings.Index(rule, "Host(`") + 6
+		end := strings.Index(rule[start:], "`)")
+		if end != -1 {
+			return rule[start : start+end]
+		}
+	}
+	if strings.Contains(rule, "PathPrefix(`") {
+		start := strings.Index(rule, "PathPrefix(`") + 12
+		end := strings.Index(rule[start:], "`)")
+		if end != -1 {
+			return rule[start : start+end]
+		}
+	}
+	return ""
 }
 
 // ParseSwarmServices convierte la salida tabulada de `docker service ls` en struct domain.SwarmServiceInfo.

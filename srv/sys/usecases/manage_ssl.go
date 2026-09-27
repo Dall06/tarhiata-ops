@@ -11,15 +11,7 @@ import (
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 )
 
-type SSLStatusItem struct {
-	Domain        string `json:"domain"`
-	ServiceName   string `json:"serviceName"`
-	IsSSL         bool   `json:"isSSL"`
-	Status        string `json:"status"` // "active", "expiring_soon", "expired", "http_only"
-	DaysRemaining int    `json:"daysRemaining"`
-	Issuer        string `json:"issuer"`
-	ExpiryDate    string `json:"expiryDate"`
-}
+type SSLStatusItem = domain.SSLStatusItem
 
 type ManageSSLMaintenanceUseCase struct {
 	repo ports.ConfigRepository
@@ -28,6 +20,16 @@ type ManageSSLMaintenanceUseCase struct {
 
 func NewManageSSLMaintenanceUseCase(repo ports.ConfigRepository, ssh ports.SSHExecutor) *ManageSSLMaintenanceUseCase {
 	return &ManageSSLMaintenanceUseCase{repo: repo, ssh: ssh}
+}
+
+func determineSSLStatus(daysLeft int) string {
+	if daysLeft <= 0 {
+		return "expired"
+	}
+	if daysLeft < 15 {
+		return "expiring_soon"
+	}
+	return "active"
 }
 
 // InspectSSL inspecta la validez de los certificados SSL de los dominios registrados
@@ -80,14 +82,7 @@ func (uc *ManageSSLMaintenanceUseCase) InspectSSL() ([]SSLStatusItem, error) {
 			}
 			item.ExpiryDate = cert.NotAfter.Format("2006-01-02")
 			item.DaysRemaining = daysLeft
-
-			if daysLeft <= 0 {
-				item.Status = "expired"
-			} else if daysLeft < 15 {
-				item.Status = "expiring_soon"
-			} else {
-				item.Status = "active"
-			}
+			item.Status = determineSSLStatus(daysLeft)
 		}
 
 		results = append(results, item)
