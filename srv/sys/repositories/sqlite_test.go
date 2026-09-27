@@ -378,3 +378,213 @@ func TestSQLiteEncryptionAtRest(t *testing.T) {
 		t.Errorf("expected legacy plaintext key %q to be preserved, got %q", legacyKey, legacySrv.PrivateKey)
 	}
 }
+
+func TestSQLiteMigrations(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "migrations_test.db")
+	repo, err := NewSQLiteRepository(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create repo: %v", err)
+	}
+	defer repo.Close()
+
+	// Initial empty list
+	files, err := repo.GetMigrationFiles("db-test")
+	if err != nil {
+		t.Fatalf("unexpected error getting migration files: %v", err)
+	}
+	if len(files) != 0 {
+		t.Errorf("expected 0 migration files initially, got %d", len(files))
+	}
+
+	// Save migration file
+	mig := domain.MigrationFile{
+		DBName:      "db-test",
+		Filename:    "001_init.sql",
+		Content:     "CREATE TABLE users (id int);",
+		DownContent: "DROP TABLE users;",
+		Status:      "pending",
+	}
+
+	if err := repo.SaveMigrationFile(mig); err != nil {
+		t.Fatalf("failed to save migration file: %v", err)
+	}
+
+	// Record execution
+	if err := repo.RecordMigrationExecution("db-test", "001_init.sql", "applied", "success"); err != nil {
+		t.Fatalf("failed to record execution: %v", err)
+	}
+
+	filesAfter, err := repo.GetMigrationFiles("db-test")
+	if err != nil {
+		t.Fatalf("failed to get migration files: %v", err)
+	}
+	if len(filesAfter) != 1 || filesAfter[0].Status != "applied" {
+		t.Errorf("expected 1 applied migration, got: %+v", filesAfter)
+	}
+
+	// Delete
+	if err := repo.DeleteMigrationFile("db-test", "001_init.sql"); err != nil {
+		t.Fatalf("failed to delete migration file: %v", err)
+	}
+}
+
+func TestSQLitePreviewEnvs(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "preview_test.db")
+	repo, err := NewSQLiteRepository(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create repo: %v", err)
+	}
+	defer repo.Close()
+
+	env := domain.SavedPreviewEnv{
+		Name:        "pr-42",
+		ImageSource: "shop-api:pr-42",
+		Port:        3000,
+		Domain:      "pr-42.example.com",
+		LinkDBName:  "shop-db",
+		CreatedAt:   "2026-09-26 14:00:00",
+		Status:      "running",
+	}
+
+	if err := repo.SavePreviewEnv(env); err != nil {
+		t.Fatalf("failed to save preview env: %v", err)
+	}
+
+	envs, err := repo.GetPreviewEnvs()
+	if err != nil {
+		t.Fatalf("failed to get preview envs: %v", err)
+	}
+	if len(envs) != 1 || envs[0].Name != "pr-42" {
+		t.Errorf("expected 1 preview env 'pr-42', got: %+v", envs)
+	}
+
+	// Delete
+	if err := repo.DeletePreviewEnv("pr-42"); err != nil {
+		t.Fatalf("failed to delete preview env: %v", err)
+	}
+
+	envsAfter, err := repo.GetPreviewEnvs()
+	if err != nil {
+		t.Fatalf("failed to get preview envs after delete: %v", err)
+	}
+	if len(envsAfter) != 0 {
+		t.Errorf("expected 0 preview envs after delete, got %d", len(envsAfter))
+	}
+}
+
+func TestSQLiteObservability(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "obs_test.db")
+	repo, err := NewSQLiteRepository(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create repo: %v", err)
+	}
+	defer repo.Close()
+
+	obs := domain.SavedObservability{
+		DeployType:      "swarm",
+		ExternalURL:     "https://logs.example.com",
+		GrafanaPassword: "admin_password_123",
+	}
+
+	if err := repo.SaveObservability(obs); err != nil {
+		t.Fatalf("failed to save observability: %v", err)
+	}
+
+	saved, err := repo.GetObservability()
+	if err != nil || saved == nil {
+		t.Fatalf("failed to get observability: %v", err)
+	}
+	if saved.DeployType != "swarm" || saved.ExternalURL != "https://logs.example.com" {
+		t.Errorf("observability data mismatch: %+v", saved)
+	}
+
+	if err := repo.DeleteObservability(); err != nil {
+		t.Fatalf("failed to delete observability: %v", err)
+	}
+
+	deleted, err := repo.GetObservability()
+	if err != nil {
+		t.Fatalf("unexpected error after delete: %v", err)
+	}
+	if deleted != nil {
+		t.Errorf("expected nil after delete observability, got: %+v", deleted)
+	}
+}
+
+func TestSQLiteBackups(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "backups_test.db")
+	repo, err := NewSQLiteRepository(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create repo: %v", err)
+	}
+	defer repo.Close()
+
+	backup := domain.SavedBackup{
+		TargetName: "db-production",
+		TargetType: "database",
+		Engine:     "postgres",
+		Filename:   "backup_2026.sql",
+		FilePath:   "/opt/tarhiata/backups/backup_2026.sql",
+		SizeBytes:  1048576,
+		Status:     "completed",
+		CreatedAt:  "2026-09-26 15:00:00",
+	}
+
+	if err := repo.SaveBackup(backup); err != nil {
+		t.Fatalf("failed to save backup: %v", err)
+	}
+
+	backups, err := repo.GetBackups()
+	if err != nil {
+		t.Fatalf("failed to get backups: %v", err)
+	}
+	if len(backups) != 1 || backups[0].TargetName != "db-production" {
+		t.Errorf("expected backup 'db-production', got: %+v", backups)
+	}
+
+	if err := repo.DeleteBackup(backups[0].ID); err != nil {
+		t.Fatalf("failed to delete backup: %v", err)
+	}
+
+	backupsAfter, err := repo.GetBackups()
+	if err != nil {
+		t.Fatalf("failed to get backups after delete: %v", err)
+	}
+	if len(backupsAfter) != 0 {
+		t.Errorf("expected 0 backups after delete, got %d", len(backupsAfter))
+	}
+}
+
+func TestSQLiteNotFoundCases(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "notfound_test.db")
+	repo, err := NewSQLiteRepository(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create repo: %v", err)
+	}
+	defer repo.Close()
+
+	svc, err := repo.GetService("non-existent-svc")
+	if err != nil || svc != nil {
+		t.Errorf("expected nil service, got: %v (err: %v)", svc, err)
+	}
+
+	db, err := repo.GetDatabase("non-existent-db")
+	if err != nil || db != nil {
+		t.Errorf("expected nil database, got: %v (err: %v)", db, err)
+	}
+
+	srv, err := repo.GetServerConfigByName("non-existent-server")
+	if err != nil || srv != nil {
+		t.Errorf("expected nil server, got: %v (err: %v)", srv, err)
+	}
+
+	reg, err := repo.GetRegistryCredential("non-existent-reg")
+	if err != nil || reg != nil {
+		t.Errorf("expected nil registry, got: %v (err: %v)", reg, err)
+	}
+}
