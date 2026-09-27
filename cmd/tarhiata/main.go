@@ -266,7 +266,7 @@ func handleConfigCommand(repo *repositories.SQLiteRepository, args []string) {
 			return
 		}
 		mode := "Remoto (SSH)"
-		if cfg.IsLocal() {
+		if usecases.IsLocal(*cfg) {
 			mode = "Local (Máquina actual)"
 		}
 		fmt.Printf("⚙️  Configuración Actual [%s]:\n • Host: %s\n • Puerto: %d\n • User: %s\n • Key: %s\n • DO Token: %s\n • Vultr Token: %s\n",
@@ -353,7 +353,7 @@ func handleConnectCommand(repo *repositories.SQLiteRepository, config *domain.Se
 					activeBadge = "★ ACTIVO"
 				}
 				mode := "Remoto (SSH)"
-				if s.IsLocal() {
+				if usecases.IsLocal(s) {
 					mode = "Local"
 				}
 				fmt.Printf(" • %-16s [%-8s] %-20s %s\n", s.Name, mode, fmt.Sprintf("%s:%d", s.Host, s.Port), activeBadge)
@@ -543,15 +543,15 @@ func handleConnectCommand(repo *repositories.SQLiteRepository, config *domain.Se
 		cfg.Port = *port
 		cfg.User = strings.TrimSpace(*user)
 		cfg.PrivateKey = strings.TrimSpace(*key)
-		if cfg.IsLocal() {
+		if usecases.IsLocal(cfg) {
 			cfg.CloudProvider = "local"
 		}
-		if !cfg.IsLocal() {
+		if !usecases.IsLocal(cfg) {
 			cfg.CloudProvider = "vps-direct"
 		}
 	}
 
-	if cfg.Host == "" && !cfg.IsLocal() {
+	if cfg.Host == "" && !usecases.IsLocal(cfg) {
 		fmt.Println("❌ No hay servidor configurado ni especificado.")
 		fmt.Println("👉 Usa: tarhiata connect --local")
 		fmt.Println("👉 O usa: tarhiata connect --host <IP> [--user root] [--key ~/.ssh/id_rsa]")
@@ -560,7 +560,7 @@ func handleConnectCommand(repo *repositories.SQLiteRepository, config *domain.Se
 	}
 
 	targetName := cfg.Host
-	if cfg.IsLocal() {
+	if usecases.IsLocal(cfg) {
 		targetName = "localhost (Máquina local)"
 	}
 	if cfg.Name != "" {
@@ -613,7 +613,7 @@ func handleSSHCommand(repo *repositories.SQLiteRepository, config *domain.Server
 		return
 	}
 
-	if targetCfg.IsLocal() {
+	if usecases.IsLocal(*targetCfg) {
 		fmt.Printf("💻 [Tarhiata] Conectando a terminal local (%s)...\n", targetCfg.Name)
 		exec := repositories.NewCryptoSSHExecutor()
 		if err := exec.Connect(*targetCfg); err != nil {

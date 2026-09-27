@@ -49,6 +49,17 @@ type WebServer struct {
 	echo      *echo.Echo
 }
 
+func isLocalConfig(cfg *domain.ServerConfig) bool {
+	if cfg == nil {
+		return false
+	}
+	return usecases.IsLocal(*cfg)
+}
+
+func isLocalServer(cfg domain.ServerConfig) bool {
+	return usecases.IsLocal(cfg)
+}
+
 func (w *WebServer) getConfig() *domain.ServerConfig {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
@@ -70,7 +81,7 @@ func (w *WebServer) resolveTargetServer(serverName string) *domain.ServerConfig 
 		if err != nil {
 			slog.Debug("web_server: servidor no encontrado por nombre, recurriendo a default", "server", serverName, "error", err)
 		}
-		if found != nil && (found.Host != "" || found.IsLocal()) {
+		if found != nil && (found.Host != "" || isLocalConfig(found)) {
 			return found
 		}
 	}
@@ -490,7 +501,7 @@ func (w *WebServer) handleStatus(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	isLocalTarget := false
-	if cfg != nil && cfg.IsLocal() {
+	if isLocalConfig(cfg) {
 		isLocalTarget = true
 	}
 
@@ -526,11 +537,11 @@ func (w *WebServer) handleConfig(rw http.ResponseWriter, req *http.Request) {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if cfg.IsLocal() {
+	if isLocalServer(cfg) {
 		cfg.CloudProvider = "local"
 		cfg.Host = "localhost"
 	}
-	if !cfg.IsLocal() && cfg.CloudProvider == "" {
+	if !isLocalServer(cfg) && cfg.CloudProvider == "" {
 		cfg.CloudProvider = "vps-direct"
 	}
 	if err := w.repo.SaveServerConfig(cfg); err != nil {
@@ -561,14 +572,14 @@ func (w *WebServer) handleConnect(rw http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	if targetCfg.Host == "" && !targetCfg.IsLocal() {
+	if targetCfg.Host == "" && !isLocalServer(targetCfg) {
 		curr := w.getConfig()
 		if curr != nil {
 			targetCfg = *curr
 		}
 	}
 
-	if targetCfg.IsLocal() {
+	if isLocalServer(targetCfg) {
 		targetCfg.CloudProvider = "local"
 		if targetCfg.Host == "" {
 			targetCfg.Host = "localhost"
@@ -614,11 +625,11 @@ func (w *WebServer) handleServers(rw http.ResponseWriter, req *http.Request) {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if cfg.IsLocal() {
+		if isLocalServer(cfg) {
 			cfg.CloudProvider = "local"
 			cfg.Host = "localhost"
 		}
-		if !cfg.IsLocal() && cfg.CloudProvider == "" {
+		if !isLocalServer(cfg) && cfg.CloudProvider == "" {
 			cfg.CloudProvider = "vps-direct"
 		}
 		if err := w.repo.SaveServerConfig(cfg); err != nil {
@@ -763,13 +774,13 @@ func (w *WebServer) handleOpenTerminal(rw http.ResponseWriter, req *http.Request
 		targetCfg = found
 	}
 
-	if targetCfg == nil || (targetCfg.Host == "" && !targetCfg.IsLocal()) {
+	if targetCfg == nil || (targetCfg.Host == "" && !isLocalConfig(targetCfg)) {
 		http.Error(rw, "Servidor no encontrado o no configurado", http.StatusNotFound)
 		return
 	}
 
 	cmdStr := osterminal.BuildSSHCommand(targetCfg.User, targetCfg.Host, targetCfg.Port, targetCfg.PrivateKey)
-	if targetCfg.IsLocal() {
+	if isLocalConfig(targetCfg) {
 		shell := os.Getenv("SHELL")
 		if shell == "" {
 			shell = "/bin/sh"
@@ -786,7 +797,7 @@ func (w *WebServer) handleOpenTerminal(rw http.ResponseWriter, req *http.Request
 		"name":     targetCfg.Name,
 		"command":  cmdStr,
 		"launched": launchErr == nil,
-		"isLocal":  targetCfg.IsLocal(),
+		"isLocal":  isLocalConfig(targetCfg),
 	})
 }
 
@@ -807,7 +818,7 @@ func (w *WebServer) getTargetServerConfig(req *http.Request) (*domain.ServerConf
 	}
 
 	cfg := w.getConfig()
-	if cfg == nil || (cfg.Host == "" && !cfg.IsLocal()) {
+	if cfg == nil || (cfg.Host == "" && !isLocalConfig(cfg)) {
 		return nil, fmt.Errorf("no hay un servidor activo configurado")
 	}
 	return cfg, nil
@@ -1086,7 +1097,7 @@ func (w *WebServer) handleConnectAll(rw http.ResponseWriter, req *http.Request) 
 				results[idx] = domain.ConnectionResult{
 					Name:       cfg.Name,
 					Connected:  false,
-					IsLocal:    cfg.IsLocal(),
+					IsLocal:    isLocalServer(cfg),
 					TargetHost: cfg.Host,
 					Message:    execErr.Error(),
 					Errors:     []string{execErr.Error()},
@@ -1160,7 +1171,7 @@ func (w *WebServer) handleServices(rw http.ResponseWriter, req *http.Request) {
 			serverTarget = svc.TargetNode
 		}
 		cfg := w.resolveTargetServer(serverTarget)
-		if cfg != nil && (cfg.Host != "" || cfg.IsLocal()) {
+		if cfg != nil && (cfg.Host != "" || isLocalConfig(cfg)) {
 			send("step", fmt.Sprintf("🔗 Conectando por SSH a %s...", cfg.Host))
 			sshExec := repositories.NewCryptoSSHExecutor()
 			if err := sshExec.Connect(*cfg); err != nil {
@@ -1233,7 +1244,7 @@ func (w *WebServer) handleServices(rw http.ResponseWriter, req *http.Request) {
 		}
 		serverTarget := req.URL.Query().Get("server")
 		cfg := w.resolveTargetServer(serverTarget)
-		if cfg != nil && (cfg.Host != "" || cfg.IsLocal()) {
+		if cfg != nil && (cfg.Host != "" || isLocalConfig(cfg)) {
 			sshExec := repositories.NewCryptoSSHExecutor()
 			if err := sshExec.Connect(*cfg); err == nil {
 				defer sshExec.Close()
@@ -1319,7 +1330,7 @@ func (w *WebServer) handleServiceItem(rw http.ResponseWriter, req *http.Request)
 			serverTarget = svc.TargetNode
 		}
 		cfg := w.resolveTargetServer(serverTarget)
-		if cfg != nil && (cfg.Host != "" || cfg.IsLocal()) {
+		if cfg != nil && (cfg.Host != "" || isLocalConfig(cfg)) {
 			sshExec := repositories.NewCryptoSSHExecutor()
 			if err := sshExec.Connect(*cfg); err == nil {
 				defer sshExec.Close()
@@ -1358,7 +1369,7 @@ func (w *WebServer) handleServiceItem(rw http.ResponseWriter, req *http.Request)
 	if req.Method == http.MethodDelete {
 		serverTarget := req.URL.Query().Get("server")
 		cfg := w.resolveTargetServer(serverTarget)
-		if cfg != nil && (cfg.Host != "" || cfg.IsLocal()) {
+		if cfg != nil && (cfg.Host != "" || isLocalConfig(cfg)) {
 			sshExec := repositories.NewCryptoSSHExecutor()
 			if err := sshExec.Connect(*cfg); err == nil {
 				defer sshExec.Close()
@@ -1449,7 +1460,7 @@ func (w *WebServer) handleDatabases(rw http.ResponseWriter, req *http.Request) {
 			serverTarget = db.TargetNode
 		}
 		cfg := w.resolveTargetServer(serverTarget)
-		if cfg != nil && (cfg.Host != "" || cfg.IsLocal()) {
+		if cfg != nil && (cfg.Host != "" || isLocalConfig(cfg)) {
 			send("step", fmt.Sprintf("🔗 Conectando por SSH a %s...", cfg.Host))
 			sshExec := repositories.NewCryptoSSHExecutor()
 			if err := sshExec.Connect(*cfg); err != nil {
@@ -1499,7 +1510,7 @@ func (w *WebServer) handleDatabases(rw http.ResponseWriter, req *http.Request) {
 		}
 		serverTarget := req.URL.Query().Get("server")
 		cfg := w.resolveTargetServer(serverTarget)
-		if cfg != nil && (cfg.Host != "" || cfg.IsLocal()) {
+		if cfg != nil && (cfg.Host != "" || isLocalConfig(cfg)) {
 			sshExec := repositories.NewCryptoSSHExecutor()
 			if err := sshExec.Connect(*cfg); err == nil {
 				defer sshExec.Close()
@@ -2011,7 +2022,7 @@ func (w *WebServer) handleWorkerProvision(rw http.ResponseWriter, req *http.Requ
 
 	serverTarget := req.URL.Query().Get("server")
 	cfg := w.resolveTargetServer(serverTarget)
-	if cfg == nil || (cfg.Host == "" && !cfg.IsLocal()) {
+	if cfg == nil || (cfg.Host == "" && !isLocalConfig(cfg)) {
 		send("error", "❌ No hay ningún VPS Manager configurado")
 		return
 	}
@@ -2226,7 +2237,7 @@ func (w *WebServer) handleServiceRollback(rw http.ResponseWriter, req *http.Requ
 		serverTarget = reqData.Server
 	}
 	cfg := w.resolveTargetServer(serverTarget)
-	if cfg == nil || (cfg.Host == "" && !cfg.IsLocal()) {
+	if cfg == nil || (cfg.Host == "" && !isLocalConfig(cfg)) {
 		jsonError(rw, "VPS no configurado", http.StatusBadRequest)
 		return
 	}
@@ -2301,7 +2312,7 @@ func (w *WebServer) handleServiceRestart(rw http.ResponseWriter, req *http.Reque
 	}
 
 	cfg := w.resolveTargetServer(serverTarget)
-	if cfg == nil || (cfg.Host == "" && !cfg.IsLocal()) {
+	if cfg == nil || (cfg.Host == "" && !isLocalConfig(cfg)) {
 		jsonError(rw, "VPS no configurado", http.StatusBadRequest)
 		return
 	}
@@ -2704,7 +2715,7 @@ func (w *WebServer) handleNodes(rw http.ResponseWriter, req *http.Request) {
 		}
 		serverTarget := req.URL.Query().Get("server")
 		targetCfg := w.resolveTargetServer(serverTarget)
-		if targetCfg == nil || (targetCfg.Host == "" && !targetCfg.IsLocal()) {
+		if targetCfg == nil || (targetCfg.Host == "" && !isLocalConfig(targetCfg)) {
 			jsonError(rw, "VPS no configurado", http.StatusBadRequest)
 			return
 		}
@@ -2862,7 +2873,7 @@ func (w *WebServer) handleNodeJoinToken(rw http.ResponseWriter, req *http.Reques
 	}
 	serverTarget := req.URL.Query().Get("server")
 	targetCfg := w.resolveTargetServer(serverTarget)
-	if targetCfg == nil || (targetCfg.Host == "" && !targetCfg.IsLocal()) {
+	if targetCfg == nil || (targetCfg.Host == "" && !isLocalConfig(targetCfg)) {
 		jsonError(rw, "VPS no configurado", http.StatusBadRequest)
 		return
 	}
@@ -2896,7 +2907,7 @@ func (w *WebServer) handleNodeJoinToken(rw http.ResponseWriter, req *http.Reques
 	}
 
 	host := targetCfg.Host
-	if targetCfg.IsLocal() {
+	if isLocalConfig(targetCfg) {
 		host = "127.0.0.1"
 	}
 	workerCmd := fmt.Sprintf("docker swarm join --token %s %s:2377", workerToken, host)
@@ -2927,7 +2938,7 @@ func (w *WebServer) handleNodeUpdate(rw http.ResponseWriter, req *http.Request) 
 
 	serverTarget := req.URL.Query().Get("server")
 	targetCfg := w.resolveTargetServer(serverTarget)
-	if targetCfg == nil || (targetCfg.Host == "" && !targetCfg.IsLocal()) {
+	if targetCfg == nil || (targetCfg.Host == "" && !isLocalConfig(targetCfg)) {
 		jsonError(rw, "VPS no configurado", http.StatusBadRequest)
 		return
 	}
@@ -3081,7 +3092,7 @@ func (w *WebServer) handleTerminalExec(rw http.ResponseWriter, req *http.Request
 
 	targetCfg := w.resolveTargetServer(serverTarget)
 
-	if targetCfg != nil && (targetCfg.Host != "" || targetCfg.IsLocal()) {
+	if targetCfg != nil && (targetCfg.Host != "" || isLocalConfig(targetCfg)) {
 		sshExec := repositories.NewCryptoSSHExecutor()
 		if err := sshExec.Connect(*targetCfg); err != nil {
 			jsonResponse(rw, map[string]interface{}{
@@ -3214,7 +3225,7 @@ func (w *WebServer) handleBootstrapMaster(rw http.ResponseWriter, req *http.Requ
 		serverTarget = input.TargetNode
 	}
 	cfg := w.resolveTargetServer(serverTarget)
-	if cfg == nil || (cfg.Host == "" && !cfg.IsLocal()) {
+	if cfg == nil || (cfg.Host == "" && !isLocalConfig(cfg)) {
 		http.Error(rw, "VPS no configurado", http.StatusBadRequest)
 		return
 	}
@@ -3516,7 +3527,7 @@ func (w *WebServer) handleBackups(rw http.ResponseWriter, req *http.Request) {
 			serverTarget = bReq.Server
 		}
 		cfg := w.resolveTargetServer(serverTarget)
-		if cfg == nil || (cfg.Host == "" && !cfg.IsLocal()) {
+		if cfg == nil || (cfg.Host == "" && !isLocalConfig(cfg)) {
 			http.Error(rw, "VPS no configurado", http.StatusBadRequest)
 			return
 		}
@@ -3562,7 +3573,7 @@ func (w *WebServer) handleRestoreBackup(rw http.ResponseWriter, req *http.Reques
 		serverTarget = bReq.Server
 	}
 	cfg := w.resolveTargetServer(serverTarget)
-	if cfg == nil || (cfg.Host == "" && !cfg.IsLocal()) {
+	if cfg == nil || (cfg.Host == "" && !isLocalConfig(cfg)) {
 		http.Error(rw, "VPS no configurado", http.StatusBadRequest)
 		return
 	}
@@ -3584,7 +3595,7 @@ func (w *WebServer) handleDownloadBackup(rw http.ResponseWriter, req *http.Reque
 	}
 	serverTarget := req.URL.Query().Get("server")
 	cfg := w.resolveTargetServer(serverTarget)
-	if cfg == nil || (cfg.Host == "" && !cfg.IsLocal()) {
+	if cfg == nil || (cfg.Host == "" && !isLocalConfig(cfg)) {
 		http.Error(rw, "VPS no configurado", http.StatusBadRequest)
 		return
 	}

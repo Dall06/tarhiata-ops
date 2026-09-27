@@ -94,7 +94,7 @@ fi
 // Execute conecta al host y extrae métricas de rendimiento y servicios activos.
 func (uc *InspectHostUseCase) Execute(config domain.ServerConfig) (*domain.HostInspection, error) {
 	targetHost := strings.TrimSpace(config.Host)
-	if config.IsLocal() && targetHost == "" {
+	if IsLocal(config) && targetHost == "" {
 		targetHost = "localhost"
 	}
 	serverName := strings.TrimSpace(config.Name)
@@ -114,7 +114,7 @@ func (uc *InspectHostUseCase) Execute(config domain.ServerConfig) (*domain.HostI
 	inspection := &domain.HostInspection{
 		ServerName: serverName,
 		Host:       targetHost,
-		IsLocal:    config.IsLocal(),
+		IsLocal:    IsLocal(config),
 		Timestamp:  time.Now().UTC(),
 		Services:   []domain.HostSystemService{},
 	}
@@ -140,7 +140,7 @@ func (uc *InspectHostUseCase) Execute(config domain.ServerConfig) (*domain.HostI
 // ExecuteMetricsOnly extrae exclusivamente las métricas de hardware sin incurrir en la sobrecarga de listar servicios.
 func (uc *InspectHostUseCase) ExecuteMetricsOnly(config domain.ServerConfig) (*domain.HostMetrics, error) {
 	targetHost := strings.TrimSpace(config.Host)
-	if config.IsLocal() && targetHost == "" {
+	if IsLocal(config) && targetHost == "" {
 		targetHost = "localhost"
 	}
 
@@ -168,7 +168,7 @@ func (uc *InspectHostUseCase) ExecuteMetricsOnly(config domain.ServerConfig) (*d
 // ExecuteServicesOnly extrae exclusivamente los servicios del sistema sin ejecutar telemetría de hardware.
 func (uc *InspectHostUseCase) ExecuteServicesOnly(config domain.ServerConfig) ([]domain.HostSystemService, error) {
 	targetHost := strings.TrimSpace(config.Host)
-	if config.IsLocal() && targetHost == "" {
+	if IsLocal(config) && targetHost == "" {
 		targetHost = "localhost"
 	}
 

@@ -156,3 +156,65 @@ func TestGetMasterKey_EnvironmentVariable(t *testing.T) {
 		t.Errorf("expected 32-byte key, got %d", len(key))
 	}
 }
+
+func TestIsLocalHost(t *testing.T) {
+	tests := []struct {
+		name          string
+		host          string
+		cloudProvider string
+		expected      bool
+	}{
+		{
+			name:          "localhost host",
+			host:          "localhost",
+			cloudProvider: "",
+			expected:      true,
+		},
+		{
+			name:          "127.0.0.1 host",
+			host:          "127.0.0.1",
+			cloudProvider: "",
+			expected:      true,
+		},
+		{
+			name:          "::1 host",
+			host:          "::1",
+			cloudProvider: "",
+			expected:      true,
+		},
+		{
+			name:          "local string host",
+			host:          "local",
+			cloudProvider: "",
+			expected:      true,
+		},
+		{
+			name:          "cloudProvider local",
+			host:          "my-vps",
+			cloudProvider: "local",
+			expected:      true,
+		},
+		{
+			name:          "remote host ip",
+			host:          "192.168.1.50",
+			cloudProvider: "custom",
+			expected:      false,
+		},
+		{
+			name:          "remote vps hostname",
+			host:          "vps.example.com",
+			cloudProvider: "vultr",
+			expected:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsLocalHost(tt.host, tt.cloudProvider)
+			if got != tt.expected {
+				t.Errorf("IsLocalHost(%q, %q) = %v, expected %v", tt.host, tt.cloudProvider, got, tt.expected)
+			}
+		})
+	}
+}
+

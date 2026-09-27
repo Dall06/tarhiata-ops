@@ -88,7 +88,7 @@ fi
 // Execute ejecuta la inspección remota de hardware y parsea los dispositivos conectados.
 func (uc *ListDevicesUseCase) Execute(config domain.ServerConfig) (*domain.HostDevices, error) {
 	targetHost := strings.TrimSpace(config.Host)
-	if config.IsLocal() && targetHost == "" {
+	if IsLocal(config) && targetHost == "" {
 		targetHost = "localhost"
 	}
 	serverName := strings.TrimSpace(config.Name)
@@ -113,7 +113,7 @@ func (uc *ListDevicesUseCase) Execute(config domain.ServerConfig) (*domain.HostD
 	devices := ParseHostDevicesOutput(rawOutput)
 	devices.ServerName = serverName
 	devices.Host = targetHost
-	devices.IsLocal = config.IsLocal()
+	devices.IsLocal = IsLocal(config)
 	devices.Timestamp = time.Now()
 
 	slog.Info("dispositivos del host detectados exitosamente",

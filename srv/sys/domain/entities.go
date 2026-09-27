@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"strings"
 	"time"
 )
 
@@ -17,18 +16,6 @@ type ServerConfig struct {
 	VultrAPIToken string `json:"vultrApiToken"` // Vultr API Key (Para Terraform)
 	CloudProvider string `json:"cloudProvider"` // "vultr", "custom" o "local"
 	IsActive      bool   `json:"isActive"`      // Indica si es la conexión predeterminada/activa
-}
-
-// IsLocal determina si la configuración apunta al equipo local donde corre Tarhiata.
-func (c ServerConfig) IsLocal() bool {
-	if c.CloudProvider == "local" {
-		return true
-	}
-	h := strings.ToLower(strings.TrimSpace(c.Host))
-	if h == "local" || h == "localhost" || h == "127.0.0.1" || h == "::1" {
-		return true
-	}
-	return false
 }
 
 // SavedService representa la configuración y estado persistido de un servicio en el catálogo local.

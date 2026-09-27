@@ -311,10 +311,10 @@ func (r *SQLiteRepository) addColumnIfMissing(table, column, colDef string) {
 func (r *SQLiteRepository) SaveServerConfig(config domain.ServerConfig) error {
 	name := strings.TrimSpace(config.Name)
 	if name == "" {
-		if config.IsLocal() {
+		if secutil.IsLocalHost(config.Host, config.CloudProvider) {
 			name = "local"
 		}
-		if !config.IsLocal() {
+		if !secutil.IsLocalHost(config.Host, config.CloudProvider) {
 			name = strings.TrimSpace(config.Host)
 			if name == "" {
 				name = "default"

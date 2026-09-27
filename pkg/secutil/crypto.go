@@ -202,3 +202,16 @@ func DecryptWithKey(ciphertext string, key []byte) (string, error) {
 
 	return string(plaintext), nil
 }
+
+// IsLocalHost determina si una configuración de host apunta al entorno local.
+func IsLocalHost(host, cloudProvider string) bool {
+	if cloudProvider == "local" {
+		return true
+	}
+	h := strings.ToLower(strings.TrimSpace(host))
+	if h == "local" || h == "localhost" || h == "127.0.0.1" || h == "::1" {
+		return true
+	}
+	return false
+}
+

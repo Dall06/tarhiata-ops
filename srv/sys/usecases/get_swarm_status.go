@@ -95,7 +95,7 @@ func (uc *GetSwarmStatusUseCase) Execute(config domain.ServerConfig) (*domain.Sw
 
 	// Configurar URLs de Dashboards
 	targetHost := strings.TrimSpace(config.Host)
-	if config.IsLocal() || targetHost == "" {
+	if IsLocal(config) || targetHost == "" {
 		targetHost = "localhost"
 	}
 	status.Dashboards["portainer"] = fmt.Sprintf("http://%s:9000", targetHost)

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/Dall06/tarhiata-ops/pkg/secutil"
 	"github.com/Dall06/tarhiata-ops/pkg/sshclient"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 )
@@ -38,7 +39,7 @@ func NewUnpooledCryptoSSHExecutor() *CryptoSSHExecutor {
 // Connect establece la conexión SSH segura o inicializa el ejecutor local.
 func (e *CryptoSSHExecutor) Connect(config domain.ServerConfig) error {
 	e.config = config
-	if config.IsLocal() {
+	if secutil.IsLocalHost(config.Host, config.CloudProvider) {
 		e.isLocal = true
 		cmd := exec.Command("sh", "-c", "echo ok")
 		out, err := cmd.CombinedOutput()

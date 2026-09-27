@@ -26,7 +26,7 @@ func (uc *ConnectServerUseCase) Execute(config domain.ServerConfig) (*domain.Con
 	start := time.Now()
 
 	targetHost := strings.TrimSpace(config.Host)
-	if config.IsLocal() && targetHost == "" {
+	if IsLocal(config) && targetHost == "" {
 		targetHost = "localhost"
 	}
 
@@ -37,7 +37,7 @@ func (uc *ConnectServerUseCase) Execute(config domain.ServerConfig) (*domain.Con
 
 	result := &domain.ConnectionResult{
 		Name:       name,
-		IsLocal:    config.IsLocal(),
+		IsLocal:    IsLocal(config),
 		TargetHost: targetHost,
 	}
 
