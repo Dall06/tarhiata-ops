@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/Dall06/tarhiata-ops/pkg/dockerutil"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 )
@@ -63,7 +64,7 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 	}
 
 	fmt.Printf("✅ ¡Servidor de Almacenamiento/BD '%s' (%s) desplegado correctamente en %s!\n", db.Name, db.Engine, db.VolumeHostPath)
-	fmt.Printf("🔌 URI Interna (Oculta): %s\n", formatSafeURI(db.Engine, serviceName, db.InternalPort))
+	fmt.Printf("🔌 URI Interna (Oculta): %s\n", dockerutil.BuildSafeURI(db.Engine, serviceName, db.InternalPort))
 
 	syncUC := NewSyncClusterStateUseCase(nil, uc.ssh)
 	if errSync := syncUC.ExportStateToRemote(); errSync != nil {
@@ -278,16 +279,3 @@ func (uc *DeployDatabaseUseCase) buildCreateCommand(db domain.SavedDatabase, ser
 	}
 }
 
-func formatSafeURI(engine, serviceName string, port int) string {
-	engineLower := strings.ToLower(engine)
-	switch engineLower {
-	case "mongo", "mongodb":
-		return fmt.Sprintf("mongodb://admin:********@%s:27017/?authSource=admin", serviceName)
-	case "redis":
-		return fmt.Sprintf("redis://:********@%s:6379", serviceName)
-	case "minio", "s3":
-		return fmt.Sprintf("s3://admin:********@%s:9000 (Console :9001)", serviceName)
-	default:
-		return fmt.Sprintf("%s://admin:********@%s:%d/db", engine, serviceName, port)
-	}
-}

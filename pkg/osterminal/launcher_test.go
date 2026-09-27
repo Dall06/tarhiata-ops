@@ -56,3 +56,11 @@ func TestBuildSSHCommand(t *testing.T) {
 		})
 	}
 }
+
+func TestOpenBrowserInvalidURL(t *testing.T) {
+	err := OpenBrowser("ftp://invalid-scheme.com")
+	if err == nil {
+		t.Error("OpenBrowser with ftp scheme should return error")
+	}
+}
+

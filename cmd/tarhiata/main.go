@@ -7,11 +7,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/Dall06/tarhiata-ops/srv/cli/app"
+	"github.com/Dall06/tarhiata-ops/pkg/prompt"
+	"github.com/Dall06/tarhiata-ops/pkg/validator"
 	"github.com/Dall06/tarhiata-ops/srv/cli/sys"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
@@ -23,27 +24,17 @@ import (
 // Version is the current release version of tarhiata-ops.
 const Version = "v1.0.0-beta"
 
-var validIdentifierRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`)
-
 func isValidIdentifier(s string) bool {
-	return validIdentifierRegex.MatchString(s)
+	return validator.IsIdentifier(s)
 }
 
 func isJSONOutput() bool {
 	return os.Getenv("TARHIATA_JSON") == "true"
 }
 
-func confirmAction(prompt string) bool {
-	if os.Getenv("TARHIATA_AUTO_YES") == "true" {
-		return true
-	}
-	fmt.Printf("%s (s/N): ", prompt)
-	var confirm string
-	if _, err := fmt.Scanln(&confirm); err != nil {
-		return false
-	}
-	confirm = strings.ToLower(strings.TrimSpace(confirm))
-	return confirm == "s" || confirm == "si" || confirm == "y" || confirm == "yes"
+func confirmAction(promptMsg string) bool {
+	ok, _ := prompt.Confirm(promptMsg, false)
+	return ok
 }
 
 func main() {

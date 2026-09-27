@@ -70,3 +70,26 @@ func OpenNativeTerminal(command string) error {
 		return fmt.Errorf("sistema operativo no soportado para apertura automática de terminal: %s", runtime.GOOS)
 	}
 }
+
+// OpenBrowser abre una URL en el navegador web predeterminado del sistema operativo.
+func OpenBrowser(rawURL string) error {
+	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
+		return fmt.Errorf("osterminal: url inválida (debe iniciar con http:// o https://): %s", rawURL)
+	}
+
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", rawURL)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", rawURL)
+	default:
+		cmd = exec.Command("xdg-open", rawURL)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("osterminal: fallo al abrir navegador para %s: %w", rawURL, err)
+	}
+	return nil
+}
+

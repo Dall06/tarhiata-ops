@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/Dall06/tarhiata-ops/pkg/dockerutil"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 )
@@ -187,7 +188,7 @@ func enrichSwarmServicesWithInspect(services []domain.SwarmServiceInfo, rawInspe
 			if len(parts) >= 3 {
 				rule = parts[2]
 			}
-			domainName := extractDomainFromRule(rule)
+			domainName := dockerutil.ExtractDomain(rule)
 			metaMap[name] = svcMeta{expose: enabled, domain: domainName}
 		}
 	}
@@ -201,21 +202,7 @@ func enrichSwarmServicesWithInspect(services []domain.SwarmServiceInfo, rawInspe
 }
 
 func extractDomainFromRule(rule string) string {
-	if strings.Contains(rule, "Host(`") {
-		start := strings.Index(rule, "Host(`") + 6
-		end := strings.Index(rule[start:], "`)")
-		if end != -1 {
-			return rule[start : start+end]
-		}
-	}
-	if strings.Contains(rule, "PathPrefix(`") {
-		start := strings.Index(rule, "PathPrefix(`") + 12
-		end := strings.Index(rule[start:], "`)")
-		if end != -1 {
-			return rule[start : start+end]
-		}
-	}
-	return ""
+	return dockerutil.ExtractDomain(rule)
 }
 
 // ParseSwarmServices convierte la salida tabulada de `docker service ls` en struct domain.SwarmServiceInfo.

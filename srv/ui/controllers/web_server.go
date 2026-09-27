@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -10,23 +9,24 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/Dall06/tarhiata-ops/opt/banner"
+	"github.com/Dall06/tarhiata-ops/opt/server"
+	"github.com/Dall06/tarhiata-ops/pkg/dockerutil"
+	"github.com/Dall06/tarhiata-ops/pkg/exs"
+	"github.com/Dall06/tarhiata-ops/pkg/httputil"
+	"github.com/Dall06/tarhiata-ops/pkg/osterminal"
+	"github.com/Dall06/tarhiata-ops/pkg/validator"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
 	"github.com/Dall06/tarhiata-ops/srv/sys/usecases"
-	"github.com/Dall06/tarhiata-ops/opt/banner"
-	"github.com/Dall06/tarhiata-ops/opt/server"
-	"github.com/Dall06/tarhiata-ops/pkg/exs"
-	"github.com/Dall06/tarhiata-ops/pkg/osterminal"
 	"github.com/Dall06/tarhiata-ops/srv/ui/dto"
 	"github.com/Dall06/tarhiata-ops/srv/ui/views/public"
 	"github.com/labstack/echo/v4"
@@ -2614,96 +2614,49 @@ func (w *WebServer) handleLinks(rw http.ResponseWriter, req *http.Request) {
 }
 
 func jsonResponse(rw http.ResponseWriter, data interface{}) {
-	rw.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(rw).Encode(data); err != nil {
+	if err := httputil.JSON(rw, http.StatusOK, data); err != nil {
 		slog.Error("web_server: error serializando jsonResponse", "error", err)
 	}
 }
 
 func jsonError(rw http.ResponseWriter, message string, statusCode int) {
-	rw.Header().Set("Content-Type", "application/json")
-	rw.WriteHeader(statusCode)
-	if err := json.NewEncoder(rw).Encode(map[string]string{"error": message}); err != nil {
+	if err := httputil.Error(rw, statusCode, message); err != nil {
 		slog.Error("web_server: error serializando jsonError", "error", err)
 	}
 }
 
 // streamJSON envía un evento de progreso al cliente en formato NDJSON.
 func streamJSON(rw http.ResponseWriter, flusher http.Flusher, eventType, msg string) {
-	data, err := json.Marshal(map[string]string{"t": eventType, "m": msg})
-	if err != nil {
+	if err := httputil.WriteEvent(rw, flusher, eventType, msg); err != nil {
 		slog.Warn("web_server: error serializando evento streamJSON", "error", err)
-		return
 	}
-	fmt.Fprintf(rw, "%s\n", data)
-	flusher.Flush()
 }
 
 // streamDoneJSON envía el evento final de éxito con datos al cliente.
 func streamDoneJSON(rw http.ResponseWriter, flusher http.Flusher, result map[string]string) {
-	payload := map[string]interface{}{"t": "done", "d": result}
-	data, err := json.Marshal(payload)
-	if err != nil {
+	if err := httputil.WriteDone(rw, flusher, result); err != nil {
 		slog.Warn("web_server: error serializando evento streamDoneJSON", "error", err)
-		return
 	}
-	fmt.Fprintf(rw, "%s\n", data)
-	flusher.Flush()
 }
 
 // setupStreaming configura los headers HTTP para streaming NDJSON y retorna el flusher.
 func setupStreaming(rw http.ResponseWriter) (http.Flusher, bool) {
-	rw.Header().Set("Content-Type", "application/x-ndjson")
-	rw.Header().Set("Cache-Control", "no-cache")
-	rw.Header().Set("X-Content-Type-Options", "nosniff")
-	flusher, ok := rw.(http.Flusher)
-	return flusher, ok
+	flusher, err := httputil.SetupStreaming(rw)
+	return flusher, err == nil
 }
 
 func openBrowser(rawURL string) {
-	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "linux":
-		cmd = exec.CommandContext(ctx, "xdg-open", rawURL)
-	case "windows":
-		cmd = exec.CommandContext(ctx, "rundll32", "url.dll,FileProtocolHandler", rawURL)
-	case "darwin":
-		cmd = exec.CommandContext(ctx, "open", rawURL)
-	}
-	if cmd != nil {
-		if err := cmd.Run(); err != nil {
-			fmt.Printf("⚠️ Advertencia: No se pudo abrir el navegador automáticamente para %s: %v\n", rawURL, err)
-		}
+	if err := osterminal.OpenBrowser(rawURL); err != nil {
+		fmt.Printf("⚠️ Advertencia: No se pudo abrir el navegador automáticamente para %s: %v\n", rawURL, err)
 	}
 }
 
 func isValidNodeID(id string) bool {
-	if id == "" || len(id) > 64 {
-		return false
-	}
-	for _, r := range id {
-		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.') {
-			return false
-		}
-	}
-	return true
+	return validator.IsNodeID(id)
 }
 
 func isAllowedTerminalCommand(cmd string) bool {
-	c := strings.TrimSpace(strings.ToLower(cmd))
-	blocked := []string{"rm -rf /", "rm -rf /*", "mkfs", "dd if=", "reboot", "shutdown", "init 0", ":(){ :|:& };:"}
-	for _, b := range blocked {
-		if strings.Contains(c, b) {
-			return false
-		}
-	}
-	return true
+	return validator.IsSafeCommand(cmd)
 }
 
 func (w *WebServer) handleNodes(rw http.ResponseWriter, req *http.Request) {
@@ -3199,11 +3152,7 @@ func (w *WebServer) handleLogs(rw http.ResponseWriter, req *http.Request) {
 }
 
 func isDockerError(out string) bool {
-	l := strings.ToLower(out)
-	return strings.Contains(l, "no such service") ||
-		strings.Contains(l, "no such container") ||
-		strings.Contains(l, "error response from daemon") ||
-		strings.Contains(l, "invalid service name")
+	return dockerutil.IsDockerError(out)
 }
 
 func (w *WebServer) handleBootstrapMaster(rw http.ResponseWriter, req *http.Request) {
