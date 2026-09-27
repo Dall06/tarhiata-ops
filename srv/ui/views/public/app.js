@@ -97,6 +97,36 @@ document.addEventListener('DOMContentLoaded', () => {
         return ok;
     }
 
+    async function apiFetch(url, options = {}, successMsg = null) {
+        try {
+            const res = await fetch(url, options);
+            if (!res.ok) {
+                const errText = await res.text();
+                let msg = errText;
+                try {
+                    const j = JSON.parse(errText);
+                    if (j.error || j.message) msg = j.error || j.message;
+                } catch (_) {}
+                showToast(`Error: ${msg}`, 'error');
+                return { ok: false, status: res.status, error: msg, data: null };
+            }
+            let data = null;
+            const contentType = res.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+                data = await res.json();
+            } else {
+                data = await res.text();
+            }
+            if (successMsg) {
+                showToast(successMsg, 'success');
+            }
+            return { ok: true, status: res.status, error: null, data };
+        } catch (err) {
+            showToast(`Fallo de conexión: ${err.message}`, 'error');
+            return { ok: false, status: 0, error: err.message, data: null };
+        }
+    }
+
     // --- DOM Elements: Top Bar & Server Switcher ---
     const serverSwitcherBtn = document.getElementById('serverSwitcherBtn');
     const serverPopover = document.getElementById('serverPopover');
@@ -2227,11 +2257,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     btnCloseModal.addEventListener('click', closeServerModal);
     if (btnCancelServer) btnCancelServer.addEventListener('click', closeServerModal);
-    serverModal.addEventListener('click', (e) => {
-        if (e.target === serverModal) closeServerModal();
-    });
+    if (serverModal) {
+        serverModal.addEventListener('click', (e) => {
+            if (e.target === serverModal) closeServerModal();
+        });
+    }
 
-    formServer.addEventListener('submit', async (e) => {
+    if (formServer) {
+        formServer.addEventListener('submit', async (e) => {
         e.preventDefault();
         const isCloud = (modalMode === 'cloud');
         const isLoc = (modalMode === 'local');
@@ -2286,48 +2319,50 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    btnModalTest.addEventListener('click', async () => {
-        btnModalTest.disabled = true;
-        btnModalTestText.textContent = 'Probando...';
-        modalTestResult.style.display = 'block';
-        modalTestResult.innerHTML = `<span style="color:var(--status-warning);">⏳ Verificando conexión...</span>`;
+    if (btnModalTest) {
+        btnModalTest.addEventListener('click', async () => {
+            btnModalTest.disabled = true;
+            btnModalTestText.textContent = 'Probando...';
+            modalTestResult.style.display = 'block';
+            modalTestResult.innerHTML = `<span style="color:var(--status-warning);">⏳ Verificando conexión...</span>`;
 
-        const isLoc = (modalMode === 'local');
-        const testPayload = {
-            name: cfgName.value.trim() || 'test',
-            host: isLoc ? 'localhost' : cfgHost.value.trim(),
-            port: isLoc ? 0 : parseInt(cfgPort.value || '22', 10),
-            user: isLoc ? 'local' : cfgUser.value.trim(),
-            privateKey: isLoc ? '' : cfgKey.value.trim(),
-            cloudProvider: isLoc ? 'local' : 'custom'
-        };
+            const isLoc = (modalMode === 'local');
+            const testPayload = {
+                name: cfgName.value.trim() || 'test',
+                host: isLoc ? 'localhost' : cfgHost.value.trim(),
+                port: isLoc ? 0 : parseInt(cfgPort.value || '22', 10),
+                user: isLoc ? 'local' : cfgUser.value.trim(),
+                privateKey: isLoc ? '' : cfgKey.value.trim(),
+                cloudProvider: isLoc ? 'local' : 'custom'
+            };
 
-        try {
-            const res = await fetch('/api/connect', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(testPayload)
-            });
-            if (!res.ok) {
-                const errText = await res.text();
-                modalTestResult.innerHTML = `<span style="color:var(--status-offline);">✕ Error (${res.status}): ${escapeHtml(errText)}</span>`;
-                return;
+            try {
+                const res = await fetch('/api/connect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(testPayload)
+                });
+                if (!res.ok) {
+                    const errText = await res.text();
+                    modalTestResult.innerHTML = `<span style="color:var(--status-offline);">✕ Error (${res.status}): ${escapeHtml(errText)}</span>`;
+                    return;
+                }
+                const data = await res.json();
+
+                if (!data.connected) {
+                    modalTestResult.innerHTML = `<div style="color:var(--status-offline); font-weight:700;">✕ Conexión fallida: ${escapeHtml(data.message)}</div>`;
+                    return;
+                }
+
+                modalTestResult.innerHTML = `<div style="color:var(--status-online); font-weight:700;">✓ Conectado exitosamente (${data.latencyMs} ms)</div>`;
+            } catch (err) {
+                modalTestResult.innerHTML = `<span style="color:var(--status-offline);">✕ Error: ${escapeHtml(err.message)}</span>`;
+            } finally {
+                btnModalTest.disabled = false;
+                btnModalTestText.textContent = 'Probar Conexión';
             }
-            const data = await res.json();
-
-            if (!data.connected) {
-                modalTestResult.innerHTML = `<div style="color:var(--status-offline); font-weight:700;">✕ Conexión fallida: ${escapeHtml(data.message)}</div>`;
-                return;
-            }
-
-            modalTestResult.innerHTML = `<div style="color:var(--status-online); font-weight:700;">✓ Conectado exitosamente (${data.latencyMs} ms)</div>`;
-        } catch (err) {
-            modalTestResult.innerHTML = `<span style="color:var(--status-offline);">✕ Error: ${escapeHtml(err.message)}</span>`;
-        } finally {
-            btnModalTest.disabled = false;
-            btnModalTestText.textContent = 'Probar Conexión';
-        }
-    });
+        });
+    }
 
     // --- Verificador Reactivo de DNS en Tiempo Real ---
     const checkDomainDnsDebounced = debounce(async (domain, feedbackEl) => {
@@ -2377,34 +2412,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Modal: Deploy App ---
     function openDeployModal() {
-        formDeploy.reset();
+        if (formDeploy) formDeploy.reset();
         if (depDomainDnsFeedback) {
             depDomainDnsFeedback.style.display = 'none';
             depDomainDnsFeedback.innerHTML = '';
         }
-        deployModal.style.display = 'flex';
+        if (deployModal) deployModal.style.display = 'flex';
     }
 
     if (btnGlobalDeploy) btnGlobalDeploy.addEventListener('click', openDeployModal);
     if (btnOpenDeployModal) btnOpenDeployModal.addEventListener('click', openDeployModal);
     if (btnZeroStateDeployApp) btnZeroStateDeployApp.addEventListener('click', openDeployModal);
     if (btnCloseDeployModal) btnCloseDeployModal.addEventListener('click', () => {
-        formDeploy.reset();
+        if (formDeploy) formDeploy.reset();
         if (depDomainDnsFeedback) depDomainDnsFeedback.style.display = 'none';
-        deployModal.style.display = 'none';
+        if (deployModal) deployModal.style.display = 'none';
     });
-    btnCancelDeploy.addEventListener('click', () => {
-        formDeploy.reset();
+    if (btnCancelDeploy) btnCancelDeploy.addEventListener('click', () => {
+        if (formDeploy) formDeploy.reset();
         if (depDomainDnsFeedback) depDomainDnsFeedback.style.display = 'none';
-        deployModal.style.display = 'none';
+        if (deployModal) deployModal.style.display = 'none';
     });
-    deployModal.addEventListener('click', (e) => {
-        if (e.target === deployModal) {
-            formDeploy.reset();
-            if (depDomainDnsFeedback) depDomainDnsFeedback.style.display = 'none';
-            deployModal.style.display = 'none';
-        }
-    });
+    if (deployModal) {
+        deployModal.addEventListener('click', (e) => {
+            if (e.target === deployModal) {
+                if (formDeploy) formDeploy.reset();
+                if (depDomainDnsFeedback) depDomainDnsFeedback.style.display = 'none';
+                deployModal.style.display = 'none';
+            }
+        });
+    }
 
     if (depDomain && depDomainDnsFeedback) {
         depDomain.addEventListener('input', (e) => {
@@ -2412,7 +2449,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    formDeploy.addEventListener('submit', async (e) => {
+    if (formDeploy) {
+        formDeploy.addEventListener('submit', async (e) => {
         e.preventDefault();
         btnSubmitDeploy.disabled = true;
         btnSubmitDeploy.innerHTML = '<span>Desplegando...</span>';
@@ -2482,7 +2520,8 @@ document.addEventListener('DOMContentLoaded', () => {
             btnSubmitDeploy.disabled = false;
             btnSubmitDeploy.innerHTML = '<span>Desplegar en Swarm</span>';
         }
-    });
+        });
+    }
 
     // --- Modal: Deploy Database ---
     function setDBMode(mode) {
@@ -2517,13 +2556,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    tabDBLocal.addEventListener('click', () => setDBMode('single-node'));
-    tabDBNode.addEventListener('click', () => setDBMode('multi-node'));
-    tabDBExternal.addEventListener('click', () => setDBMode('external'));
+    if (tabDBLocal) tabDBLocal.addEventListener('click', () => setDBMode('single-node'));
+    if (tabDBNode) tabDBNode.addEventListener('click', () => setDBMode('multi-node'));
+    if (tabDBExternal) tabDBExternal.addEventListener('click', () => setDBMode('external'));
 
-    dbEngine.addEventListener('change', () => {
-        dbPort.value = getDefaultPort(dbEngine.value);
-    });
+    if (dbEngine) {
+        dbEngine.addEventListener('change', () => {
+            if (dbPort) dbPort.value = getDefaultPort(dbEngine.value);
+        });
+    }
 
     function openDeployDBModal() {
         if (formDeployDB) formDeployDB.reset();
@@ -2536,78 +2577,85 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnZeroStateDeployDB) btnZeroStateDeployDB.addEventListener('click', openDeployDBModal);
     if (btnCloseDBModal) btnCloseDBModal.addEventListener('click', () => { if (formDeployDB) formDeployDB.reset(); if (dbModal) dbModal.style.display = 'none'; });
     if (btnCancelDB) btnCancelDB.addEventListener('click', () => { if (formDeployDB) formDeployDB.reset(); if (dbModal) dbModal.style.display = 'none'; });
-    dbModal.addEventListener('click', (e) => {
-        if (e.target === dbModal) { formDeployDB.reset(); dbModal.style.display = 'none'; }
-    });
+    if (dbModal) {
+        dbModal.addEventListener('click', (e) => {
+            if (e.target === dbModal) { if (formDeployDB) formDeployDB.reset(); dbModal.style.display = 'none'; }
+        });
+    }
 
-    formDeployDB.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        btnSubmitDB.disabled = true;
-        btnSubmitDBText.textContent = 'Creando...';
+    if (formDeployDB) {
+        formDeployDB.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            btnSubmitDB.disabled = true;
+            btnSubmitDBText.textContent = 'Creando...';
 
-        try {
-            const targetServer = selectedServerName || '';
-            const payload = {
-                name: dbName.value.trim(),
-                engine: dbEngine.value,
-                deployType: dbDeployMode,
-                externalUrl: dbExternalURL.value.trim(),
-                volumeHostPath: dbVolumePath.value.trim(),
-                internalPort: parseInt(dbPort.value || getDefaultPort(dbEngine.value), 10),
-                targetNode: dbTargetNode.value.trim() || 'manager'
-            };
+            try {
+                const targetServer = selectedServerName || '';
+                const payload = {
+                    name: dbName.value.trim(),
+                    engine: dbEngine.value,
+                    deployType: dbDeployMode,
+                    externalUrl: dbExternalURL.value.trim(),
+                    volumeHostPath: dbVolumePath.value.trim(),
+                    internalPort: parseInt(dbPort.value || getDefaultPort(dbEngine.value), 10),
+                    targetNode: dbTargetNode.value.trim() || 'manager'
+                };
 
-            const res = await fetch(`/api/deploy-db?server=${encodeURIComponent(targetServer)}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
+                const res = await fetch(`/api/deploy-db?server=${encodeURIComponent(targetServer)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
 
-            if (!res.ok) {
-                const errText = await res.text();
-                showToast(`Error: ${errText}`, 'error');
-                return;
+                if (!res.ok) {
+                    const errText = await res.text();
+                    showToast(`Error: ${errText}`, 'error');
+                    return;
+                }
+
+                const streamResult = await consumeNDJSONStream(
+                    res,
+                    (stepMsg) => showToast(stepMsg, 'info'),
+                    (errMsg) => showToast(`Error al crear BD: ${errMsg}`, 'error')
+                );
+
+                if (streamResult.hasError) {
+                    return;
+                }
+
+                showToast(`¡Base de datos '${payload.name}' creada exitosamente en '${targetServer || 'servidor'}'!`, 'success');
+                if (dbModal) dbModal.style.display = 'none';
+                formDeployDB.reset();
+                if (selectedServerName) {
+                    await loadSwarmStatus(selectedServerName);
+                }
+            } catch (err) {
+                showToast(`Error: ${err.message}`, 'error');
+            } finally {
+                btnSubmitDB.disabled = false;
+                btnSubmitDBText.textContent = 'Crear Base de Datos';
             }
-
-            const streamResult = await consumeNDJSONStream(
-                res,
-                (stepMsg) => showToast(stepMsg, 'info'),
-                (errMsg) => showToast(`Error al crear BD: ${errMsg}`, 'error')
-            );
-
-            if (streamResult.hasError) {
-                return;
-            }
-
-            showToast(`¡Base de datos '${payload.name}' creada exitosamente en '${targetServer || 'servidor'}'!`, 'success');
-            dbModal.style.display = 'none';
-            formDeployDB.reset();
-            if (selectedServerName) {
-                await loadSwarmStatus(selectedServerName);
-            }
-        } catch (err) {
-            showToast(`Error: ${err.message}`, 'error');
-        } finally {
-            btnSubmitDB.disabled = false;
-            btnSubmitDBText.textContent = 'Crear Base de Datos';
-        }
-    });
+        });
+    }
 
     // --- Modal: Service Linking ---
     if (btnOpenLinkModal) {
         btnOpenLinkModal.addEventListener('click', () => {
             populateLinkModalDropdowns();
-            formLink.reset();
-            linkModal.style.display = 'flex';
+            if (formLink) formLink.reset();
+            if (linkModal) linkModal.style.display = 'flex';
         });
     }
-    btnCloseLinkModal.addEventListener('click', () => { formLink.reset(); linkModal.style.display = 'none'; });
-    btnCancelLink.addEventListener('click', () => { formLink.reset(); linkModal.style.display = 'none'; });
-    linkModal.addEventListener('click', (e) => {
-        if (e.target === linkModal) { formLink.reset(); linkModal.style.display = 'none'; }
-    });
+    if (btnCloseLinkModal) btnCloseLinkModal.addEventListener('click', () => { if (formLink) formLink.reset(); if (linkModal) linkModal.style.display = 'none'; });
+    if (btnCancelLink) btnCancelLink.addEventListener('click', () => { if (formLink) formLink.reset(); if (linkModal) linkModal.style.display = 'none'; });
+    if (linkModal) {
+        linkModal.addEventListener('click', (e) => {
+            if (e.target === linkModal) { if (formLink) formLink.reset(); linkModal.style.display = 'none'; }
+        });
+    }
 
-    formLink.addEventListener('submit', async (e) => {
+    if (formLink) {
+        formLink.addEventListener('submit', async (e) => {
         e.preventDefault();
         btnSubmitLink.disabled = true;
         btnSubmitLink.innerHTML = '<span>Conectando...</span>';
@@ -2639,16 +2687,17 @@ document.addEventListener('DOMContentLoaded', () => {
             btnSubmitLink.disabled = false;
             btnSubmitLink.innerHTML = '<span>🔗 Conectar</span>';
         }
-    });
+        });
+    }
 
     // --- Modal: Edit Service ---
     function openEditServiceModal(name, expose, domain) {
-        formEditService.reset();
-        editServiceName.value = name;
-        editServiceTitle.textContent = `Ajustes: ${name}`;
-        editServiceExpose.value = expose ? 'true' : 'false';
-        editServiceDomain.value = domain || '';
-        editDomainField.style.display = expose ? 'flex' : 'none';
+        if (formEditService) formEditService.reset();
+        if (editServiceName) editServiceName.value = name;
+        if (editServiceTitle) editServiceTitle.textContent = `Ajustes: ${name}`;
+        if (editServiceExpose) editServiceExpose.value = expose ? 'true' : 'false';
+        if (editServiceDomain) editServiceDomain.value = domain || '';
+        if (editDomainField) editDomainField.style.display = expose ? 'flex' : 'none';
         if (editDomainDnsFeedback) {
             editDomainDnsFeedback.style.display = 'none';
             editDomainDnsFeedback.innerHTML = '';
@@ -2656,18 +2705,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 checkDomainDnsDebounced(domain, editDomainDnsFeedback);
             }
         }
-        editServiceModal.style.display = 'flex';
+        if (editServiceModal) editServiceModal.style.display = 'flex';
     }
 
-    editServiceExpose.addEventListener('change', () => {
-        const isPublic = editServiceExpose.value === 'true';
-        editDomainField.style.display = isPublic ? 'flex' : 'none';
-        if (!isPublic && editDomainDnsFeedback) {
-            editDomainDnsFeedback.style.display = 'none';
-        } else if (isPublic && editDomainDnsFeedback && editServiceDomain.value) {
-            checkDomainDnsDebounced(editServiceDomain.value, editDomainDnsFeedback);
-        }
-    });
+    if (editServiceExpose) {
+        editServiceExpose.addEventListener('change', () => {
+            const isPublic = editServiceExpose.value === 'true';
+            if (editDomainField) editDomainField.style.display = isPublic ? 'flex' : 'none';
+            if (!isPublic && editDomainDnsFeedback) {
+                editDomainDnsFeedback.style.display = 'none';
+            } else if (isPublic && editDomainDnsFeedback && editServiceDomain && editServiceDomain.value) {
+                checkDomainDnsDebounced(editServiceDomain.value, editDomainDnsFeedback);
+            }
+        });
+    }
 
     if (editServiceDomain && editDomainDnsFeedback) {
         editServiceDomain.addEventListener('input', (e) => {
@@ -2675,64 +2726,72 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    btnCloseEditServiceModal.addEventListener('click', () => {
-        formEditService.reset();
-        if (editDomainDnsFeedback) editDomainDnsFeedback.style.display = 'none';
-        editServiceModal.style.display = 'none';
-    });
-    btnCancelEditService.addEventListener('click', () => {
-        formEditService.reset();
-        if (editDomainDnsFeedback) editDomainDnsFeedback.style.display = 'none';
-        editServiceModal.style.display = 'none';
-    });
-    editServiceModal.addEventListener('click', (e) => {
-        if (e.target === editServiceModal) {
-            formEditService.reset();
+    if (btnCloseEditServiceModal) {
+        btnCloseEditServiceModal.addEventListener('click', () => {
+            if (formEditService) formEditService.reset();
             if (editDomainDnsFeedback) editDomainDnsFeedback.style.display = 'none';
-            editServiceModal.style.display = 'none';
-        }
-    });
-
-    formEditService.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        btnSubmitEditService.disabled = true;
-
-        const name = editServiceName.value;
-        const expose = editServiceExpose.value === 'true';
-        const domain = editServiceDomain.value.trim();
-        const port = parseInt(editServicePort.value || '80', 10);
-
-        try {
-            let svc = { name, expose, domain, port };
-            const getRes = await fetch(`/api/services/${encodeURIComponent(name)}`);
-            if (getRes.ok) {
-                const existing = await getRes.json();
-                svc = { ...existing, expose, domain, port };
+            if (editServiceModal) editServiceModal.style.display = 'none';
+        });
+    }
+    if (btnCancelEditService) {
+        btnCancelEditService.addEventListener('click', () => {
+            if (formEditService) formEditService.reset();
+            if (editDomainDnsFeedback) editDomainDnsFeedback.style.display = 'none';
+            if (editServiceModal) editServiceModal.style.display = 'none';
+        });
+    }
+    if (editServiceModal) {
+        editServiceModal.addEventListener('click', (e) => {
+            if (e.target === editServiceModal) {
+                if (formEditService) formEditService.reset();
+                if (editDomainDnsFeedback) editDomainDnsFeedback.style.display = 'none';
+                editServiceModal.style.display = 'none';
             }
+        });
+    }
 
-            const updateRes = await fetch(`/api/services/${encodeURIComponent(name)}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(svc)
-            });
+    if (formEditService) {
+        formEditService.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            btnSubmitEditService.disabled = true;
 
-            if (!updateRes.ok) {
-                const errText = await updateRes.text();
-                showToast(`Error: ${errText}`, 'error');
-                return;
+            const name = editServiceName.value;
+            const expose = editServiceExpose.value === 'true';
+            const domain = editServiceDomain.value.trim();
+            const port = parseInt(editServicePort.value || '80', 10);
+
+            try {
+                let svc = { name, expose, domain, port };
+                const getRes = await fetch(`/api/services/${encodeURIComponent(name)}`);
+                if (getRes.ok) {
+                    const existing = await getRes.json();
+                    svc = { ...existing, expose, domain, port };
+                }
+
+                const updateRes = await fetch(`/api/services/${encodeURIComponent(name)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(svc)
+                });
+
+                if (!updateRes.ok) {
+                    const errText = await updateRes.text();
+                    showToast(`Error: ${errText}`, 'error');
+                    return;
+                }
+
+                showToast(`¡Servicio '${name}' actualizado!`, 'success');
+                if (editServiceModal) editServiceModal.style.display = 'none';
+                if (selectedServerName) {
+                    await loadSwarmStatus(selectedServerName);
+                }
+            } catch (err) {
+                showToast(`Error: ${err.message}`, 'error');
+            } finally {
+                btnSubmitEditService.disabled = false;
             }
-
-            showToast(`¡Servicio '${name}' actualizado!`, 'success');
-            editServiceModal.style.display = 'none';
-            if (selectedServerName) {
-                await loadSwarmStatus(selectedServerName);
-            }
-        } catch (err) {
-            showToast(`Error: ${err.message}`, 'error');
-        } finally {
-            btnSubmitEditService.disabled = false;
-        }
-    });
+        });
+    }
 
     // --- Swarm Join Token Action ---
     if (btnCopyJoinToken) {
