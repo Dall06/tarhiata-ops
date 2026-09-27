@@ -281,3 +281,85 @@ func TestHandleTopologyCommand_JSON(t *testing.T) {
 		t.Errorf("expected JSON topology output, got: %s", out)
 	}
 }
+
+func TestHandleLogsCLICommand_Validation(t *testing.T) {
+	// Empty args
+	outEmpty := captureOutput(func() {
+		handleLogsCLICommand(nil, []string{})
+	})
+	if !strings.Contains(outEmpty, "Uso:") {
+		t.Errorf("expected usage on empty args, got: %s", outEmpty)
+	}
+
+	// Invalid identifier
+	outInvalid := captureOutput(func() {
+		handleLogsCLICommand(nil, []string{"invalid;name"})
+	})
+	if !strings.Contains(outInvalid, "inválido") {
+		t.Errorf("expected invalid identifier warning, got: %s", outInvalid)
+	}
+
+	// Unconfigured VPS
+	outNoVPS := captureOutput(func() {
+		handleLogsCLICommand(nil, []string{"my-service"})
+	})
+	if !strings.Contains(outNoVPS, "no configurado") {
+		t.Errorf("expected unconfigured VPS warning, got: %s", outNoVPS)
+	}
+}
+
+func TestHandleServiceStopCommand(t *testing.T) {
+	repo, cleanup := setupTempRepo(t)
+	defer cleanup()
+
+	if err := repo.SaveService(domain.SavedService{Name: "app-to-stop", ImageSource: "nginx"}); err != nil {
+		t.Fatalf("unexpected error saving service: %v", err)
+	}
+
+	os.Setenv("TARHIATA_AUTO_YES", "true")
+	defer os.Unsetenv("TARHIATA_AUTO_YES")
+
+	out := captureOutput(func() {
+		handleServiceStopCommand(repo, nil, []string{"app-to-stop"})
+	})
+
+	if !strings.Contains(out, "detenido") {
+		t.Errorf("expected stopped confirmation, got: %s", out)
+	}
+
+	svc, errGet := repo.GetService("app-to-stop")
+	if errGet != nil {
+		t.Fatalf("unexpected error fetching service: %v", errGet)
+	}
+	if svc != nil {
+		t.Error("expected service to be removed from local repo")
+	}
+}
+
+func TestHandleTraefikCLICommand_Validation(t *testing.T) {
+	outNoVPS := captureOutput(func() {
+		handleTraefikCLICommand(nil, []string{"status"})
+	})
+	if !strings.Contains(outNoVPS, "no configurado") {
+		t.Errorf("expected unconfigured VPS warning, got: %s", outNoVPS)
+	}
+
+	outInvalid := captureOutput(func() {
+		handleTraefikCLICommand(&domain.ServerConfig{Host: "1.2.3.4"}, []string{"invalid-subcmd"})
+	})
+	if !strings.Contains(outInvalid, "Uso:") {
+		t.Errorf("expected usage warning on invalid subcmd, got: %s", outInvalid)
+	}
+}
+
+func TestHandleSyncCLICommand_Validation(t *testing.T) {
+	repo, cleanup := setupTempRepo(t)
+	defer cleanup()
+
+	outNoVPS := captureOutput(func() {
+		handleSyncCLICommand(repo, nil, []string{"import"})
+	})
+	if !strings.Contains(outNoVPS, "no configurado") {
+		t.Errorf("expected unconfigured VPS warning, got: %s", outNoVPS)
+	}
+}

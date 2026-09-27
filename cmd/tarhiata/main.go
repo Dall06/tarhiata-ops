@@ -174,8 +174,20 @@ func main() {
 	case "update":
 		handleUpdateCommand(serverConfig)
 
-	case "list":
+	case "list", "ps", "services", "ls":
 		handleListCommand(repo)
+
+	case "logs", "log":
+		handleLogsCLICommand(serverConfig, subArgs)
+
+	case "stop", "rm", "delete":
+		handleServiceStopCommand(repo, serverConfig, subArgs)
+
+	case "traefik":
+		handleTraefikCLICommand(serverConfig, subArgs)
+
+	case "sync":
+		handleSyncCLICommand(repo, serverConfig, subArgs)
 
 	case "status":
 		handleStatusCommand(repo, serverConfig)
@@ -2179,10 +2191,171 @@ Comandos disponibles:
   obs deploy         Despliega el stack de observabilidad (Portainer, Loki, Grafana)
   ssh-key            Gestiona llaves SSH autorizadas (ls/add/rm con protección Vultr)
   update             Actualiza paquetes del sistema y Docker daemon
-  list               Lista todos los servicios y bases de datos registrados
+  list | ps | ls     Lista todos los servicios y bases de datos registrados
+  logs <servicio>    Muestra los logs de un servicio en tiempo real (--tail 100)
+  stop <servicio>    Detiene y elimina un servicio o base de datos del clúster
+  traefik <restart>  Reinicia o consulta el proxy inverso Traefik
+  sync <import|export> Sincroniza el catálogo de aplicaciones entre nodos y SQLite
   status             Muestra la salud del servidor y del clúster
   topology           Muestra el grafo de dependencias y rutas DNS del clúster
   prune              Limpia imágenes y volúmenes obsoletos en el VPS`)
+}
+
+func handleLogsCLICommand(config *domain.ServerConfig, args []string) {
+	if len(args) == 0 {
+		fmt.Println("❌ Uso: tarhiata logs <service-name> [--tail 100]")
+		return
+	}
+	svcName := strings.TrimSpace(args[0])
+	if !isValidIdentifier(svcName) {
+		fmt.Println("❌ Nombre de servicio inválido.")
+		return
+	}
+	if config == nil || config.Host == "" {
+		fmt.Println("❌ VPS no configurado.")
+		return
+	}
+
+	tail := "100"
+	for i := 1; i < len(args); i++ {
+		if (args[i] == "--tail" || args[i] == "-n") && i+1 < len(args) {
+			tail = args[i+1]
+			i++
+		}
+	}
+
+	sshExec := repositories.NewCryptoSSHExecutor()
+	if err := sshExec.Connect(*config); err != nil {
+		fmt.Printf("❌ Error SSH: %v\n", err)
+		return
+	}
+	defer sshExec.Close()
+
+	cmd := fmt.Sprintf("docker service logs --tail %s --timestamps %s 2>&1 || docker logs --tail %s --timestamps %s 2>&1", tail, svcName, tail, svcName)
+	res, err := sshExec.RunCommand(cmd)
+	if err != nil || res == nil {
+		fmt.Printf("❌ Error obteniendo logs de '%s': %v\n", svcName, err)
+		return
+	}
+	fmt.Printf("📜 Logs para '%s' (últimas %s líneas):\n", svcName, tail)
+	fmt.Println(res.Output)
+}
+
+func handleServiceStopCommand(repo *repositories.SQLiteRepository, config *domain.ServerConfig, args []string) {
+	if len(args) == 0 {
+		fmt.Println("❌ Uso: tarhiata stop <service-name>")
+		return
+	}
+	svcName := strings.TrimSpace(args[0])
+	if !isValidIdentifier(svcName) {
+		fmt.Println("❌ Nombre de servicio inválido.")
+		return
+	}
+
+	if !confirmAction(fmt.Sprintf("⚠️  ¿Está seguro de eliminar/detener el servicio '%s'?", svcName)) {
+		fmt.Println("Operación cancelada.")
+		return
+	}
+
+	if config != nil && config.Host != "" {
+		sshExec := repositories.NewCryptoSSHExecutor()
+		if err := sshExec.Connect(*config); err == nil {
+			defer sshExec.Close()
+			cmd := fmt.Sprintf("docker service rm %s || docker service rm %s_%s || docker service rm tarhiata-app-%s || docker service rm tarhiata-db-%s || docker rm -f %s",
+				svcName, svcName, svcName, svcName, svcName, svcName)
+			if _, execErr := sshExec.RunCommand(cmd); execErr != nil {
+				slog.Debug("aviso al detener servicio remoto", "error", execErr)
+			}
+		}
+	}
+
+	if delErr := repo.DeleteService(svcName); delErr != nil {
+		slog.Debug("aviso al eliminar servicio de catálogo", "error", delErr)
+	}
+	if delDbErr := repo.DeleteDatabase(svcName); delDbErr != nil {
+		slog.Debug("aviso al eliminar db de catálogo", "error", delDbErr)
+	}
+	fmt.Printf("✅ Servicio o base de datos '%s' detenido y removido del clúster.\n", svcName)
+}
+
+func handleTraefikCLICommand(config *domain.ServerConfig, args []string) {
+	if config == nil || config.Host == "" {
+		fmt.Println("❌ VPS no configurado.")
+		return
+	}
+	subCmd := "restart"
+	if len(args) > 0 {
+		subCmd = strings.ToLower(args[0])
+	}
+	if subCmd != "restart" && subCmd != "reload" && subCmd != "status" {
+		fmt.Println("❌ Uso: tarhiata traefik <restart|reload|status>")
+		return
+	}
+
+	sshExec := repositories.NewCryptoSSHExecutor()
+	if err := sshExec.Connect(*config); err != nil {
+		fmt.Printf("❌ Error SSH: %v\n", err)
+		return
+	}
+	defer sshExec.Close()
+
+	if subCmd == "status" {
+		res, err := sshExec.RunCommand("docker service ps tarhiata_traefik --no-trunc || docker ps -f name=traefik")
+		if err != nil || res == nil {
+			fmt.Printf("❌ Error consultando Traefik: %v\n", err)
+			return
+		}
+		fmt.Println("🔀 Estado de Traefik Reverse Proxy:")
+		fmt.Println(res.Output)
+		return
+	}
+
+	fmt.Println("🔄 Reiniciando Traefik Reverse Proxy...")
+	res, err := sshExec.RunCommand("docker service update --force tarhiata_traefik || docker restart traefik")
+	if err != nil || res == nil || res.ExitCode != 0 {
+		fmt.Printf("❌ Error al reiniciar Traefik: %v\n", err)
+		return
+	}
+	fmt.Println("✅ Traefik reiniciado y recargado con éxito.")
+}
+
+func handleSyncCLICommand(repo *repositories.SQLiteRepository, config *domain.ServerConfig, args []string) {
+	if config == nil || config.Host == "" {
+		fmt.Println("❌ VPS no configurado.")
+		return
+	}
+
+	sshExec := repositories.NewCryptoSSHExecutor()
+	if err := sshExec.Connect(*config); err != nil {
+		fmt.Printf("❌ Error SSH: %v\n", err)
+		return
+	}
+	defer sshExec.Close()
+
+	syncUC := usecases.NewSyncClusterStateUseCase(repo, sshExec)
+	subCmd := "import"
+	if len(args) > 0 {
+		subCmd = strings.ToLower(args[0])
+	}
+
+	if subCmd == "export" {
+		fmt.Println("⏳ Exportando estado de catálogo local al clúster remoto...")
+		if err := syncUC.ExportStateToRemote(); err != nil {
+			fmt.Printf("❌ Error exportando estado: %v\n", err)
+			return
+		}
+		fmt.Println("✅ Estado local exportado y persistido en el VPS.")
+		return
+	}
+
+	fmt.Println("⏳ Sincronizando e importando catálogo desde el VPS remoto...")
+	dump, err := syncUC.ImportStateFromRemote()
+	if err != nil {
+		fmt.Printf("❌ Error sincronizando catálogo remoto: %v\n", err)
+		return
+	}
+	fmt.Printf("✅ Sincronización completada (%d apps, %d bases de datos, %d enlaces importados).\n",
+		len(dump.Services), len(dump.Databases), len(dump.ServiceLinks))
 }
 
 func handleSSHKeyCLICommand(config *domain.ServerConfig, args []string) {
