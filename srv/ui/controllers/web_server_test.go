@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
+	"github.com/Dall06/tarhiata-ops/srv/sys/tests/mocks"
 )
 
 type mockRepo struct{}
@@ -1728,6 +1729,526 @@ func TestWebServer_EchoEngineIntegration(t *testing.T) {
 		})
 	}
 }
+
+func TestWebServer_HandleObservabilitySuite(t *testing.T) {
+	tests := []struct {
+		name           string
+		method         string
+		setupMock      func(m *mocks.MockConfigRepository)
+		body           string
+		expectedStatus int
+		checkBody      func(t *testing.T, body string)
+	}{
+		{
+			name:   "GET observability when disabled returns enabled false",
+			method: http.MethodGet,
+			setupMock: func(m *mocks.MockConfigRepository) {
+				m.Observability = nil
+			},
+			expectedStatus: http.StatusOK,
+			checkBody: func(t *testing.T, body string) {
+				if !strings.Contains(body, `"enabled":false`) {
+					t.Errorf("expected enabled:false, got: %s", body)
+				}
+			},
+		},
+		{
+			name:   "GET observability when enabled returns details",
+			method: http.MethodGet,
+			setupMock: func(m *mocks.MockConfigRepository) {
+				m.Observability = &domain.SavedObservability{
+					DeployType:      "swarm",
+					ExternalURL:     "https://obs.tarhiata.local",
+					GrafanaPassword: "admin_pass_secure",
+				}
+			},
+			expectedStatus: http.StatusOK,
+			checkBody: func(t *testing.T, body string) {
+				if !strings.Contains(body, `"enabled":true`) || !strings.Contains(body, "obs.tarhiata.local") {
+					t.Errorf("expected enabled:true with url, got: %s", body)
+				}
+			},
+		},
+		{
+			name:           "POST observability with invalid payload returns 400",
+			method:         http.MethodPost,
+			setupMock:      func(m *mocks.MockConfigRepository) {},
+			body:           `{invalid_json`,
+			expectedStatus: http.StatusBadRequest,
+			checkBody:      nil,
+		},
+		{
+			name:           "PUT observability returns 405 Method Not Allowed",
+			method:         http.MethodPut,
+			setupMock:      func(m *mocks.MockConfigRepository) {},
+			expectedStatus: http.StatusMethodNotAllowed,
+			checkBody:      nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mRepo := mocks.NewMockConfigRepository()
+			tt.setupMock(mRepo)
+			cfg := &domain.ServerConfig{Host: "127.0.0.1", User: "root"}
+			ws := NewWebServer(mRepo, cfg)
+
+			var reqBody io.Reader
+			if tt.body != "" {
+				reqBody = strings.NewReader(tt.body)
+			}
+			req := httptest.NewRequest(tt.method, "/api/observability", reqBody)
+			rr := httptest.NewRecorder()
+
+			ws.handleObservability(rr, req)
+
+			if rr.Code != tt.expectedStatus {
+				t.Fatalf("expected status %d, got %d. Body: %s", tt.expectedStatus, rr.Code, rr.Body.String())
+			}
+			if tt.checkBody != nil {
+				tt.checkBody(t, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestWebServer_HandleMigrationsSuite(t *testing.T) {
+	tests := []struct {
+		name           string
+		method         string
+		targetURL      string
+		body           string
+		setupMock      func(m *mocks.MockConfigRepository)
+		expectedStatus int
+		checkBody      func(t *testing.T, mRepo *mocks.MockConfigRepository, body string)
+	}{
+		{
+			name:      "GET migrations returns empty array when none exist",
+			method:    http.MethodGet,
+			targetURL: "/api/migrations?db=shop-db",
+			setupMock: func(m *mocks.MockConfigRepository) {},
+			expectedStatus: http.StatusOK,
+			checkBody: func(t *testing.T, mRepo *mocks.MockConfigRepository, body string) {
+				var files []domain.MigrationFile
+				if err := json.Unmarshal([]byte(body), &files); err != nil {
+					t.Fatalf("failed to decode response: %v", err)
+				}
+				if len(files) != 0 {
+					t.Errorf("expected 0 files, got %d", len(files))
+				}
+			},
+		},
+		{
+			name:      "POST migration file saves successfully",
+			method:    http.MethodPost,
+			targetURL: "/api/migrations/file",
+			body: `{
+				"dbName": "shop-db",
+				"filename": "001_create_users.sql",
+				"content": "CREATE TABLE users (id SERIAL PRIMARY KEY);",
+				"downContent": "DROP TABLE users;"
+			}`,
+			setupMock:      func(m *mocks.MockConfigRepository) {},
+			expectedStatus: http.StatusOK,
+			checkBody: func(t *testing.T, mRepo *mocks.MockConfigRepository, body string) {
+				if len(mRepo.Migrations) != 1 {
+					t.Fatalf("expected 1 migration in mock, got %d", len(mRepo.Migrations))
+				}
+				if mRepo.Migrations[0].Filename != "001_create_users.sql" {
+					t.Errorf("unexpected filename: %s", mRepo.Migrations[0].Filename)
+				}
+			},
+		},
+		{
+			name:           "POST migration file with invalid JSON returns 400",
+			method:         http.MethodPost,
+			targetURL:      "/api/migrations/file",
+			body:           `{bad_json`,
+			setupMock:      func(m *mocks.MockConfigRepository) {},
+			expectedStatus: http.StatusBadRequest,
+			checkBody:      nil,
+		},
+		{
+			name:      "DELETE migration file removes from repository",
+			method:    http.MethodDelete,
+			targetURL: "/api/migrations/file?db=shop-db&filename=001_create_users.sql",
+			setupMock: func(m *mocks.MockConfigRepository) {
+				if err := m.SaveMigrationFile(domain.MigrationFile{
+					DBName:   "shop-db",
+					Filename: "001_create_users.sql",
+					Status:   "pending",
+				}); err != nil {
+					t.Fatalf("failed to setup migration: %v", err)
+				}
+			},
+			expectedStatus: http.StatusOK,
+			checkBody: func(t *testing.T, mRepo *mocks.MockConfigRepository, body string) {
+				if len(mRepo.Migrations) != 0 {
+					t.Errorf("expected migration to be deleted, remaining: %d", len(mRepo.Migrations))
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mRepo := mocks.NewMockConfigRepository()
+			tt.setupMock(mRepo)
+			cfg := &domain.ServerConfig{Host: "127.0.0.1", User: "root"}
+			ws := NewWebServer(mRepo, cfg)
+
+			var reqBody io.Reader
+			if tt.body != "" {
+				reqBody = strings.NewReader(tt.body)
+			}
+			req := httptest.NewRequest(tt.method, tt.targetURL, reqBody)
+			rr := httptest.NewRecorder()
+
+			if strings.HasPrefix(tt.targetURL, "/api/migrations/file") {
+				ws.handleMigrationFile(rr, req)
+			} else {
+				ws.handleMigrations(rr, req)
+			}
+
+			if rr.Code != tt.expectedStatus {
+				t.Fatalf("expected status %d, got %d. Body: %s", tt.expectedStatus, rr.Code, rr.Body.String())
+			}
+			if tt.checkBody != nil {
+				tt.checkBody(t, mRepo, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestWebServer_HandleBackupsSuite(t *testing.T) {
+	tests := []struct {
+		name           string
+		method         string
+		targetURL      string
+		body           string
+		setupMock      func(m *mocks.MockConfigRepository)
+		expectedStatus int
+		checkBody      func(t *testing.T, body string)
+	}{
+		{
+			name:      "GET backups returns all items",
+			method:    http.MethodGet,
+			targetURL: "/api/backups",
+			setupMock: func(m *mocks.MockConfigRepository) {
+				if err := m.SaveBackup(domain.SavedBackup{
+					ID:         1,
+					TargetName: "db-main",
+					Engine:     "postgres",
+					Filename:   "backup_1.sql",
+				}); err != nil {
+					t.Fatalf("failed to save mock backup: %v", err)
+				}
+			},
+			expectedStatus: http.StatusOK,
+			checkBody: func(t *testing.T, body string) {
+				var backups []domain.SavedBackup
+				if err := json.Unmarshal([]byte(body), &backups); err != nil {
+					t.Fatalf("failed to parse response: %v", err)
+				}
+				if len(backups) != 1 || backups[0].TargetName != "db-main" {
+					t.Errorf("unexpected backups response: %+v", backups)
+				}
+			},
+		},
+		{
+			name:      "GET backups with targetName filter filters correctly",
+			method:    http.MethodGet,
+			targetURL: "/api/backups?targetName=db-redis",
+			setupMock: func(m *mocks.MockConfigRepository) {
+				if err := m.SaveBackup(domain.SavedBackup{
+					ID:         1,
+					TargetName: "db-main",
+				}); err != nil {
+					t.Fatalf("failed to save mock backup: %v", err)
+				}
+			},
+			expectedStatus: http.StatusOK,
+			checkBody: func(t *testing.T, body string) {
+				var backups []domain.SavedBackup
+				if err := json.Unmarshal([]byte(body), &backups); err != nil {
+					t.Fatalf("failed to parse response: %v", err)
+				}
+				if len(backups) != 0 {
+					t.Errorf("expected 0 backups for filter, got %d", len(backups))
+				}
+			},
+		},
+		{
+			name:           "POST backup with missing target name returns 400",
+			method:         http.MethodPost,
+			targetURL:      "/api/backups",
+			body:           `{"targetType":"database"}`,
+			setupMock:      func(m *mocks.MockConfigRepository) {},
+			expectedStatus: http.StatusBadRequest,
+			checkBody:      nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mRepo := mocks.NewMockConfigRepository()
+			tt.setupMock(mRepo)
+			cfg := &domain.ServerConfig{Host: "127.0.0.1", User: "root"}
+			ws := NewWebServer(mRepo, cfg)
+
+			var reqBody io.Reader
+			if tt.body != "" {
+				reqBody = strings.NewReader(tt.body)
+			}
+			req := httptest.NewRequest(tt.method, tt.targetURL, reqBody)
+			rr := httptest.NewRecorder()
+
+			ws.handleBackups(rr, req)
+
+			if rr.Code != tt.expectedStatus {
+				t.Fatalf("expected status %d, got %d. Body: %s", tt.expectedStatus, rr.Code, rr.Body.String())
+			}
+			if tt.checkBody != nil {
+				tt.checkBody(t, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestWebServer_HandleAuditLogsSuite(t *testing.T) {
+	tests := []struct {
+		name           string
+		method         string
+		setupMock      func(m *mocks.MockConfigRepository)
+		expectedStatus int
+		checkBody      func(t *testing.T, body string)
+	}{
+		{
+			name:   "GET audit logs returns logs list",
+			method: http.MethodGet,
+			setupMock: func(m *mocks.MockConfigRepository) {
+				if err := m.SaveAuditLog(domain.AuditLog{
+					ID:           1,
+					Action:       "DEPLOY",
+					ResourceType: "service",
+					ResourceName: "shop-api",
+					Details:      "Deployed by developer",
+					Timestamp:    time.Now(),
+				}); err != nil {
+					t.Fatalf("failed to save mock audit log: %v", err)
+				}
+			},
+			expectedStatus: http.StatusOK,
+			checkBody: func(t *testing.T, body string) {
+				var logs []domain.AuditLog
+				if err := json.Unmarshal([]byte(body), &logs); err != nil {
+					t.Fatalf("failed to parse response: %v", err)
+				}
+				if len(logs) != 1 || logs[0].Action != "DEPLOY" {
+					t.Errorf("unexpected audit logs list: %+v", logs)
+				}
+			},
+		},
+		{
+			name:           "POST audit logs returns 405 Method Not Allowed",
+			method:         http.MethodPost,
+			setupMock:      func(m *mocks.MockConfigRepository) {},
+			expectedStatus: http.StatusMethodNotAllowed,
+			checkBody:      nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mRepo := mocks.NewMockConfigRepository()
+			tt.setupMock(mRepo)
+			cfg := &domain.ServerConfig{Host: "127.0.0.1", User: "root"}
+			ws := NewWebServer(mRepo, cfg)
+
+			req := httptest.NewRequest(tt.method, "/api/audit-logs", nil)
+			rr := httptest.NewRecorder()
+
+			ws.handleAuditLogs(rr, req)
+
+			if rr.Code != tt.expectedStatus {
+				t.Fatalf("expected status %d, got %d", tt.expectedStatus, rr.Code)
+			}
+			if tt.checkBody != nil {
+				tt.checkBody(t, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestWebServer_HandleDNSCheckSuite(t *testing.T) {
+	tests := []struct {
+		name           string
+		method         string
+		url            string
+		expectedStatus int
+		checkBody      func(t *testing.T, body string)
+	}{
+		{
+			name:           "DNS check with missing domain param returns 400",
+			method:         http.MethodGet,
+			url:            "/api/dns/check",
+			expectedStatus: http.StatusBadRequest,
+			checkBody:      nil,
+		},
+		{
+			name:           "DNS check with invalid domain format returns 400",
+			method:         http.MethodGet,
+			url:            "/api/dns/check?domain=invalid..domain!@#",
+			expectedStatus: http.StatusBadRequest,
+			checkBody:      nil,
+		},
+		{
+			name:           "DNS check with valid domain format performs lookup",
+			method:         http.MethodGet,
+			url:            "/api/dns/check?domain=example.com",
+			expectedStatus: http.StatusOK,
+			checkBody: func(t *testing.T, body string) {
+				var res map[string]interface{}
+				if err := json.Unmarshal([]byte(body), &res); err != nil {
+					t.Fatalf("failed to unmarshal DNS response: %v", err)
+				}
+				if res["domain"] != "example.com" {
+					t.Errorf("expected domain 'example.com', got: %v", res["domain"])
+				}
+			},
+		},
+		{
+			name:           "DNS check with POST method returns 405",
+			method:         http.MethodPost,
+			url:            "/api/dns/check?domain=example.com",
+			expectedStatus: http.StatusMethodNotAllowed,
+			checkBody:      nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mRepo := mocks.NewMockConfigRepository()
+			cfg := &domain.ServerConfig{Host: "127.0.0.1", User: "root"}
+			ws := NewWebServer(mRepo, cfg)
+
+			req := httptest.NewRequest(tt.method, tt.url, nil)
+			rr := httptest.NewRecorder()
+
+			ws.handleDNSCheck(rr, req)
+
+			if rr.Code != tt.expectedStatus {
+				t.Fatalf("expected status %d, got %d", tt.expectedStatus, rr.Code)
+			}
+			if tt.checkBody != nil {
+				tt.checkBody(t, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestWebServer_HandleRegistriesSuite(t *testing.T) {
+	tests := []struct {
+		name           string
+		method         string
+		url            string
+		body           string
+		setupMock      func(m *mocks.MockConfigRepository)
+		expectedStatus int
+		checkBody      func(t *testing.T, mRepo *mocks.MockConfigRepository, body string)
+	}{
+		{
+			name:      "GET registries masks passwords",
+			method:    http.MethodGet,
+			url:       "/api/registries",
+			setupMock: func(m *mocks.MockConfigRepository) {
+				if err := m.SaveRegistryCredential(domain.SavedRegistryCredential{
+					Server:   "ghcr.io",
+					Username: "octocat",
+					Password: "supersecretpassword123",
+				}); err != nil {
+					t.Fatalf("failed to save mock registry: %v", err)
+				}
+			},
+			expectedStatus: http.StatusOK,
+			checkBody: func(t *testing.T, mRepo *mocks.MockConfigRepository, body string) {
+				var list []domain.SavedRegistryCredential
+				if err := json.Unmarshal([]byte(body), &list); err != nil {
+					t.Fatalf("failed to decode response: %v", err)
+				}
+				if len(list) != 1 || list[0].Server != "ghcr.io" {
+					t.Fatalf("unexpected list: %+v", list)
+				}
+				if list[0].Password != "••••••••" {
+					t.Errorf("expected masked password, got: %s", list[0].Password)
+				}
+			},
+		},
+		{
+			name:           "POST registry attempts save and validates auth",
+			method:         http.MethodPost,
+			url:            "/api/registries",
+			body:           `{"server":"docker.io","username":"admin","password":"password123"}`,
+			setupMock:      func(m *mocks.MockConfigRepository) {},
+			expectedStatus: http.StatusBadRequest,
+			checkBody:      nil,
+		},
+		{
+			name:      "DELETE registry removes credential",
+			method:    http.MethodDelete,
+			url:       "/api/registries?server=docker.io",
+			setupMock: func(m *mocks.MockConfigRepository) {
+				if err := m.SaveRegistryCredential(domain.SavedRegistryCredential{
+					Server:   "docker.io",
+					Username: "admin",
+				}); err != nil {
+					t.Fatalf("failed to save mock registry: %v", err)
+				}
+			},
+			expectedStatus: http.StatusOK,
+			checkBody: func(t *testing.T, mRepo *mocks.MockConfigRepository, body string) {
+				if len(mRepo.Registries) != 0 {
+					t.Errorf("expected registry to be deleted, remaining: %d", len(mRepo.Registries))
+				}
+			},
+		},
+		{
+			name:           "POST registry with invalid json returns 400",
+			method:         http.MethodPost,
+			url:            "/api/registries",
+			body:           `{bad_json`,
+			setupMock:      func(m *mocks.MockConfigRepository) {},
+			expectedStatus: http.StatusBadRequest,
+			checkBody:      nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mRepo := mocks.NewMockConfigRepository()
+			tt.setupMock(mRepo)
+			cfg := &domain.ServerConfig{Host: "127.0.0.1", User: "root"}
+			ws := NewWebServer(mRepo, cfg)
+
+			var reqBody io.Reader
+			if tt.body != "" {
+				reqBody = strings.NewReader(tt.body)
+			}
+			req := httptest.NewRequest(tt.method, tt.url, reqBody)
+			rr := httptest.NewRecorder()
+
+			ws.handleRegistries(rr, req)
+
+			if rr.Code != tt.expectedStatus {
+				t.Fatalf("expected status %d, got %d. Body: %s", tt.expectedStatus, rr.Code, rr.Body.String())
+			}
+			if tt.checkBody != nil {
+				tt.checkBody(t, mRepo, rr.Body.String())
+			}
+		})
+	}
+}
+
 
 
 
