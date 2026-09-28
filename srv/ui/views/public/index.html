@@ -294,8 +294,59 @@
             <div class="studio-view active" id="viewSwarmServices">
                 <div class="view-header-strip">
                     <div>
-                        <h2 class="view-title">Aplicaciones y Contenedores Docker</h2>
-                        <p class="view-subtitle">Servicios en ejecución en este VPS con proxy inverso Traefik y SSL automático.</p>
+                        <h2 class="view-title">🚀 Cargas, Aplicaciones y Contenedores</h2>
+                        <p class="view-subtitle">Servicios desplegados en Docker Swarm con balanceo de carga, proxy inverso Traefik y SSL automático.</p>
+                    </div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                        <input type="text" id="servicesFilterInput" class="t-input" placeholder="Filtrar servicios por nombre o imagen..." style="width: 240px; font-size: 0.78rem; padding: 6px 10px;" aria-label="Filtrar servicios">
+                        <button type="button" class="action-btn action-btn-primary" id="btnOpenDeployModal">
+                            + Desplegar App
+                        </button>
+                        <button type="button" class="action-btn action-btn-terminal" id="btnOpenDeployDBModal">
+                            + Crear BD
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Tabla Maestra Unificada de Servicios -->
+                <div class="tactical-table-wrap" style="margin-bottom: 28px;">
+                    <table class="t-table" id="masterServicesTable">
+                        <thead>
+                            <tr>
+                                <th style="width: 22%;">Servicio / Imagen</th>
+                                <th style="width: 13%;">Tipo</th>
+                                <th style="width: 11%;">Estado / Réplicas</th>
+                                <th style="width: 21%;">DNS &amp; Red Externa</th>
+                                <th style="width: 13%;">Nodo Asignado</th>
+                                <th style="width: 20%;">Acciones Rápidas</th>
+                            </tr>
+                        </thead>
+                        <tbody id="masterServicesTableBody">
+                            <tr>
+                                <td colspan="6" class="t-td-empty">Consultando servicios activos del clúster...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Hidden cards grid stub for backward compatibility -->
+                <div id="swarmServicesCardsGrid" style="display:none;"></div>
+
+                <!-- Empty State Apps -->
+                <div class="zero-state-box" id="swarmServicesEmpty" style="display:none;">
+                    <div class="zero-icon">🚀</div>
+                    <h3 class="zero-title">Aún no hay aplicaciones ni contenedores en este servidor</h3>
+                    <p class="zero-desc">Despliega cualquier contenedor Docker con HTTPS automático en cuestión de segundos.</p>
+                    <button type="button" class="action-btn action-btn-primary" id="btnZeroStateDeployApp">
+                        Desplegar Primera Aplicación
+                    </button>
+                </div>
+
+                <!-- Nodos del Clúster -->
+                <div class="view-header-strip" style="margin-top: 28px;">
+                    <div>
+                        <h2 class="view-title">🌐 Nodos del Clúster Swarm</h2>
+                        <p class="view-subtitle">Servidores físicos y VPSs interconectados ejecutando tareas del clúster.</p>
                     </div>
                     <div style="display:flex; gap:8px; flex-wrap:wrap;">
                         <button type="button" class="action-btn action-btn-terminal" id="btnCopyJoinToken" title="Copiar comando docker swarm join para unir un nuevo servidor">
@@ -307,87 +358,7 @@
                     </div>
                 </div>
 
-                <!-- Grid de Tarjetas de Aplicación -->
-                <div class="app-cards-grid" id="swarmServicesCardsGrid">
-                    <!-- Skeletons iniciales -->
-                    <div class="skeleton-card">
-                        <div class="skeleton-card-header">
-                            <div class="skeleton-card-title-group">
-                                <div class="skeleton-box skeleton-card-icon"></div>
-                                <div class="skeleton-card-text">
-                                    <div class="skeleton-box skeleton-card-line-lg"></div>
-                                    <div class="skeleton-box skeleton-card-line-sm"></div>
-                                </div>
-                            </div>
-                            <div class="skeleton-box skeleton-card-pill"></div>
-                        </div>
-                        <div class="skeleton-box skeleton-card-url" style="margin-top:14px;"></div>
-                        <div class="skeleton-card-footer">
-                            <div class="skeleton-box skeleton-card-pill" style="width:60px;"></div>
-                            <div class="skeleton-card-actions">
-                                <div class="skeleton-box skeleton-card-btn"></div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="skeleton-card">
-                        <div class="skeleton-card-header">
-                            <div class="skeleton-card-title-group">
-                                <div class="skeleton-box skeleton-card-icon"></div>
-                                <div class="skeleton-card-text">
-                                    <div class="skeleton-box skeleton-card-line-lg"></div>
-                                    <div class="skeleton-box skeleton-card-line-sm"></div>
-                                </div>
-                            </div>
-                            <div class="skeleton-box skeleton-card-pill"></div>
-                        </div>
-                        <div class="skeleton-box skeleton-card-url" style="margin-top:14px;"></div>
-                        <div class="skeleton-card-footer">
-                            <div class="skeleton-box skeleton-card-pill" style="width:60px;"></div>
-                            <div class="skeleton-card-actions">
-                                <div class="skeleton-box skeleton-card-btn"></div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="skeleton-card">
-                        <div class="skeleton-card-header">
-                            <div class="skeleton-card-title-group">
-                                <div class="skeleton-box skeleton-card-icon"></div>
-                                <div class="skeleton-card-text">
-                                    <div class="skeleton-box skeleton-card-line-lg"></div>
-                                    <div class="skeleton-box skeleton-card-line-sm"></div>
-                                </div>
-                            </div>
-                            <div class="skeleton-box skeleton-card-pill"></div>
-                        </div>
-                        <div class="skeleton-box skeleton-card-url" style="margin-top:14px;"></div>
-                        <div class="skeleton-card-footer">
-                            <div class="skeleton-box skeleton-card-pill" style="width:60px;"></div>
-                            <div class="skeleton-card-actions">
-                                <div class="skeleton-box skeleton-card-btn"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Empty State Apps -->
-                <div class="zero-state-box" id="swarmServicesEmpty" style="display:none;">
-                    <div class="zero-icon">🚀</div>
-                    <h3 class="zero-title">Aún no hay aplicaciones en este servidor</h3>
-                    <p class="zero-desc">Despliega cualquier contenedor Docker con HTTPS automático en cuestión de segundos.</p>
-                    <button type="button" class="action-btn action-btn-primary" id="btnZeroStateDeployApp">
-                        Desplegar Primera Aplicación
-                    </button>
-                </div>
-
-                <!-- Nodos del Clúster -->
-                <div class="view-header-strip" style="margin-top: 36px;">
-                    <div>
-                        <h2 class="view-title">Nodos del Clúster Swarm</h2>
-                        <p class="view-subtitle">Servidores físicos y VPSs interconectados ejecutando tareas del clúster.</p>
-                    </div>
-                </div>
-
-                <div class="tactical-table-wrap" style="margin-bottom: 24px;">
+                <div class="tactical-table-wrap" style="margin-bottom: 28px;">
                     <table class="t-table">
                         <thead>
                             <tr>
@@ -395,7 +366,7 @@
                                 <th>Estado</th>
                                 <th>Disponibilidad</th>
                                 <th>Rol en Clúster</th>
-                                <th>Servicios Asignados</th>
+                                <th>Cargas Asignadas</th>
                                 <th>Versión Docker</th>
                                 <th>Acciones</th>
                             </tr>
@@ -408,40 +379,11 @@
                     </table>
                 </div>
 
-                <!-- Topología de Servicios y Red -->
-                <div class="view-header-strip" style="margin-top: 36px;">
-                    <div>
-                        <h2 class="view-title">Topología de Servicios y Red</h2>
-                        <p class="view-subtitle">Mapeo de resolución DNS interna, puertos, exposición pública y asignación a nodos.</p>
-                    </div>
-                    <span class="t-badge" id="topologyServicesCountBadge">0 servicios</span>
-                </div>
-
-                <div class="tactical-table-wrap" style="margin-bottom: 24px;">
-                    <table class="t-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 22%;">Servicio / Aplicación</th>
-                                <th style="width: 12%;">Tipo</th>
-                                <th style="width: 22%;">DNS Interno</th>
-                                <th style="width: 20%;">Red Pública / Dominio</th>
-                                <th style="width: 14%;">Nodo Asignado</th>
-                                <th style="width: 10%;">Réplicas</th>
-                            </tr>
-                        </thead>
-                        <tbody id="topologyServicesTableBody">
-                            <tr>
-                                <td colspan="6" class="t-td-empty">Consultando servicios de la topología...</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-
                 <!-- Enlaces de Servicio -->
-                <div class="view-header-strip" style="margin-top: 36px;">
+                <div class="view-header-strip" style="margin-top: 28px;">
                     <div>
-                        <h2 class="view-title">Conexiones entre Apps y Bases de Datos (Service Links)</h2>
-                        <p class="view-subtitle">Variables de entorno inyectadas entre servicios dentro de la red privada del clúster.</p>
+                        <h2 class="view-title">🔗 Conexiones entre Apps y Bases de Datos (Service Links)</h2>
+                        <p class="view-subtitle">Variables de entorno inyectadas automáticamente dentro de la red privada.</p>
                     </div>
                     <button type="button" class="action-btn action-btn-terminal" id="btnOpenLinkModal">
                         🔗 Enlazar Servicios
@@ -465,6 +407,10 @@
                         </tbody>
                     </table>
                 </div>
+
+                <!-- Hidden topology stubs for backward compatibility -->
+                <tbody id="topologyServicesTableBody" style="display:none;"></tbody>
+                <span id="topologyServicesCountBadge" style="display:none;"></span>
             </div>
 
             <!-- TAB 2: BASES DE DATOS -->

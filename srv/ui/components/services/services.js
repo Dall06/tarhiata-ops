@@ -5,155 +5,329 @@
 
 import { state } from '/pkg/store/state.js';
 import { showToast } from '/pkg/toast/toast.js';
-import { escapeHtml } from '/pkg/jsutil/utils.js';
+import { escapeHtml, getDefaultPort } from '/pkg/jsutil/utils.js';
 import { openModal, closeModal } from '/pkg/modal/modal.js';
 import { apiFetch, consumeNDJSONStream } from '/pkg/apiclient/api.js';
 import { sendDesktopNotification } from '/pkg/notify/notify.js';
 
-export function renderAppCards(services, callbacks = {}) {
-    const swarmServicesCardsGrid = document.getElementById('swarmServicesCardsGrid');
-    const swarmServicesEmpty = document.getElementById('swarmServicesEmpty');
-    if (!swarmServicesCardsGrid) return;
+export function renderMasterServicesTable(services, databases, links, callbacks = {}) {
+    const tableBody = document.getElementById('masterServicesTableBody');
+    const emptyBox = document.getElementById('swarmServicesEmpty');
+    const filterInput = document.getElementById('servicesFilterInput');
+    const tabServicesCount = document.getElementById('tabServicesCount');
+    const tabDatabasesCount = document.getElementById('tabDatabasesCount');
 
-    swarmServicesCardsGrid.innerHTML = '';
+    const svcs = services || state.swarmServicesCache || [];
+    const dbs = databases || state.swarmDatabasesCache || [];
+    const lnks = links || state.currentServiceLinks || [];
 
-    if (!services || services.length === 0) {
-        if (swarmServicesEmpty) swarmServicesEmpty.style.display = 'flex';
-        return;
-    }
-    if (swarmServicesEmpty) swarmServicesEmpty.style.display = 'none';
+    if (tabServicesCount) tabServicesCount.textContent = svcs.length;
+    if (tabDatabasesCount) tabDatabasesCount.textContent = dbs.length;
 
-    services.forEach(svc => {
-        const isPublic = svc.expose || (svc.domain && svc.domain !== '');
-        const card = document.createElement('div');
-        card.className = 'app-card';
+    if (!tableBody) return;
 
-        const domainHtml = svc.domain ? `
-            <div class="app-card-url-box">
-                <a href="http://${escapeHtml(svc.domain)}" target="_blank" class="app-card-url-link">
-                    🌐 https://${escapeHtml(svc.domain)} ↗
-                </a>
-            </div>
-        ` : `
-            <div class="app-card-url-box" style="color:var(--text-dim); font-size:0.75rem;">
-                🔒 Red Interna Swarm
-            </div>
-        `;
+    const query = (filterInput ? filterInput.value : '').toLowerCase().trim();
 
-        card.innerHTML = `
-            <div>
-                <div class="app-card-header">
-                    <div class="app-card-title-group">
-                        <div class="app-card-icon">🚀</div>
-                        <div style="min-width:0; flex:1; overflow:hidden;">
-                            <h3 class="app-card-name" title="${escapeHtml(svc.name)}">${escapeHtml(svc.name)}</h3>
-                            <div class="app-card-image" title="${escapeHtml(svc.image)}">${escapeHtml(svc.image)}</div>
-                        </div>
-                    </div>
-                    <div class="app-card-badges">
-                        ${isPublic && svc.domain ? '<span class="card-ssl-pill" style="background:rgba(16,185,129,0.12); color:#10b981; border:1px solid rgba(16,185,129,0.25);" title="Certificado SSL Activo vía Traefik">🔒 SSL</span>' : ''}
-                        <span class="svc-pill svc-pill-active" style="flex-shrink:0;">
-                            <span class="status-dot status-online" style="width:6px; height:6px;"></span>
-                            ${escapeHtml(svc.replicas)} Réplicas
-                        </span>
-                    </div>
-                </div>
-                <div style="margin-top:14px;">
-                    ${domainHtml}
-                </div>
-            </div>
+    // Consolidar todos los items (Apps, BDs, Framework)
+    const items = [];
 
-            <div class="app-card-actions">
-                <div class="app-card-actions-meta">
-                    <span class="t-badge" style="font-size:0.72rem;">${isPublic ? '🌐 Público SSL' : '🔒 Privado'}</span>
-                </div>
-                <div class="app-card-actions-buttons">
-                    <button type="button" class="mini-btn btn-logs-svc" data-name="${escapeHtml(svc.name)}" title="Ver logs en tiempo real">
-                        📜 Logs
-                    </button>
-                    <button type="button" class="mini-btn btn-restart-svc" data-name="${escapeHtml(svc.name)}" title="Reiniciar servicio en Docker">
-                        🔄 Reiniciar
-                    </button>
-                    <button type="button" class="mini-btn btn-env-svc" data-name="${escapeHtml(svc.name)}" title="Gestionar variables de entorno .env">
-                        🔑 Env
-                    </button>
-                    <button type="button" class="mini-btn btn-history-svc" data-name="${escapeHtml(svc.name)}" title="Historial de versiones y rollback instantáneo">
-                        ⏳ Versiones
-                    </button>
-                    <button type="button" class="mini-btn btn-vol-svc" data-name="${escapeHtml(svc.name)}" title="Explorar archivos del volumen de almacenamiento">
-                        📁 Archivos
-                    </button>
-                    <button type="button" class="mini-btn btn-edit-svc" data-name="${escapeHtml(svc.name)}" data-expose="${isPublic}" data-domain="${escapeHtml(svc.domain || '')}">
-                        ⚙️ Configurar
-                    </button>
-                    <button type="button" class="mini-btn btn-del-svc" data-name="${escapeHtml(svc.name)}" style="color:var(--status-offline);" title="Eliminar servicio">
-                        ✕
-                    </button>
-                </div>
-            </div>
-        `;
-
-        swarmServicesCardsGrid.appendChild(card);
+    // 1. Aplicaciones y Framework
+    svcs.forEach(s => {
+        const isFramework = ['tarhiata_proxy_traefik', 'tarhiata_obs_portainer', 'tarhiata_obs_dozzle'].includes(s.name) ||
+                            (s.image && (s.image.includes('traefik') || s.image.includes('portainer') || s.image.includes('dozzle')));
+        items.push({
+            name: s.name,
+            image: s.image || 'imagen docker',
+            type: isFramework ? 'framework' : 'app',
+            replicas: s.replicas || '1/1',
+            port: s.port || (s.ports ? (String(s.ports).match(/(\d+)/) || ['','80'])[1] : '80'),
+            domain: s.domain || '',
+            expose: s.expose || (s.domain && s.domain !== ''),
+            targetNode: s.targetNode || '',
+            raw: s
+        });
     });
 
-    // Wire action buttons
-    document.querySelectorAll('.btn-logs-svc').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const name = btn.getAttribute('data-name');
-            if (name && callbacks.onOpenLogs) callbacks.onOpenLogs(name);
+    // 2. Bases de Datos
+    dbs.forEach(db => {
+        const port = db.internalPort || getDefaultPort(db.engine);
+        items.push({
+            name: db.name,
+            image: `${db.engine || 'database'}:${db.version || 'latest'}`,
+            type: 'db',
+            engine: db.engine || 'postgres',
+            replicas: db.status === 'running' ? '1/1' : (db.status || '1/1'),
+            port: port,
+            domain: db.externalUrl || '',
+            expose: false,
+            targetNode: db.targetNode || 'Manager / Primario',
+            raw: db
         });
+    });
+
+    // Ordenar: Aplicaciones primero, Bases de datos segundo, Framework al final
+    items.sort((a, b) => {
+        const priority = { app: 1, db: 2, framework: 3 };
+        const diff = (priority[a.type] || 2) - (priority[b.type] || 2);
+        if (diff !== 0) return diff;
+        return a.name.localeCompare(b.name);
+    });
+
+    // Filtrar en vivo
+    const filtered = items.filter(it => {
+        if (!query) return true;
+        return it.name.toLowerCase().includes(query) ||
+               it.image.toLowerCase().includes(query) ||
+               it.type.toLowerCase().includes(query) ||
+               (it.domain && it.domain.toLowerCase().includes(query));
+    });
+
+    if (items.length === 0) {
+        tableBody.innerHTML = `<tr><td colspan="6" class="t-td-empty">Sin aplicaciones ni contenedores desplegados. Haz clic en '+ Desplegar App'.</td></tr>`;
+        if (emptyBox) emptyBox.style.display = 'flex';
+        return;
+    }
+
+    if (emptyBox) emptyBox.style.display = 'none';
+
+    if (filtered.length === 0) {
+        tableBody.innerHTML = `<tr><td colspan="6" class="t-td-empty">No se encontraron servicios que coincidan con "${escapeHtml(query)}".</td></tr>`;
+        return;
+    }
+
+    tableBody.innerHTML = '';
+
+    filtered.forEach(it => {
+        const tr = document.createElement('tr');
+        const isOnline = it.replicas && !it.replicas.startsWith('0/');
+
+        let icon = '🚀';
+        let typeBadgeHtml = '<span class="t-badge t-badge-active" style="font-size:0.72rem;">App Docker</span>';
+        if (it.type === 'framework') {
+            icon = '⚡';
+            typeBadgeHtml = '<span class="t-badge" style="background:rgba(99,102,241,0.12); color:#a5b4fc; border-color:rgba(99,102,241,0.25); font-size:0.72rem;">⚡ Framework</span>';
+        } else if (it.type === 'db') {
+            icon = '🗄️';
+            typeBadgeHtml = `<span class="t-badge" style="background:rgba(16,185,129,0.12); color:#34d399; border-color:rgba(16,185,129,0.25); font-size:0.72rem;">🗄️ ${escapeHtml((it.engine || 'DB').toUpperCase())}</span>`;
+        }
+
+        // Links badges
+        const relatedLinks = lnks.filter(l => (l.source_svc || l.SourceSvc) === it.name || (l.target_svc || l.TargetSvc) === it.name);
+        let linkBadgesHtml = '';
+        if (relatedLinks.length > 0) {
+            linkBadgesHtml = `<div style="display:flex; gap:4px; flex-wrap:wrap; margin-top:4px;">` +
+                relatedLinks.map(l => {
+                    const isSrc = (l.source_svc || l.SourceSvc) === it.name;
+                    const other = isSrc ? (l.target_svc || l.TargetSvc) : (l.source_svc || l.SourceSvc);
+                    const tag = isSrc ? `🔗 ${other}` : `⬅️ ${other}`;
+                    return `<span class="t-badge" style="font-size:0.68rem; padding:1px 5px; border-color:rgba(99,102,241,0.3); background:rgba(99,102,241,0.1); color:#a5b4fc;" title="Enlace con ${escapeHtml(other)}">${escapeHtml(tag)}</span>`;
+                }).join('') +
+                `</div>`;
+        }
+
+        const publicRouteHtml = it.expose && it.domain
+            ? `<div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:2px;">
+                 <a href="https://${escapeHtml(it.domain)}" target="_blank" style="color:var(--brand-primary); text-decoration:none; font-weight:600; font-size:0.80rem; display:inline-flex; align-items:center; gap:4px;">
+                   🌐 https://${escapeHtml(it.domain)} ↗
+                 </a>
+                 <span class="card-ssl-pill" style="background:rgba(16,185,129,0.12); color:#10b981; border:1px solid rgba(16,185,129,0.25); font-size:0.65rem; padding:1px 4px; border-radius:3px;">SSL</span>
+               </div>`
+            : `<div style="color:var(--text-muted); font-size:0.75rem; margin-top:2px;">🔒 Red Interna Swarm</div>`;
+
+        const targetNodeHtml = it.targetNode
+            ? `<span class="t-badge" style="font-size:0.74rem;">${escapeHtml(it.targetNode)}</span>`
+            : `<span style="color:var(--text-muted); font-size:0.74rem;">Cualquiera (Global)</span>`;
+
+        let actionsHtml = '';
+        if (it.type === 'framework') {
+            actionsHtml = `
+                <div class="table-actions-cell" style="display:flex; gap:4px; flex-wrap:wrap;">
+                    <button type="button" class="mini-btn btn-logs-svc" data-name="${escapeHtml(it.name)}" title="Ver logs">📜 Logs</button>
+                    <button type="button" class="mini-btn btn-restart-svc" data-name="${escapeHtml(it.name)}" title="Reiniciar">🔄</button>
+                    <button type="button" class="mini-btn btn-vol-svc" data-name="${escapeHtml(it.name)}" title="Archivos">📁</button>
+                </div>
+            `;
+        } else if (it.type === 'db') {
+            actionsHtml = `
+                <div class="table-actions-cell" style="display:flex; gap:4px; flex-wrap:wrap;">
+                    <button type="button" class="mini-btn btn-logs-db" data-name="${escapeHtml(it.name)}" title="Ver logs">📜 Logs</button>
+                    <button type="button" class="mini-btn btn-restart-db" data-name="${escapeHtml(it.name)}" title="Reiniciar">🔄</button>
+                    <button type="button" class="mini-btn btn-backup-db" data-name="${escapeHtml(it.name)}" data-engine="${escapeHtml(it.engine || 'postgres')}" title="Backup">💾</button>
+                    <button type="button" class="mini-btn btn-vol-db" data-name="${escapeHtml(it.name)}" title="Archivos">📁</button>
+                    <button type="button" class="mini-btn btn-delete-db" data-name="${escapeHtml(it.name)}" style="color:var(--status-offline);" title="Eliminar BD">✕</button>
+                </div>
+            `;
+        } else {
+            actionsHtml = `
+                <div class="table-actions-cell" style="display:flex; gap:4px; flex-wrap:wrap;">
+                    <button type="button" class="mini-btn btn-logs-svc" data-name="${escapeHtml(it.name)}" title="Ver logs">📜 Logs</button>
+                    <button type="button" class="mini-btn btn-restart-svc" data-name="${escapeHtml(it.name)}" title="Reiniciar">🔄</button>
+                    <button type="button" class="mini-btn btn-env-svc" data-name="${escapeHtml(it.name)}" title="Env">🔑 Env</button>
+                    <button type="button" class="mini-btn btn-history-svc" data-name="${escapeHtml(it.name)}" title="Versiones">⏳</button>
+                    <button type="button" class="mini-btn btn-vol-svc" data-name="${escapeHtml(it.name)}" title="Archivos">📁</button>
+                    <button type="button" class="mini-btn btn-edit-svc" data-name="${escapeHtml(it.name)}" data-expose="${it.expose}" data-domain="${escapeHtml(it.domain)}" title="Configurar">⚙️</button>
+                    <button type="button" class="mini-btn btn-del-svc" data-name="${escapeHtml(it.name)}" style="color:var(--status-offline);" title="Eliminar servicio">✕</button>
+                </div>
+            `;
+        }
+
+        tr.innerHTML = `
+            <td>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span style="font-size:1.15rem; line-height:1; flex-shrink:0;">${icon}</span>
+                    <div style="min-width:0; overflow:hidden;">
+                        <strong style="color:var(--text-pure); font-size:0.86rem; display:block; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;" title="${escapeHtml(it.name)}">${escapeHtml(it.name)}</strong>
+                        <span style="font-size:0.72rem; color:var(--text-muted); font-family:var(--font-mono); display:block; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;" title="${escapeHtml(it.image)}">${escapeHtml(it.image)}</span>
+                    </div>
+                </div>
+            </td>
+            <td>${typeBadgeHtml}</td>
+            <td>
+                <span class="svc-pill ${isOnline ? 'svc-pill-active' : ''}" style="font-size:0.74rem;">
+                    <span class="status-dot ${isOnline ? 'status-online' : 'status-offline'}" style="width:6px; height:6px;"></span>
+                    ${escapeHtml(it.replicas)}
+                </span>
+            </td>
+            <td>
+                <div>
+                    <code style="font-family:var(--font-mono); font-size:0.78rem; color:var(--brand-primary);">${escapeHtml(it.name)}:${escapeHtml(it.port)}</code>
+                    ${publicRouteHtml}
+                    ${linkBadgesHtml}
+                </div>
+            </td>
+            <td>${targetNodeHtml}</td>
+            <td>${actionsHtml}</td>
+        `;
+
+        tableBody.appendChild(tr);
+    });
+
+    wireMasterTableActions(callbacks);
+}
+
+export function wireMasterTableActions(callbacks = {}) {
+    document.querySelectorAll('.btn-logs-svc, .btn-logs-db').forEach(btn => {
+        btn.onclick = () => {
+            const name = btn.getAttribute('data-name');
+            const { openLogsModal } = window;
+            if (openLogsModal) openLogsModal(name);
+            else if (callbacks.onOpenLogs) callbacks.onOpenLogs(name);
+        };
     });
 
     document.querySelectorAll('.btn-restart-svc').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.onclick = () => {
             const name = btn.getAttribute('data-name');
             if (name) restartServiceOrContainer(name, btn);
-        });
+        };
+    });
+
+    document.querySelectorAll('.btn-restart-db').forEach(btn => {
+        btn.onclick = async () => {
+            const name = btn.getAttribute('data-name');
+            if (!name) return;
+            btn.disabled = true;
+            btn.textContent = '⏳...';
+            showToast(`Reiniciando base de datos '${name}'...`, 'info');
+            try {
+                await apiFetch('/api/databases/restart', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name, server: state.selectedServerName || '' })
+                });
+                showToast(`Base de datos '${name}' reiniciada.`, 'success');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🔄';
+            }
+        };
     });
 
     document.querySelectorAll('.btn-env-svc').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.onclick = () => {
             const name = btn.getAttribute('data-name');
-            if (name && callbacks.onOpenEnv) callbacks.onOpenEnv(name);
-        });
+            const { openEnvModal } = window;
+            if (openEnvModal) openEnvModal(name);
+            else if (callbacks.onOpenEnv) callbacks.onOpenEnv(name);
+        };
     });
 
     document.querySelectorAll('.btn-history-svc').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.onclick = () => {
             const name = btn.getAttribute('data-name');
-            if (name) openHistoryModal(name, callbacks.onReloadStatus);
-        });
+            if (name) openHistoryModal(name, () => loadSwarmStatus(state.selectedServerName));
+        };
     });
 
-    document.querySelectorAll('.btn-vol-svc').forEach(btn => {
-        btn.addEventListener('click', () => {
+    document.querySelectorAll('.btn-backup-db').forEach(btn => {
+        btn.onclick = async () => {
             const name = btn.getAttribute('data-name');
-            if (name && callbacks.onOpenVolume) callbacks.onOpenVolume(`/opt/data/${name}`);
-        });
+            const engine = btn.getAttribute('data-engine') || 'postgres';
+            if (!name) return;
+            btn.disabled = true;
+            btn.textContent = '💾...';
+            showToast(`Generando backup para '${name}' (${engine})...`, 'info');
+            try {
+                const res = await apiFetch(`/api/databases/backup?name=${encodeURIComponent(name)}&engine=${encodeURIComponent(engine)}&server=${encodeURIComponent(state.selectedServerName || '')}`);
+                if (res.ok && res.data) {
+                    showToast(`Backup de '${name}' generado (${res.data.size || 'OK'}).`, 'success');
+                }
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '💾';
+            }
+        };
+    });
+
+    document.querySelectorAll('.btn-vol-svc, .btn-vol-db').forEach(btn => {
+        btn.onclick = () => {
+            const name = btn.getAttribute('data-name');
+            const { openVolumeModal } = window;
+            if (openVolumeModal) openVolumeModal(`/opt/data/${name}`);
+            else if (callbacks.onOpenVolume) callbacks.onOpenVolume(`/opt/data/${name}`);
+        };
     });
 
     document.querySelectorAll('.btn-edit-svc').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.onclick = () => {
             const name = btn.getAttribute('data-name');
             const expose = btn.getAttribute('data-expose') === 'true';
             const domain = btn.getAttribute('data-domain');
             openEditServiceModal(name, expose, domain);
-        });
+        };
     });
 
     document.querySelectorAll('.btn-del-svc').forEach(btn => {
-        btn.addEventListener('click', async () => {
+        btn.onclick = async () => {
             const name = btn.getAttribute('data-name');
             if (!confirm(`¿Estás seguro de eliminar el servicio '${name}' de Docker Swarm?`)) return;
             const res = await apiFetch(`/api/services/${encodeURIComponent(name)}?server=${encodeURIComponent(state.selectedServerName || '')}`, { method: 'DELETE' });
             if (res.ok) {
                 showToast(`Servicio '${name}' eliminado.`, 'info');
-                if (callbacks.onReloadStatus && state.selectedServerName) {
-                    callbacks.onReloadStatus(state.selectedServerName);
+                if (state.selectedServerName) {
+                    await loadSwarmStatus(state.selectedServerName);
                 }
             }
-        });
+        };
     });
+
+    document.querySelectorAll('.btn-delete-db').forEach(btn => {
+        btn.onclick = async () => {
+            const name = btn.getAttribute('data-name');
+            if (!confirm(`¿Estás seguro de eliminar la base de datos '${name}'? ¡Se perderán los datos locales no respaldados!`)) return;
+            const res = await apiFetch(`/api/databases?name=${encodeURIComponent(name)}&server=${encodeURIComponent(state.selectedServerName || '')}`, { method: 'DELETE' });
+            if (res.ok) {
+                showToast(`Base de datos '${name}' eliminada.`, 'info');
+                if (state.selectedServerName) {
+                    await loadSwarmStatus(state.selectedServerName);
+                }
+            }
+        };
+    });
+}
+
+export function renderAppCards(services, callbacks = {}) {
+    renderMasterServicesTable(services, state.swarmDatabasesCache, state.currentServiceLinks, callbacks);
 }
 
 export function renderServicesTable(services) {
@@ -562,6 +736,13 @@ export function setupServicesEvents(onReloadStatus) {
                 const { openEnvModal } = await import('/components/env/env.js');
                 openEnvModal(name);
             }
+        });
+    }
+
+    const servicesFilterInput = document.getElementById('servicesFilterInput');
+    if (servicesFilterInput) {
+        servicesFilterInput.addEventListener('input', () => {
+            renderMasterServicesTable(state.swarmServicesCache, state.swarmDatabasesCache, state.currentServiceLinks);
         });
     }
 

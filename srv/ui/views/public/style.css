@@ -1514,6 +1514,26 @@ body {
     border-bottom: none;
 }
 
+.table-actions-cell {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.table-actions-cell .mini-btn {
+    padding: 3px 8px;
+    font-size: 0.74rem;
+}
+
+.card-ssl-pill {
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: var(--radius-xs);
+    font-family: var(--font-mono);
+}
+
 .t-td-empty {
     text-align: center;
     color: var(--text-muted);

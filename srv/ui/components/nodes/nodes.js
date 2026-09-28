@@ -40,14 +40,9 @@ export function renderNodesTable(nodes, callbacks = {}) {
             }
         });
 
-        let assignedHtml = '<span style="color:var(--text-muted); font-size:0.75rem;">Sin cargas asignadas</span>';
+        let assignedHtml = '<span style="color:var(--text-muted); font-size:0.75rem;">0 cargas activas</span>';
         if (assignedList.length > 0) {
-            assignedHtml = `<div style="display:flex; gap:4px; flex-wrap:wrap;">` +
-                assignedList.map(item => {
-                    const icon = item.type === 'db' ? '🗄️' : '🚀';
-                    return `<span class="t-badge t-badge-active" style="font-size:0.72rem; padding:1px 6px;">${icon} ${escapeHtml(item.name)}</span>`;
-                }).join('') +
-                `</div>`;
+            assignedHtml = `<span class="t-badge" style="background:rgba(99,102,241,0.12); color:#a5b4fc; border-color:rgba(99,102,241,0.25); font-weight:600; font-size:0.75rem;">⚡ ${assignedList.length} ${assignedList.length === 1 ? 'carga activa' : 'cargas activas'}</span>`;
         }
 
         let actionsHtml = '';

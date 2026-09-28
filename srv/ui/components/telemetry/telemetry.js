@@ -8,7 +8,7 @@ import { showToast } from '/pkg/toast/toast.js';
 import { getGaugeColor, formatDockerVersion } from '/pkg/jsutil/utils.js';
 import { apiFetch } from '/pkg/apiclient/api.js';
 
-import { renderAppCards, renderServicesTable } from '/components/services/services.js';
+import { renderMasterServicesTable, renderAppCards, renderServicesTable } from '/components/services/services.js';
 import { renderDatabaseCards } from '/components/databases/databases.js';
 import { renderNodesTable } from '/components/nodes/nodes.js';
 import { renderTopologyServicesTable } from '/components/topology/topology.js';
@@ -158,10 +158,8 @@ export function processSwarmStatus(serverName, data, isSilent = false) {
         topologyServicesCountBadge.textContent = `${state.swarmServicesCache.length + state.swarmDatabasesCache.length} servicios`;
     }
 
-    if (!isSilent || servicesSig !== oldServicesSig) {
-        renderAppCards(state.swarmServicesCache);
-    }
-    if (!isSilent || dbsSig !== oldDbsSig) {
+    if (!isSilent || servicesSig !== oldServicesSig || dbsSig !== oldDbsSig) {
+        renderMasterServicesTable(state.swarmServicesCache, state.swarmDatabasesCache, state.currentServiceLinks);
         renderDatabaseCards(state.swarmDatabasesCache);
     }
     if (!isSilent || nodesSig !== oldNodesSig || servicesSig !== oldServicesSig || dbsSig !== oldDbsSig) {

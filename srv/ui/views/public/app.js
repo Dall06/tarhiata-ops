@@ -6,7 +6,7 @@ import { setupSecurityInterceptor, apiFetch } from '/pkg/apiclient/api.js';
 
 import { loadHubState, selectServer, setupFleetListeners } from '/components/fleet/fleet.js';
 import { refreshServerTelemetry } from '/components/telemetry/telemetry.js';
-import { loadSwarmStatus, renderAppCards, renderServicesTable, setupServicesListeners } from '/components/services/services.js';
+import { loadSwarmStatus, renderMasterServicesTable, renderAppCards, renderServicesTable, setupServicesListeners } from '/components/services/services.js';
 import { setupDatabasesListeners } from '/components/databases/databases.js';
 import { renderNodesTable, setupNodesListeners } from '/components/nodes/nodes.js';
 import { loadServiceLinks, renderTopologyServicesTable, setupTopologyListeners } from '/components/topology/topology.js';
@@ -72,9 +72,8 @@ export function activateTab(tabName) {
     if (effectiveTab === 'services' && tabSwarmServices && viewSwarmServices) {
         tabSwarmServices.classList.add('active');
         viewSwarmServices.style.display = 'block';
-        renderAppCards(state.swarmServicesCache);
+        renderMasterServicesTable(state.swarmServicesCache, state.swarmDatabasesCache, state.currentServiceLinks);
         renderNodesTable(state.swarmNodesCache);
-        renderTopologyServicesTable(state.swarmServicesCache, state.swarmDatabasesCache, state.currentServiceLinks);
         if (state.selectedServerName) loadServiceLinks();
     }
     if (effectiveTab === 'databases' && tabSwarmDatabases && viewSwarmDatabases) {
