@@ -123,13 +123,92 @@ export function renderNodesTable(nodes, callbacks = {}) {
     });
 }
 
+export function ensureNodesModalMounted() {
+    if (document.getElementById('workerModal')) return;
+    const div = document.createElement('div');
+    div.innerHTML = `
+<!-- Modal: Aprovisionar Nodo Worker en la Nube -->
+<div class="t-modal-overlay" id="workerModal" style="display:none;" role="dialog" aria-modal="true">
+    <div class="t-modal-card">
+        <div class="t-modal-header">
+            <div class="t-modal-title">
+                <span>☁️ Aprovisionar Nodo Worker Cloud</span>
+            </div>
+            <button type="button" class="t-close-btn" id="btnCloseWorkerModal" aria-label="Cerrar">×</button>
+        </div>
+        <form id="formWorker">
+            <div class="form-body">
+                <div class="fast-notice">
+                    <span class="notice-icon">🚀</span>
+                    <div>
+                        <strong>Escalado Automático de Clúster</strong>
+                        <p>Crea un VPS secundario en la nube y lo une automáticamente como nodo worker a tu clúster Swarm.</p>
+                    </div>
+                </div>
+
+                <div class="form-row-grid">
+                    <div class="form-field">
+                        <label for="workerName">Nombre del Nodo</label>
+                        <input type="text" id="workerName" class="t-input" placeholder="ej: worker-1" value="worker-1" required>
+                    </div>
+
+                    <div class="form-field">
+                        <label for="workerProvider">Proveedor Cloud</label>
+                        <select id="workerProvider" class="t-input">
+                            <option value="vultr">Vultr Cloud Compute</option>
+                            <option value="digitalocean">DigitalOcean Droplet</option>
+                        </select>
+                    </div>
+
+                    <div class="form-field full-span">
+                        <label for="workerApiKey">API Key del Proveedor Cloud</label>
+                        <input type="password" id="workerApiKey" class="t-input" placeholder="Ingresa tu API Key de Vultr o DigitalOcean" required>
+                    </div>
+
+                    <div class="form-field">
+                        <label for="workerRegion">Región del Datacenter</label>
+                        <input type="text" id="workerRegion" class="t-input" placeholder="mex, nyc1, ewr" value="mex">
+                    </div>
+
+                    <div class="form-field">
+                        <label for="workerPlan">Plan de Servidor</label>
+                        <input type="text" id="workerPlan" class="t-input" placeholder="vc2-1c-1gb o s-1vcpu-1gb" value="vc2-1c-1gb">
+                    </div>
+
+                    <div class="form-field full-span">
+                        <label for="workerLabel">Etiqueta de Carga</label>
+                        <select id="workerLabel" class="t-input">
+                            <option value="worker">Propósito General (worker)</option>
+                            <option value="database">Dedicado a Bases de Datos (database)</option>
+                            <option value="edge">Proxy / Edge (edge)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="workerLogsBox" class="t-diagnostic-box" style="display:none; max-height:160px; overflow-y:auto; margin-top:8px;">
+                    <div id="workerLogsContent" style="font-size:0.75rem; color:var(--text-muted); line-height:1.5;"></div>
+                </div>
+            </div>
+            <div class="t-modal-footer">
+                <button type="button" class="t-btn t-btn-secondary" id="btnCancelWorker">Cancelar</button>
+                <button type="submit" class="t-btn t-btn-primary" id="btnSubmitWorker">
+                    <span id="btnSubmitWorkerText">Crear y Unir al Clúster</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>`;
+    document.body.appendChild(div.firstElementChild);
+}
+
 export function openWorkerModal() {
-    const workerForm = document.getElementById('workerForm');
-    const workerStreamLog = document.getElementById('workerStreamLog');
-    const workerTerminalContainer = document.getElementById('workerTerminalContainer');
+    ensureNodesModalMounted();
+    const workerForm = document.getElementById('formWorker') || document.getElementById('workerForm');
+    const workerLogsBox = document.getElementById('workerLogsBox') || document.getElementById('workerTerminalContainer');
+    const workerLogsContent = document.getElementById('workerLogsContent') || document.getElementById('workerStreamLog');
     if (workerForm) workerForm.reset();
-    if (workerStreamLog) workerStreamLog.innerHTML = '';
-    if (workerTerminalContainer) workerTerminalContainer.style.display = 'none';
+    if (workerLogsContent) workerLogsContent.innerHTML = '';
+    if (workerLogsBox) workerLogsBox.style.display = 'none';
     openModal('workerModal');
 }
 
@@ -138,28 +217,34 @@ export function closeWorkerModal() {
 }
 
 export function setupNodesEvents(onReloadStatus) {
+    ensureNodesModalMounted();
+
     const btnOpenWorkerModal = document.getElementById('btnOpenWorkerModal');
     const btnCloseWorkerModal = document.getElementById('btnCloseWorkerModal');
-    const btnCloseWorkerModalBottom = document.getElementById('btnCloseWorkerModalBottom');
-    const workerForm = document.getElementById('workerForm');
+    const btnCancelWorker = document.getElementById('btnCancelWorker') || document.getElementById('btnCloseWorkerModalBottom');
+    const workerForm = document.getElementById('formWorker') || document.getElementById('workerForm');
 
     if (btnOpenWorkerModal) btnOpenWorkerModal.addEventListener('click', openWorkerModal);
     if (btnCloseWorkerModal) btnCloseWorkerModal.addEventListener('click', closeWorkerModal);
-    if (btnCloseWorkerModalBottom) btnCloseWorkerModalBottom.addEventListener('click', closeWorkerModal);
+    if (btnCancelWorker) btnCancelWorker.addEventListener('click', closeWorkerModal);
 
     if (workerForm) {
         workerForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const workerNodeName = document.getElementById('workerNodeName');
+            const workerNodeName = document.getElementById('workerName') || document.getElementById('workerNodeName');
+            const workerProvider = document.getElementById('workerProvider');
+            const workerApiKey = document.getElementById('workerApiKey');
             const workerLabel = document.getElementById('workerLabel');
             const workerRegion = document.getElementById('workerRegion');
             const workerPlan = document.getElementById('workerPlan');
             const btnSubmitWorker = document.getElementById('btnSubmitWorker');
-            const workerTerminalContainer = document.getElementById('workerTerminalContainer');
-            const workerStreamLog = document.getElementById('workerStreamLog');
+            const workerLogsBox = document.getElementById('workerLogsBox') || document.getElementById('workerTerminalContainer');
+            const workerLogsContent = document.getElementById('workerLogsContent') || document.getElementById('workerStreamLog');
 
             const payload = {
                 nodeName: workerNodeName ? workerNodeName.value.trim() : '',
+                provider: workerProvider ? workerProvider.value : 'vultr',
+                apiToken: workerApiKey ? workerApiKey.value.trim() : '',
                 label: workerLabel ? workerLabel.value : 'worker',
                 region: workerRegion ? workerRegion.value.trim() : 'mex',
                 plan: workerPlan ? workerPlan.value.trim() : 'vc2-1c-1gb',
@@ -170,8 +255,8 @@ export function setupNodesEvents(onReloadStatus) {
                 btnSubmitWorker.disabled = true;
                 btnSubmitWorker.textContent = '⏳ Aprovisionando...';
             }
-            if (workerTerminalContainer) workerTerminalContainer.style.display = 'block';
-            if (workerStreamLog) workerStreamLog.innerHTML = `<span style="color:var(--text-muted);">Iniciando orquestación de VM en la nube...</span>\n`;
+            if (workerLogsBox) workerLogsBox.style.display = 'block';
+            if (workerLogsContent) workerLogsContent.innerHTML = `<span style="color:var(--text-muted);">Iniciando orquestación de VM en la nube...</span>\n`;
 
             try {
                 const res = await fetch('/api/swarm/provision-worker', {
@@ -182,19 +267,19 @@ export function setupNodesEvents(onReloadStatus) {
 
                 if (!res.ok) {
                     const errText = await res.text();
-                    if (workerStreamLog) workerStreamLog.innerHTML += `<span style="color:var(--status-offline);">✕ Error (${res.status}): ${escapeHtml(errText)}</span>\n`;
+                    if (workerLogsContent) workerLogsContent.innerHTML += `<span style="color:var(--status-offline);">✕ Error (${res.status}): ${escapeHtml(errText)}</span>\n`;
                     showToast(`Fallo al provisionar: ${errText}`, 'error');
                     return;
                 }
 
                 await consumeNDJSONStream(res, (event) => {
-                    if (workerStreamLog) {
-                        workerStreamLog.innerHTML += `<span>${escapeHtml(event.data || '')}</span>\n`;
-                        workerStreamLog.scrollTop = workerStreamLog.scrollHeight;
+                    if (workerLogsContent) {
+                        workerLogsContent.innerHTML += `<div>${escapeHtml(event.data || event.message || JSON.stringify(event))}</div>`;
+                        workerLogsContent.scrollTop = workerLogsContent.scrollHeight;
                     }
                 }, (errMsg) => {
-                    if (workerStreamLog) {
-                        workerStreamLog.innerHTML += `<span style="color:var(--status-offline);">✕ ${escapeHtml(errMsg)}</span>\n`;
+                    if (workerLogsContent) {
+                        workerLogsContent.innerHTML += `<div style="color:var(--status-offline);">✕ ${escapeHtml(errMsg)}</div>`;
                     }
                     showToast(`Error: ${errMsg}`, 'error');
                 });
@@ -214,3 +299,6 @@ export function setupNodesEvents(onReloadStatus) {
         });
     }
 }
+
+export const setupNodesListeners = setupNodesEvents;
+

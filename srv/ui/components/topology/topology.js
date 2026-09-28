@@ -214,9 +214,62 @@ export async function loadServiceLinks() {
     }
 }
 
+export function ensureTopologyModalMounted() {
+    if (document.getElementById('linkModal')) return;
+    const div = document.createElement('div');
+    div.innerHTML = `
+<!-- Modal: Conectar Servicios (Service Linking) -->
+<div class="t-modal-overlay" id="linkModal" style="display:none;" role="dialog" aria-modal="true">
+    <div class="t-modal-card">
+        <div class="t-modal-header">
+            <div class="t-modal-title">
+                <span>🔗 Conectar Servicios entre sí</span>
+            </div>
+            <button type="button" class="t-close-btn" id="btnCloseLinkModal" aria-label="Cerrar">×</button>
+        </div>
+        <form id="formLink">
+            <div class="form-body">
+                <div class="fast-notice">
+                    <span class="notice-icon">💡</span>
+                    <div>
+                        <strong>Inyección Segura de Credenciales</strong>
+                        <p>Comunica una aplicación con su base de datos usando la red interna del clúster.</p>
+                    </div>
+                </div>
+
+                <div class="form-row-grid">
+                    <div class="form-field">
+                        <label for="linkFrom">App Origen (Consumidora)</label>
+                        <input type="text" id="linkFrom" list="serviceListFrom" class="t-input" placeholder="Selecciona o escribe app (ej: mi-backend)" required autocomplete="off">
+                        <datalist id="serviceListFrom"></datalist>
+                    </div>
+                    <div class="form-field">
+                        <label for="linkTo">Destino (BD o Servicio)</label>
+                        <input type="text" id="linkTo" list="serviceListTo" class="t-input" placeholder="Selecciona o escribe destino (ej: mi-postgres)" required autocomplete="off">
+                        <datalist id="serviceListTo"></datalist>
+                    </div>
+                    <div class="form-field full-span">
+                        <label for="linkVar">Variable de Entorno Inyectada</label>
+                        <input type="text" id="linkVar" class="t-input" value="DATABASE_URL" required>
+                    </div>
+                </div>
+            </div>
+            <div class="t-modal-footer">
+                <button type="button" class="t-btn t-btn-secondary" id="btnCancelLink">Cancelar</button>
+                <button type="submit" class="t-btn t-btn-accent" id="btnSubmitLink">
+                    <span>🔗 Conectar</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>`;
+    document.body.appendChild(div.firstElementChild);
+}
+
 export function openLinkModal() {
+    ensureTopologyModalMounted();
     populateLinkModalDropdowns();
-    const linkForm = document.getElementById('linkForm');
+    const linkForm = document.getElementById('formLink') || document.getElementById('linkForm');
     if (linkForm) linkForm.reset();
     openModal('linkModal');
 }
@@ -226,18 +279,22 @@ export function closeLinkModal() {
 }
 
 export function setupTopologyEvents() {
+    ensureTopologyModalMounted();
+
     const btnOpenLinkModal = document.getElementById('btnOpenLinkModal');
     const btnCloseLinkModal = document.getElementById('btnCloseLinkModal');
-    const linkForm = document.getElementById('linkForm');
+    const btnCancelLink = document.getElementById('btnCancelLink');
+    const linkForm = document.getElementById('formLink') || document.getElementById('linkForm');
 
     if (btnOpenLinkModal) btnOpenLinkModal.addEventListener('click', openLinkModal);
     if (btnCloseLinkModal) btnCloseLinkModal.addEventListener('click', closeLinkModal);
+    if (btnCancelLink) btnCancelLink.addEventListener('click', closeLinkModal);
 
     if (linkForm) {
         linkForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const linkSource = document.getElementById('linkSource');
-            const linkTarget = document.getElementById('linkTarget');
+            const linkSource = document.getElementById('linkFrom') || document.getElementById('linkSource');
+            const linkTarget = document.getElementById('linkTo') || document.getElementById('linkTarget');
             const linkVar = document.getElementById('linkVar');
             const btnSubmitLink = document.getElementById('btnSubmitLink');
 
@@ -256,7 +313,10 @@ export function setupTopologyEvents() {
                     body: JSON.stringify(payload)
                 });
 
-                if (!res.ok) return;
+                if (!res.ok) {
+                    showToast(`Error al crear enlace: ${res.error}`, 'error');
+                    return;
+                }
 
                 showToast(`Enlace creado: ${payload.source_svc} ➔ ${payload.target_svc}`, 'success');
                 closeLinkModal();
@@ -267,3 +327,6 @@ export function setupTopologyEvents() {
         });
     }
 }
+
+export const setupTopologyListeners = setupTopologyEvents;
+

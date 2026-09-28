@@ -295,7 +295,112 @@ export function setModalMode(mode) {
     }
 }
 
+export function ensureServerModalMounted() {
+    if (document.getElementById('serverModal')) return;
+    const div = document.createElement('div');
+    div.innerHTML = `<div class="t-modal-overlay" id="serverModal" style="display:none;" role="dialog" aria-modal="true">
+        <div class="t-modal-card">
+            <div class="t-modal-header">
+                <div class="t-modal-title">
+                    <span>🖥️ Conectar Servidor</span>
+                </div>
+                <button type="button" class="t-close-btn" id="btnCloseModal" aria-label="Cerrar">×</button>
+            </div>
+
+            <div class="mode-selector">
+                <button type="button" class="mode-btn active" id="tabLocal">
+                    <span>Máquina Local</span>
+                </button>
+                <button type="button" class="mode-btn" id="tabRemote">
+                    <span>VPS Remoto (SSH)</span>
+                </button>
+                <button type="button" class="mode-btn" id="tabCloud">
+                    <span>Crear en la Nube</span>
+                </button>
+            </div>
+
+            <form id="formServer">
+                <div class="form-body">
+                    <div id="localFastNotice" class="fast-notice">
+                        <span class="notice-icon">⚡</span>
+                        <div>
+                            <strong>Conexión Local Directa</strong>
+                            <p>Monitorea y opera este mismo equipo sin requerir llaves SSH. Se vinculará de inmediato.</p>
+                        </div>
+                    </div>
+
+                    <div class="form-row-grid" id="cloudFields" style="display:none;">
+                        <div class="form-field">
+                            <label for="cfgProvider">Proveedor Cloud</label>
+                            <select id="cfgProvider" class="t-input">
+                                <option value="vultr">Vultr Cloud Compute</option>
+                                <option value="digitalocean">DigitalOcean Droplet</option>
+                            </select>
+                        </div>
+                        <div class="form-field">
+                            <label for="cfgRegion">Región del Datacenter</label>
+                            <input type="text" id="cfgRegion" class="t-input" placeholder="mex, nyc1, ewr" value="mex">
+                        </div>
+                        <div class="form-field full-span">
+                            <label for="cfgToken">API Key / Token del Proveedor</label>
+                            <input type="password" id="cfgToken" class="t-input" placeholder="Token secreto de tu cuenta">
+                        </div>
+                        <div class="form-field full-span">
+                            <label for="cfgPlan">Plan de Servidor</label>
+                            <input type="text" id="cfgPlan" class="t-input" placeholder="vc2-1c-1gb o s-1vcpu-1gb" value="vc2-1c-1gb">
+                        </div>
+                    </div>
+
+                    <div class="form-row-grid" id="standardFields">
+                        <div class="form-field" id="nameField">
+                            <label for="cfgName">Nombre / Alias</label>
+                            <input type="text" id="cfgName" class="t-input" placeholder="ej: vps-produccion" required>
+                        </div>
+                        <div class="form-field" id="hostField">
+                            <label for="cfgHost">Host o Dirección IP</label>
+                            <input type="text" id="cfgHost" class="t-input" placeholder="ej: 108.61.33.61 o dominio" required>
+                        </div>
+                        <div class="form-field" id="userField" style="display:none;">
+                            <label for="cfgUser">Usuario SSH</label>
+                            <input type="text" id="cfgUser" class="t-input" value="root">
+                        </div>
+                        <div class="form-field" id="portField" style="display:none;">
+                            <label for="cfgPort">Puerto SSH</label>
+                            <input type="number" id="cfgPort" class="t-input" value="22">
+                        </div>
+                        <div class="form-field full-span" id="keyField" style="display:none;">
+                            <label for="cfgKey">Ruta de Llave Privada SSH</label>
+                            <input type="text" id="cfgKey" class="t-input" placeholder="~/.ssh/id_rsa o ruta absoluta" value="~/.ssh/id_rsa">
+                        </div>
+                    </div>
+
+                    <div class="form-field checkbox-field">
+                        <label class="t-checkbox-label">
+                            <input type="checkbox" id="cfgIsActive" checked>
+                            <span>Establecer como servidor activo de inmediato</span>
+                        </label>
+                    </div>
+
+                    <div id="modalTestResult" class="t-diagnostic-box" style="display:none;"></div>
+                </div>
+
+                <div class="t-modal-footer">
+                    <button type="button" class="t-btn t-btn-secondary" id="btnCancelServer">Cancelar</button>
+                    <button type="button" class="t-btn t-btn-secondary" id="btnModalTest">
+                        <span id="btnModalTestText">Probar Conexión</span>
+                    </button>
+                    <button type="submit" class="t-btn t-btn-primary" id="btnModalSave">
+                        <span id="btnModalSaveText">Guardar Servidor</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>`;
+    document.body.appendChild(div.firstElementChild);
+}
+
 export function openAddModal() {
+    ensureServerModalMounted();
     const formServer = document.getElementById('formServer');
     const serverPopover = document.getElementById('serverPopover');
     if (formServer) formServer.reset();
@@ -411,7 +516,8 @@ export function setupFleetEvents(loadHubStateCallback) {
                 showToast(`Servidor '${payload.name}' conectado con éxito!`, 'success');
                 closeServerModal();
                 state.selectedServerName = payload.name;
-                if (loadHubStateCallback) await loadHubStateCallback();
+                const cb = loadHubStateCallback || (() => loadHubState());
+                await cb();
             } finally {
                 if (btnModalSave) btnModalSave.disabled = false;
                 if (btnModalSaveText) btnModalSaveText.textContent = isCloud ? 'Crear con OpenTofu' : 'Guardar Servidor';
@@ -473,3 +579,113 @@ export function setupFleetEvents(loadHubStateCallback) {
         });
     }
 }
+
+export async function selectServer(serverName) {
+    state.selectedServerName = serverName;
+    try {
+        localStorage.setItem('tarhiata_last_server', serverName);
+    } catch (storageErr) {
+        console.debug('No se pudo guardar último servidor en localStorage:', storageErr);
+    }
+
+    let s = state.servers.find(x => x.name === serverName);
+    if (!s) {
+        if (state.activeServer && state.activeServer.name === serverName) {
+            s = state.activeServer;
+        } else if (state.servers.length > 0) {
+            s = state.servers[0];
+            serverName = s.name;
+            state.selectedServerName = s.name;
+        }
+    }
+
+    renderFleetDirectory(
+        (name) => selectServer(name),
+        (name) => switchActiveServer(name, () => loadHubState()),
+        (name) => deleteServer(name, () => loadHubState())
+    );
+
+    if (!s) return;
+
+    const { activateServerLoadingSkeletons, refreshServerTelemetry } = await import('/components/telemetry/telemetry.js');
+    const { loadHostDevices } = await import('/components/hardware/hardware.js');
+
+    activateServerLoadingSkeletons(s);
+    state.currentHostDevices = null;
+
+    await Promise.all([
+        refreshServerTelemetry(serverName),
+        loadHostDevices()
+    ]);
+}
+
+export async function loadHubState() {
+    const topActiveName = document.getElementById('topActiveName');
+    const topActiveHost = document.getElementById('topActiveHost');
+    const topActiveDot = document.getElementById('topActiveDot');
+    const topActiveLatency = document.getElementById('topActiveLatency');
+
+    try {
+        const res = await apiFetch('/api/status');
+        if (!res.ok) {
+            if (topActiveName) topActiveName.textContent = 'Error de API';
+            showToast(`Error al consultar estado (${res.status})`, 'error');
+            const { deactivateInitialSkeletons } = await import('/components/telemetry/telemetry.js');
+            deactivateInitialSkeletons();
+            return;
+        }
+
+        const data = res.data || (typeof res.json === 'function' ? await res.json() : {});
+        state.servers = data.servers || [];
+        state.activeServer = data.config || null;
+
+        if (state.servers.length === 0 && state.activeServer && state.activeServer.host) {
+            state.servers = [state.activeServer];
+        }
+
+        if (topActiveName) topActiveName.textContent = 'Ninguno';
+        if (topActiveHost) topActiveHost.textContent = '—';
+        if (topActiveDot) topActiveDot.className = 'status-dot status-offline';
+        if (topActiveLatency) topActiveLatency.textContent = '—';
+
+        if (state.activeServer && state.activeServer.name) {
+            if (topActiveName) topActiveName.textContent = state.activeServer.name;
+            if (topActiveHost) topActiveHost.textContent = state.activeServer.host || 'localhost';
+            if (topActiveDot) topActiveDot.className = data.isOnline ? 'status-dot status-online' : 'status-dot status-offline';
+            if (topActiveLatency) topActiveLatency.textContent = data.isOnline ? 'ONLINE' : 'OFFLINE';
+        }
+
+        let savedServer = null;
+        try {
+            savedServer = localStorage.getItem('tarhiata_last_server');
+        } catch (e) {}
+
+        if (savedServer && state.servers.some(s => s.name === savedServer)) {
+            state.selectedServerName = savedServer;
+        } else if (!state.selectedServerName || !state.servers.some(s => s.name === state.selectedServerName)) {
+            if (state.activeServer && state.activeServer.name) {
+                state.selectedServerName = state.activeServer.name;
+            } else if (state.servers.length > 0) {
+                state.selectedServerName = state.servers[0].name;
+            }
+        }
+
+        renderFleetDirectory(
+            (name) => selectServer(name),
+            (name) => switchActiveServer(name, () => loadHubState()),
+            (name) => deleteServer(name, () => loadHubState())
+        );
+
+        if (state.selectedServerName) {
+            await selectServer(state.selectedServerName);
+        } else if (state.servers.length === 0) {
+            const { deactivateInitialSkeletons } = await import('/components/telemetry/telemetry.js');
+            deactivateInitialSkeletons();
+        }
+    } catch (err) {
+        console.debug('Error en loadHubState:', err);
+    }
+}
+
+export const setupFleetListeners = setupFleetEvents;
+

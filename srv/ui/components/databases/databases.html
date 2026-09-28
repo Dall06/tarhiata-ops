@@ -1,0 +1,107 @@
+<!-- Modal: Crear Base de Datos -->
+<div class="t-modal-overlay" id="dbModal" style="display:none;" role="dialog" aria-modal="true">
+    <div class="t-modal-card">
+        <div class="t-modal-header">
+            <div class="t-modal-title">
+                <span>🗄️ Crear Base de Datos</span>
+            </div>
+            <button type="button" class="t-close-btn" id="btnCloseDBModal" aria-label="Cerrar">×</button>
+        </div>
+        <form id="formDeployDB">
+            <div class="form-body">
+                <div class="mode-selector" style="margin: 0 0 14px 0;">
+                    <button type="button" class="mode-btn active" id="tabDBLocal">
+                        <span>Local en Swarm</span>
+                    </button>
+                    <button type="button" class="mode-btn" id="tabDBNode">
+                        <span>Nodo Dedicado</span>
+                    </button>
+                    <button type="button" class="mode-btn" id="tabDBExternal">
+                        <span>URL Externa</span>
+                    </button>
+                </div>
+
+                <div class="form-row-grid">
+                    <div class="form-field">
+                        <label for="dbName">Nombre del Servicio de BD</label>
+                        <input type="text" id="dbName" class="t-input" placeholder="ej: bd-clientes" required>
+                    </div>
+                    <div class="form-field">
+                        <label for="dbEngine">Motor de Base de Datos</label>
+                        <select id="dbEngine" class="t-input">
+                            <option value="postgres">PostgreSQL</option>
+                            <option value="mongodb">MongoDB</option>
+                            <option value="mysql">MySQL</option>
+                            <option value="redis">Redis</option>
+                            <option value="minio">MinIO (S3 Storage)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-field full-span" id="dbUrlField" style="display:none;">
+                        <label for="dbExternalURL">URL de Conexión (Supabase, Neon, etc.)</label>
+                        <input type="text" id="dbExternalURL" class="t-input" placeholder="ej: postgresql://usuario:clave@db.neon.tech:5432/bd">
+                    </div>
+
+                    <div class="form-field full-span" id="dbPathField">
+                        <label for="dbVolumePath">Ruta Persistente en Disco (Volumen)</label>
+                        <input type="text" id="dbVolumePath" class="t-input" value="/opt/data/db-storage">
+                    </div>
+
+                    <div class="form-field" id="dbPortField">
+                        <label for="dbPort">Puerto Interno</label>
+                        <input type="number" id="dbPort" class="t-input" value="5432">
+                    </div>
+
+                    <div class="form-field" id="dbTargetNodeField" style="display:none;">
+                        <label for="dbTargetNode">Afinidad de Nodo Target</label>
+                        <input type="text" id="dbTargetNode" class="t-input" placeholder="worker o hostname" value="worker">
+                    </div>
+                </div>
+            </div>
+            <div class="t-modal-footer">
+                <button type="button" class="t-btn t-btn-secondary" id="btnCancelDB">Cancelar</button>
+                <button type="submit" class="t-btn t-btn-primary" id="btnSubmitDB">
+                    <span id="btnSubmitDBText">Crear Base de Datos</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Historial y Gestión de Backups / Snapshots -->
+<div class="t-modal-overlay" id="backupsModal" style="display:none;" role="dialog" aria-modal="true">
+    <div class="t-modal-card" style="max-width: 840px; width: 92vw;">
+        <div class="t-modal-header">
+            <div>
+                <h3 class="t-modal-title">📦 Historial de Snapshots y Backups</h3>
+                <p class="t-modal-subtitle">Respaldos SQL, volcados binarios y archivos comprimidos almacenados en el servidor.</p>
+            </div>
+            <button type="button" class="t-close-btn" id="btnCloseBackupsModal" aria-label="Cerrar">&times;</button>
+        </div>
+        <div class="form-body" style="padding: 16px 20px;">
+            <div class="tactical-table-wrap" style="max-height: 420px; overflow-y: auto;">
+                <table class="t-table">
+                    <thead>
+                        <tr>
+                            <th>Target / Base de Datos</th>
+                            <th>Motor</th>
+                            <th>Archivo</th>
+                            <th>Tamaño</th>
+                            <th>Fecha</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="backupsTableBody">
+                        <tr>
+                            <td colspan="6" class="t-td-empty">Consultando copias de seguridad...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="t-modal-footer">
+            <button type="button" class="t-btn t-btn-secondary" id="btnDismissBackupsModal">Cerrar</button>
+            <button type="button" class="t-btn t-btn-primary" id="btnRefreshBackupsModal">🔄 Actualizar</button>
+        </div>
+    </div>
+</div>

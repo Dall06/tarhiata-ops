@@ -46,7 +46,90 @@ export async function launchNativeTerminal(serverName, buttonEl) {
     }
 }
 
+export function ensureTerminalModalMounted() {
+    if (document.getElementById('terminalModal')) return;
+    const div = document.createElement('div');
+    div.innerHTML = `<div class="t-modal-overlay" id="terminalModal" style="display:none;" role="dialog" aria-modal="true">
+        <div class="t-modal-card terminal-modal-card">
+            <div class="t-modal-header terminal-modal-header">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <div class="terminal-badge-pulse"></div>
+                    <div>
+                        <h2 class="t-modal-title">💻 Consola Terminal Web</h2>
+                        <span class="t-modal-desc">Sesión interactiva en <strong id="terminalHostLabel" style="color:var(--text-pure); font-family:var(--font-mono);">—</strong></span>
+                    </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <button type="button" class="mini-btn mini-btn-accent" id="btnTerminalOpenPC" title="Abrir esta sesión en la aplicación de Terminal de tu computadora">
+                        🖥️ <span>Terminal del PC (Nativa)</span>
+                    </button>
+                    <button type="button" class="t-close-btn" id="btnCloseTerminalModal" aria-label="Cerrar">&times;</button>
+                </div>
+            </div>
+
+            <div class="terminal-toolbar">
+                <div class="terminal-toolbar-left">
+                    <span class="terminal-target-label">Destino:</span>
+                    <select id="terminalTargetSelect" class="t-input terminal-target-select">
+                        <option value="">🖥️ Host VPS (Sistema Operativo)</option>
+                    </select>
+                </div>
+                <div class="terminal-toolbar-right">
+                    <button type="button" class="mini-btn btn-term-quick" data-cmd="docker ps">docker ps</button>
+                    <button type="button" class="mini-btn btn-term-quick" data-cmd="df -h">df -h</button>
+                    <button type="button" class="mini-btn btn-term-quick" data-cmd="free -m">free -m</button>
+                    <button type="button" class="mini-btn btn-term-quick" data-cmd="uptime">uptime</button>
+                    <button type="button" class="mini-btn" id="btnTerminalClear" title="Limpiar pantalla">🧹 Limpiar</button>
+                    <button type="button" class="mini-btn" id="btnTerminalCopy" title="Copiar salida de la terminal">📋 Copiar</button>
+                </div>
+            </div>
+
+            <div id="terminalFallbackBanner" class="terminal-fallback-banner" style="display:none;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="font-size:1.1rem;">⚠️</span>
+                    <div>
+                        <strong style="color:#fca5a5;">Problema al conectar en el navegador:</strong>
+                        <span id="terminalFallbackMsg" style="color:var(--text-secondary); font-size:0.78rem;"></span>
+                    </div>
+                </div>
+                <button type="button" class="t-btn t-btn-primary" id="btnFallbackOpenPC">
+                    🖥️ Conectar con Terminal del PC
+                </button>
+            </div>
+
+            <div class="terminal-viewport" id="terminalViewport" tabindex="0">
+                <div id="terminalOutput" class="terminal-output-stream"></div>
+            </div>
+
+            <div class="terminal-prompt-bar">
+                <span class="terminal-prompt-prefix" id="terminalPromptPrefix">root@vps:~$</span>
+                <input type="text" id="terminalCommandInput" class="terminal-cmd-input" placeholder="Escribe un comando bash (ej: docker ps, uname -a, ls -la)..." autocomplete="off" spellcheck="false">
+                <button type="button" class="t-btn t-btn-primary" id="btnTerminalSend">
+                    <span>Ejecutar</span>
+                </button>
+            </div>
+
+            <div class="t-modal-footer terminal-modal-footer">
+                <span style="font-size:0.72rem; color:var(--text-muted); font-family:var(--font-mono);">
+                    Atajos: <code>Enter</code> ejecutar · <code>↑</code> / <code>↓</code> historial · <code>Ctrl+L</code> limpiar
+                </span>
+                <div style="display:flex; gap:8px;">
+                    <button type="button" class="t-btn t-btn-secondary" id="btnTerminalDirectPC">
+                        🖥️ Terminal del PC
+                    </button>
+                    <button type="button" class="t-btn t-btn-secondary" id="btnCloseTerminalModalBottom">
+                        Cerrar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>`;
+    document.body.appendChild(div.firstElementChild);
+    setupTerminalListeners();
+}
+
 export function openTerminalModal(serverName, targetContainer = '') {
+    ensureTerminalModalMounted();
     const terminalModal = document.getElementById('terminalModal');
     const terminalHostLabel = document.getElementById('terminalHostLabel');
     const terminalFallbackBanner = document.getElementById('terminalFallbackBanner');

@@ -7,7 +7,103 @@ let currentVolumePath = '/opt/data';
 let currentVolumeFiles = [];
 let currentEditingFilePath = '';
 
+export function ensureVolumesModalMounted() {
+    if (document.getElementById('volumeModal')) return;
+    const div = document.createElement('div');
+    div.innerHTML = `
+<!-- Modal: Explorador de Volúmenes y Archivos Persistentes (/opt/data) -->
+<div class="t-modal-overlay" id="volumeModal" style="display:none;" role="dialog" aria-modal="true">
+    <div class="t-modal-card volume-modal-card">
+        <div class="t-modal-header">
+            <div>
+                <h2 class="t-modal-title">📁 Almacenamiento & Volúmenes Persistentes</h2>
+                <span class="t-modal-desc">Explora archivos, volúmenes de datos y carpetas montadas en el VPS</span>
+            </div>
+            <button type="button" class="t-close-btn" id="btnCloseVolumeModal" aria-label="Cerrar">&times;</button>
+        </div>
+
+        <!-- Toolbar: Breadcrumbs y Acciones -->
+        <div class="volume-toolbar">
+            <div class="volume-breadcrumbs-bar" id="volumeBreadcrumbs">
+                <!-- Dinámico: 🏠 /opt/data / subcarpeta -->
+            </div>
+            <div class="volume-actions-bar">
+                <button type="button" class="mini-btn" id="btnVolumeNewFolder" title="Crear nueva carpeta">
+                    ➕ Carpeta
+                </button>
+                <label class="mini-btn mini-btn-accent" style="cursor:pointer; margin:0;" title="Subir archivo a esta carpeta">
+                    <span>📤 Subir</span>
+                    <input type="file" id="volumeFileInput" style="display:none;">
+                </label>
+                <button type="button" class="mini-btn" id="btnVolumeRefresh" title="Actualizar listado">
+                    🔄
+                </button>
+            </div>
+        </div>
+
+        <!-- Buscador y Vista de Archivos -->
+        <div class="volume-modal-body" id="volumeFilesView">
+            <div class="volume-filter-row">
+                <input type="text" id="volumeSearchInput" class="t-input volume-search-input" placeholder="Filtrar archivos o subcarpetas en este directorio..." aria-label="Filtrar archivos">
+                <span id="volumePathDisplay" class="volume-current-path">/opt/data</span>
+            </div>
+
+            <div class="volume-table-wrap">
+                <table class="t-table volume-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 45%;">Nombre</th>
+                            <th style="width: 15%;">Tamaño</th>
+                            <th style="width: 25%;">Última Modificación</th>
+                            <th style="width: 15%; text-align: right;">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="volumeTableBody">
+                        <tr>
+                            <td colspan="4" class="t-td-empty">Cargando archivos del servidor...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Editor / Visor de Archivo de Texto embebido -->
+        <div class="volume-modal-body" id="volumeEditorView" style="display:none;">
+            <div class="volume-editor-header">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <button type="button" class="mini-btn" id="btnVolumeBackToList">
+                        ← Volver
+                    </button>
+                    <span id="volumeEditorFilePath" style="font-family:var(--font-mono); font-size:0.85rem; color:var(--brand-primary); font-weight:600;">—</span>
+                </div>
+                <div style="display:flex; gap:8px;">
+                    <button type="button" class="mini-btn" id="btnVolumeEditorDownload">
+                        ⬇️ Descargar
+                    </button>
+                    <button type="button" class="mini-btn mini-btn-primary" id="btnVolumeEditorSave">
+                        💾 Guardar Cambios
+                    </button>
+                </div>
+            </div>
+            <div class="volume-editor-wrap">
+                <textarea id="volumeEditorTextarea" class="t-input volume-textarea" spellcheck="false" placeholder="Contenido del archivo..."></textarea>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="t-modal-footer">
+            <span id="volumeModalStatus" style="margin-right:auto; font-size:0.75rem; color:var(--text-muted);">
+                Ruta base: <code>/opt/data</code>
+            </span>
+            <button type="button" class="t-btn t-btn-secondary" id="btnCloseVolumeModalBottom">Cerrar</button>
+        </div>
+    </div>
+</div>`;
+    document.body.appendChild(div.firstElementChild);
+}
+
 export function openVolumeModal(initialPath) {
+    ensureVolumesModalMounted();
     const volumeModal = document.getElementById('volumeModal');
     const volumeSearchInput = document.getElementById('volumeSearchInput');
     const volumeFilesView = document.getElementById('volumeFilesView');
@@ -27,6 +123,7 @@ export function closeVolumeModal() {
     if (volumeModal) volumeModal.style.display = 'none';
     currentEditingFilePath = '';
 }
+
 
 export function renderVolumeBreadcrumbs(targetPath) {
     const volumeBreadcrumbs = document.getElementById('volumeBreadcrumbs');
@@ -245,6 +342,7 @@ export async function openVolumeFileEditor(filePath) {
 }
 
 export function setupVolumeListeners() {
+    ensureVolumesModalMounted();
     const btnVolumeBackToList = document.getElementById('btnVolumeBackToList');
     const btnVolumeEditorDownload = document.getElementById('btnVolumeEditorDownload');
     const btnVolumeEditorSave = document.getElementById('btnVolumeEditorSave');

@@ -140,33 +140,165 @@ export function renderDatabaseCards(databases, callbacks = {}) {
     });
 }
 
+export function ensureDatabasesModalsMounted() {
+    if (document.getElementById('dbModal') && document.getElementById('backupsModal')) return;
+    const div = document.createElement('div');
+    div.innerHTML = `
+<!-- Modal: Crear Base de Datos -->
+<div class="t-modal-overlay" id="dbModal" style="display:none;" role="dialog" aria-modal="true">
+    <div class="t-modal-card">
+        <div class="t-modal-header">
+            <div class="t-modal-title">
+                <span>🗄️ Crear Base de Datos</span>
+            </div>
+            <button type="button" class="t-close-btn" id="btnCloseDBModal" aria-label="Cerrar">×</button>
+        </div>
+        <form id="formDeployDB">
+            <div class="form-body">
+                <div class="mode-selector" style="margin: 0 0 14px 0;">
+                    <button type="button" class="mode-btn active" id="tabDBLocal">
+                        <span>Local en Swarm</span>
+                    </button>
+                    <button type="button" class="mode-btn" id="tabDBNode">
+                        <span>Nodo Dedicado</span>
+                    </button>
+                    <button type="button" class="mode-btn" id="tabDBExternal">
+                        <span>URL Externa</span>
+                    </button>
+                </div>
+
+                <div class="form-row-grid">
+                    <div class="form-field">
+                        <label for="dbName">Nombre del Servicio de BD</label>
+                        <input type="text" id="dbName" class="t-input" placeholder="ej: bd-clientes" required>
+                    </div>
+                    <div class="form-field">
+                        <label for="dbEngine">Motor de Base de Datos</label>
+                        <select id="dbEngine" class="t-input">
+                            <option value="postgres">PostgreSQL</option>
+                            <option value="mongodb">MongoDB</option>
+                            <option value="mysql">MySQL</option>
+                            <option value="redis">Redis</option>
+                            <option value="minio">MinIO (S3 Storage)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-field full-span" id="dbUrlField" style="display:none;">
+                        <label for="dbExternalURL">URL de Conexión (Supabase, Neon, etc.)</label>
+                        <input type="text" id="dbExternalURL" class="t-input" placeholder="ej: postgresql://usuario:clave@db.neon.tech:5432/bd">
+                    </div>
+
+                    <div class="form-field full-span" id="dbPathField">
+                        <label for="dbVolumePath">Ruta Persistente en Disco (Volumen)</label>
+                        <input type="text" id="dbVolumePath" class="t-input" value="/opt/data/db-storage">
+                    </div>
+
+                    <div class="form-field" id="dbPortField">
+                        <label for="dbPort">Puerto Interno</label>
+                        <input type="number" id="dbPort" class="t-input" value="5432">
+                    </div>
+
+                    <div class="form-field" id="dbTargetNodeField" style="display:none;">
+                        <label for="dbTargetNode">Afinidad de Nodo Target</label>
+                        <input type="text" id="dbTargetNode" class="t-input" placeholder="worker o hostname" value="worker">
+                    </div>
+                </div>
+            </div>
+            <div class="t-modal-footer">
+                <button type="button" class="t-btn t-btn-secondary" id="btnCancelDB">Cancelar</button>
+                <button type="submit" class="t-btn t-btn-primary" id="btnSubmitDB">
+                    <span id="btnSubmitDBText">Crear Base de Datos</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Historial y Gestión de Backups / Snapshots -->
+<div class="t-modal-overlay" id="backupsModal" style="display:none;" role="dialog" aria-modal="true">
+    <div class="t-modal-card" style="max-width: 840px; width: 92vw;">
+        <div class="t-modal-header">
+            <div>
+                <h3 class="t-modal-title">📦 Historial de Snapshots y Backups</h3>
+                <p class="t-modal-subtitle">Respaldos SQL, volcados binarios y archivos comprimidos almacenados en el servidor.</p>
+            </div>
+            <button type="button" class="t-close-btn" id="btnCloseBackupsModal" aria-label="Cerrar">&times;</button>
+        </div>
+        <div class="form-body" style="padding: 16px 20px;">
+            <div class="tactical-table-wrap" style="max-height: 420px; overflow-y: auto;">
+                <table class="t-table">
+                    <thead>
+                        <tr>
+                            <th>Target / Base de Datos</th>
+                            <th>Motor</th>
+                            <th>Archivo</th>
+                            <th>Tamaño</th>
+                            <th>Fecha</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="backupsTableBody">
+                        <tr>
+                            <td colspan="6" class="t-td-empty">Consultando copias de seguridad...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="t-modal-footer">
+            <button type="button" class="t-btn t-btn-secondary" id="btnDismissBackupsModal">Cerrar</button>
+            <button type="button" class="t-btn t-btn-primary" id="btnRefreshBackupsModal">🔄 Actualizar</button>
+        </div>
+    </div>
+</div>`;
+    while (div.firstElementChild) {
+        document.body.appendChild(div.firstElementChild);
+    }
+}
+
 export function setDBMode(mode) {
     state.dbDeployMode = mode;
-    const tabDBSingle = document.getElementById('tabDBSingle');
-    const tabDBMulti = document.getElementById('tabDBMulti');
+    const tabDBLocal = document.getElementById('tabDBLocal') || document.getElementById('tabDBSingle');
+    const tabDBNode = document.getElementById('tabDBNode') || document.getElementById('tabDBMulti');
     const tabDBExternal = document.getElementById('tabDBExternal');
-    const dbExternalGroup = document.getElementById('dbExternalGroup');
-    const dbLocalGroup = document.getElementById('dbLocalGroup');
 
-    if (tabDBSingle) tabDBSingle.classList.toggle('active', mode === 'single-node');
-    if (tabDBMulti) tabDBMulti.classList.toggle('active', mode === 'multi-node');
+    const dbUrlField = document.getElementById('dbUrlField') || document.getElementById('dbExternalGroup');
+    const dbPathField = document.getElementById('dbPathField') || document.getElementById('dbLocalGroup');
+    const dbPortField = document.getElementById('dbPortField');
+    const dbTargetNodeField = document.getElementById('dbTargetNodeField');
+
+    if (tabDBLocal) tabDBLocal.classList.toggle('active', mode === 'single-node' || mode === 'local');
+    if (tabDBNode) tabDBNode.classList.toggle('active', mode === 'multi-node' || mode === 'node');
     if (tabDBExternal) tabDBExternal.classList.toggle('active', mode === 'external');
 
     if (mode === 'external') {
-        if (dbExternalGroup) dbExternalGroup.style.display = 'flex';
-        if (dbLocalGroup) dbLocalGroup.style.display = 'none';
+        if (dbUrlField) dbUrlField.style.display = 'flex';
+        if (dbPathField) dbPathField.style.display = 'none';
+        if (dbPortField) dbPortField.style.display = 'none';
+        if (dbTargetNodeField) dbTargetNodeField.style.display = 'none';
         return;
     }
-    if (dbExternalGroup) dbExternalGroup.style.display = 'none';
-    if (dbLocalGroup) dbLocalGroup.style.display = 'flex';
+    if (mode === 'node' || mode === 'multi-node') {
+        if (dbUrlField) dbUrlField.style.display = 'none';
+        if (dbPathField) dbPathField.style.display = 'flex';
+        if (dbPortField) dbPortField.style.display = 'flex';
+        if (dbTargetNodeField) dbTargetNodeField.style.display = 'flex';
+        return;
+    }
+    // local / single-node
+    if (dbUrlField) dbUrlField.style.display = 'none';
+    if (dbPathField) dbPathField.style.display = 'flex';
+    if (dbPortField) dbPortField.style.display = 'flex';
+    if (dbTargetNodeField) dbTargetNodeField.style.display = 'none';
 }
 
 export function openDeployDBModal() {
-    const dbForm = document.getElementById('dbForm');
+    ensureDatabasesModalsMounted();
+    const dbForm = document.getElementById('formDeployDB') || document.getElementById('dbForm');
     const dbFeedback = document.getElementById('dbFeedback');
     if (dbForm) dbForm.reset();
     if (dbFeedback) dbFeedback.style.display = 'none';
-    setDBMode('single-node');
+    setDBMode('local');
     openModal('dbModal');
 }
 
@@ -189,10 +321,12 @@ export async function triggerDatabaseBackup(name, engine, btnElement) {
             body: JSON.stringify({ name: name, engine: engine || 'postgres', server: state.selectedServerName || '' })
         });
 
-        if (res.ok && res.data) {
+        if (res.ok) {
             showToast(`¡Respaldo de '${name}' completado con éxito!`, 'success');
             await loadBackups();
             openModal('backupsModal');
+        } else {
+            showToast(`Error al respaldar base de datos: ${res.error}`, 'error');
         }
     } finally {
         if (btnElement) {
@@ -202,56 +336,128 @@ export async function triggerDatabaseBackup(name, engine, btnElement) {
     }
 }
 
-export async function loadBackups() {
+export async function loadBackups(onReloadStatus) {
+    ensureDatabasesModalsMounted();
     const backupsTableBody = document.getElementById('backupsTableBody');
-    const backupsEmptyNotice = document.getElementById('backupsEmptyNotice');
     if (!backupsTableBody) return;
 
-    backupsTableBody.innerHTML = '<tr><td colspan="5" class="t-td-empty">Consultando historial de respaldos...</td></tr>';
+    backupsTableBody.innerHTML = '<tr><td colspan="6" class="t-td-empty">Consultando copias de seguridad...</td></tr>';
     const res = await apiFetch(`/api/backups?server=${encodeURIComponent(state.selectedServerName || '')}`);
     if (!res.ok || !res.data || !Array.isArray(res.data) || res.data.length === 0) {
-        backupsTableBody.innerHTML = '';
-        if (backupsEmptyNotice) backupsEmptyNotice.style.display = 'block';
+        backupsTableBody.innerHTML = '<tr><td colspan="6" class="t-td-empty">No se encontraron copias de seguridad registradas. Genera una desde tus bases de datos.</td></tr>';
         return;
     }
 
-    if (backupsEmptyNotice) backupsEmptyNotice.style.display = 'none';
     backupsTableBody.innerHTML = '';
-
     res.data.forEach(b => {
         const tr = document.createElement('tr');
+        const bId = b.id || b.ID;
+        const targetName = b.targetName || b.TargetName || b.dbName || '—';
+        const engine = b.engine || b.Engine || 'database';
+        const filename = b.filename || b.Filename || b.fileName || '—';
+        const sizeStr = b.sizeBytes || b.SizeBytes ? `${Math.round((b.sizeBytes || b.SizeBytes) / 1024)} KB` : (b.size || '—');
+        const createdAt = b.createdAt || b.CreatedAt || '—';
+
         tr.innerHTML = `
-            <td><strong style="font-family:var(--font-mono); font-size:0.78rem;">${escapeHtml(b.dbName)}</strong></td>
-            <td><span class="t-badge" style="font-size:0.72rem;">${escapeHtml(b.engine)}</span></td>
-            <td><code style="font-size:0.75rem; color:var(--text-secondary);">${escapeHtml(b.fileName)}</code></td>
-            <td style="font-size:0.75rem; color:var(--text-secondary);">${escapeHtml(b.createdAt || '—')}</td>
+            <td style="font-weight:700; color:#fff;">${escapeHtml(targetName)}</td>
+            <td><span class="svc-pill svc-pill-active">${escapeHtml(engine)}</span></td>
+            <td style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(filename)}">${escapeHtml(filename)}</td>
+            <td style="color:var(--text-secondary); font-size:0.8rem;">${escapeHtml(sizeStr)}</td>
+            <td style="color:var(--text-muted); font-size:0.75rem;">${escapeHtml(createdAt)}</td>
             <td>
-                <a href="/api/backups/download?file=${encodeURIComponent(b.fileName)}&server=${encodeURIComponent(state.selectedServerName || '')}" class="mini-btn mini-btn-accent" style="text-decoration:none;" download>
-                    ⬇ Descargar
-                </a>
+                <div style="display:flex; gap:6px; align-items:center;">
+                    <a class="mini-btn btn-dl-backup" href="/api/backups/download?id=${bId}&file=${encodeURIComponent(filename)}&server=${encodeURIComponent(state.selectedServerName || '')}" download="${escapeHtml(filename)}" title="Descargar snapshot SQL/archivo" style="text-decoration:none;">
+                        📥 Descargar
+                    </a>
+                    <button type="button" class="mini-btn btn-restore-backup" data-id="${bId}" data-target="${escapeHtml(targetName)}" title="Restaurar base de datos desde este snapshot" style="color:var(--accent-warning, #f59e0b);">
+                        ♻️ Restaurar
+                    </button>
+                    <button type="button" class="mini-btn btn-del-backup" data-id="${bId}" data-file="${escapeHtml(filename)}" title="Eliminar respaldo" style="color:var(--status-offline);">
+                        🗑️
+                    </button>
+                </div>
             </td>
         `;
         backupsTableBody.appendChild(tr);
     });
+
+    // Bind restore events
+    document.querySelectorAll('.btn-restore-backup').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-id');
+            const target = btn.getAttribute('data-target');
+            if (!id) return;
+            if (!confirm(`¿Restaurar la base de datos '${target}' desde este respaldo? ADVERTENCIA: Esta operación sobrescribirá los datos actuales con el contenido del snapshot.`)) return;
+            btn.disabled = true;
+            showToast(`Restaurando '${target}' desde snapshot...`, 'info');
+            try {
+                const res = await apiFetch(`/api/backups/restore?server=${encodeURIComponent(state.selectedServerName || '')}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ backupId: parseInt(id, 10), server: state.selectedServerName || '' })
+                });
+                if (res.ok) {
+                    showToast(`¡Base de datos '${target}' restaurada con éxito!`, 'success');
+                    if (onReloadStatus && state.selectedServerName) {
+                        onReloadStatus(state.selectedServerName);
+                    }
+                } else {
+                    showToast(`Error al restaurar: ${res.error}`, 'error');
+                }
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    });
+
+    // Bind delete events
+    document.querySelectorAll('.btn-del-backup').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-id');
+            const file = btn.getAttribute('data-file');
+            if (!id) return;
+            if (!confirm(`¿Eliminar definitivamente el respaldo '${file}'?`)) return;
+            btn.disabled = true;
+            try {
+                const res = await apiFetch(`/api/backups?id=${encodeURIComponent(id)}&file=${encodeURIComponent(file)}&server=${encodeURIComponent(state.selectedServerName || '')}`, {
+                    method: 'DELETE'
+                });
+                if (res.ok) {
+                    showToast(`Respaldo eliminado`, 'info');
+                    await loadBackups(onReloadStatus);
+                } else {
+                    showToast(`Error al eliminar: ${res.error}`, 'error');
+                }
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    });
 }
 
 export function setupDatabaseEvents(onReloadStatus) {
+    ensureDatabasesModalsMounted();
+
     const btnGlobalDB = document.getElementById('btnGlobalDB');
     const btnCloseDBModal = document.getElementById('btnCloseDBModal');
-    const tabDBSingle = document.getElementById('tabDBSingle');
-    const tabDBMulti = document.getElementById('tabDBMulti');
+    const btnCancelDB = document.getElementById('btnCancelDB');
+    const tabDBLocal = document.getElementById('tabDBLocal') || document.getElementById('tabDBSingle');
+    const tabDBNode = document.getElementById('tabDBNode') || document.getElementById('tabDBMulti');
     const tabDBExternal = document.getElementById('tabDBExternal');
-    const dbForm = document.getElementById('dbForm');
+    const dbForm = document.getElementById('formDeployDB') || document.getElementById('dbForm');
     const btnCloseBackupsModal = document.getElementById('btnCloseBackupsModal');
-    const btnCloseBackupsModalBottom = document.getElementById('btnCloseBackupsModalBottom');
+    const btnDismissBackupsModal = document.getElementById('btnDismissBackupsModal');
+    const btnRefreshBackupsModal = document.getElementById('btnRefreshBackupsModal');
 
     if (btnGlobalDB) btnGlobalDB.addEventListener('click', openDeployDBModal);
     if (btnCloseDBModal) btnCloseDBModal.addEventListener('click', closeDeployDBModal);
+    if (btnCancelDB) btnCancelDB.addEventListener('click', closeDeployDBModal);
     if (btnCloseBackupsModal) btnCloseBackupsModal.addEventListener('click', () => closeModal('backupsModal'));
-    if (btnCloseBackupsModalBottom) btnCloseBackupsModalBottom.addEventListener('click', () => closeModal('backupsModal'));
+    if (btnDismissBackupsModal) btnDismissBackupsModal.addEventListener('click', () => closeModal('backupsModal'));
+    if (btnRefreshBackupsModal) btnRefreshBackupsModal.addEventListener('click', () => loadBackups(onReloadStatus));
 
-    if (tabDBSingle) tabDBSingle.addEventListener('click', () => setDBMode('single-node'));
-    if (tabDBMulti) tabDBMulti.addEventListener('click', () => setDBMode('multi-node'));
+    if (tabDBLocal) tabDBLocal.addEventListener('click', () => setDBMode('local'));
+    if (tabDBNode) tabDBNode.addEventListener('click', () => setDBMode('node'));
     if (tabDBExternal) tabDBExternal.addEventListener('click', () => setDBMode('external'));
 
     if (dbForm) {
@@ -261,15 +467,19 @@ export function setupDatabaseEvents(onReloadStatus) {
             const dbEngine = document.getElementById('dbEngine');
             const dbExternalURL = document.getElementById('dbExternalURL');
             const dbVolumePath = document.getElementById('dbVolumePath');
+            const dbPort = document.getElementById('dbPort');
+            const dbTargetNode = document.getElementById('dbTargetNode');
             const dbFeedback = document.getElementById('dbFeedback');
             const btnSubmitDB = document.getElementById('btnSubmitDB');
 
             const payload = {
                 name: dbName ? dbName.value.trim() : '',
                 engine: dbEngine ? dbEngine.value : 'postgres',
-                deployType: state.dbDeployMode,
+                deployType: state.dbDeployMode || 'local',
                 externalUrl: dbExternalURL ? dbExternalURL.value.trim() : '',
                 volumeHostPath: dbVolumePath ? dbVolumePath.value.trim() : '',
+                internalPort: dbPort ? parseInt(dbPort.value || '5432', 10) : 5432,
+                targetNode: dbTargetNode ? dbTargetNode.value.trim() : '',
                 server: state.selectedServerName || ''
             };
 
@@ -292,6 +502,7 @@ export function setupDatabaseEvents(onReloadStatus) {
                     if (dbFeedback) {
                         dbFeedback.innerHTML = `<span style="color:var(--status-offline);">✕ ${escapeHtml(res.error)}</span>`;
                     }
+                    showToast(`Error al crear BD: ${res.error}`, 'error');
                     return;
                 }
                 showToast(`Base de datos '${payload.name}' creada exitosamente.`, 'success');
@@ -308,3 +519,6 @@ export function setupDatabaseEvents(onReloadStatus) {
         });
     }
 }
+
+export const setupDatabasesListeners = setupDatabaseEvents;
+
