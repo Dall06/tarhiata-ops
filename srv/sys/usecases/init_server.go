@@ -142,16 +142,20 @@ func (uc *InitServerUseCase) configureDockerDaemon() error {
 }
 
 func (uc *InitServerUseCase) ensureSwarmActive() error {
-	res, err := uc.ssh.RunCommand("docker info | grep -i 'Swarm: active'")
-	if err == nil && res.ExitCode == 0 && strings.TrimSpace(res.Output) != "" {
+	res, err := uc.ssh.RunCommand("docker info --format '{{.Swarm.LocalNodeState}}'")
+	if err == nil && res != nil && strings.TrimSpace(res.Output) == "active" {
 		// El clúster Swarm ya está encendido
 		return nil
 	}
 
-	// Inicializar Swarm (Si el VPS tiene múltiples interfaces, Docker elegirá la default,
-	// pero podríamos pasarle --advertise-addr de la VLAN en el futuro si es necesario).
-	res, err = uc.ssh.RunCommand("docker swarm init")
+	// Intentar con --advertise-addr primero (VPS con múltiples interfaces)
+	res, err = uc.ssh.RunCommand("docker swarm init --advertise-addr $(hostname -I | awk '{print $1}') 2>/dev/null || docker swarm init 2>/dev/null")
 	if err != nil || res == nil || res.ExitCode != 0 {
+		// Verificar si ya estaba activo (puede que init devuelva error porque ya existe)
+		resCheck, errCheck := uc.ssh.RunCommand("docker info --format '{{.Swarm.LocalNodeState}}'")
+		if errCheck == nil && resCheck != nil && strings.TrimSpace(resCheck.Output) == "active" {
+			return nil
+		}
 		errMsg := ""
 		if res != nil {
 			errMsg = res.Output
@@ -242,6 +246,7 @@ services:
       - "--api.dashboard=true"
       - "--providers.docker=true"
       - "--providers.docker.swarmmode=true"
+      - "--providers.docker.network=tarhiata_public"
       - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
@@ -253,6 +258,10 @@ services:
 %s    networks:
       - tarhiata_public
     deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
       placement:
         constraints:
           - node.role == manager
