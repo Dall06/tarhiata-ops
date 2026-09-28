@@ -33,7 +33,7 @@ export function ensureEnvModalMounted() {
             </div>
             <div style="display:flex; gap:8px;">
                 <button type="button" class="mini-btn mini-btn-accent" id="btnAddEnvRow">
-                    <span>+ Agregar Variable</span>
+                    <span>Agregar Variable</span>
                 </button>
                 <button type="button" class="mini-btn" id="btnCopyEnv" title="Copiar al portapapeles en formato .env">
                     <span>📋 Copiar Todo</span>
@@ -128,7 +128,7 @@ export async function fetchAndRenderEnvVars(serviceName) {
         const res = await apiFetch(`/api/env?service=${encodeURIComponent(serviceName)}&server=${encodeURIComponent(state.selectedServerName || '')}`);
         if (!res.ok) {
             if (envTableBody) {
-                envTableBody.innerHTML = `<tr><td colspan="3" class="t-td-empty">Sin variables configuradas aún. Pulsa '+ Agregar Variable'.</td></tr>`;
+                envTableBody.innerHTML = `<tr><td colspan="3" class="t-td-empty">Sin variables configuradas aún. Pulsa 'Agregar Variable'.</td></tr>`;
             }
             return;
         }
@@ -169,7 +169,7 @@ export function renderEnvTableFromRaw(rawContent) {
     });
 
     if (count === 0) {
-        envTableBody.innerHTML = `<tr><td colspan="3" class="t-td-empty">Sin variables configuradas. Pulsa '+ Agregar Variable'.</td></tr>`;
+        envTableBody.innerHTML = `<tr><td colspan="3" class="t-td-empty">Sin variables configuradas. Pulsa 'Agregar Variable'.</td></tr>`;
     }
 }
 
@@ -213,7 +213,7 @@ export function createEnvTableRow(key, val) {
     delBtn.addEventListener('click', () => {
         tr.remove();
         if (envTableBody.children.length === 0) {
-            envTableBody.innerHTML = `<tr><td colspan="3" class="t-td-empty">Sin variables configuradas. Pulsa '+ Agregar Variable'.</td></tr>`;
+            envTableBody.innerHTML = `<tr><td colspan="3" class="t-td-empty">Sin variables configuradas. Pulsa 'Agregar Variable'.</td></tr>`;
         }
     });
 

@@ -171,7 +171,7 @@ export async function loadServiceLinks() {
         renderTopologyServicesTable(state.swarmServicesCache, state.swarmDatabasesCache, state.currentServiceLinks);
 
         if (!state.currentServiceLinks || state.currentServiceLinks.length === 0) {
-            linksTableBody.innerHTML = `<tr><td colspan="4" class="t-td-empty">Sin enlaces activos. Haz clic en '+ Enlazar Servicios'.</td></tr>`;
+            linksTableBody.innerHTML = `<tr><td colspan="4" class="t-td-empty">Sin enlaces activos. Haz clic en 'Enlazar Servicios'.</td></tr>`;
             return;
         }
 
