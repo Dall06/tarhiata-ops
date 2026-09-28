@@ -17,7 +17,7 @@ import (
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
 	"github.com/Dall06/tarhiata-ops/srv/sys/usecases"
-	"github.com/Dall06/tarhiata-ops/srv/ui/controllers"
+	"github.com/Dall06/tarhiata-ops/srv/ui/handlers"
 )
 
 // Version is the current release version of tarhiata-ops.
@@ -224,7 +224,7 @@ func main() {
 }
 
 func runDashboard(repo *repositories.SQLiteRepository, config *domain.ServerConfig) {
-	webServer := controllers.NewWebServer(repo, config)
+	webServer := handlers.NewWebServer(repo, config)
 	if err := webServer.Start(8080); err != nil {
 		fmt.Printf("❌ Error ejecutando servidor web: %v\n", err)
 		return
