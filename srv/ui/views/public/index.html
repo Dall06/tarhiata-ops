@@ -150,10 +150,6 @@
                             <strong id="deskSwarm" style="display:none;">—</strong>
                         </div>
                     </div>
-                    <!-- Hidden helpers for state preservation -->
-                    <span id="swarmNodeState" style="display:none;"></span>
-                    <span id="swarmDockerVer" style="display:none;"></span>
-                    <span id="swarmActiveServices" style="display:none;"></span>
                 </div>
 
                 <!-- Dashboards Integrados (Portainer, Dozzle, Traefik) -->
@@ -356,9 +352,6 @@
                     </div>
                 </div>
 
-                <!-- Hidden table body for backward compatibility -->
-                <table style="display:none;"><tbody id="swarmServicesTableBody"></tbody></table>
-
                 <!-- Empty State Apps -->
                 <div class="zero-state-box" id="swarmServicesEmpty" style="display:none;">
                     <div class="zero-icon">🚀</div>
@@ -475,9 +468,6 @@
                 <div class="db-cards-grid" id="swarmDatabasesCardsGrid">
                     <!-- Populated dynamically via JS -->
                 </div>
-
-                <!-- Hidden table body for backward compatibility -->
-                <table style="display:none;"><tbody id="swarmDatabasesTableBody"></tbody></table>
 
                 <!-- Empty State Databases -->
                 <div class="zero-state-box" id="swarmDatabasesEmpty" style="display:none;">
@@ -679,4 +669,3 @@
     <script type="module" src="app.js"></script>
 </body>
 </html>
-
