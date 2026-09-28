@@ -1674,6 +1674,7 @@ body {
 .toast-success { border-left: 3px solid var(--status-online); }
 .toast-error { border-left: 3px solid var(--status-offline); }
 .toast-info { border-left: 3px solid var(--brand-primary); }
+.toast-warning { border-left: 3px solid var(--status-warning); }
 
 /* ==========================================================================
    MISSING CLASSES (Appended)

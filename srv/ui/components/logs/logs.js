@@ -187,13 +187,13 @@ export async function fetchAndRenderLogs(isPoll) {
     try {
         const res = await apiFetch(`/api/logs?name=${encodeURIComponent(currentLogsServiceName)}&lines=${encodeURIComponent(lines)}&server=${encodeURIComponent(state.selectedServerName || '')}`);
         if (res.ok) {
-            const data = await res.json();
+            const data = res.data;
             rawLogsText = (data && typeof data.logs === 'string') ? data.logs : (typeof data === 'string' ? data : '');
             renderFilteredLogs();
             if (logsLastUpdate) logsLastUpdate.textContent = `Actualizado: ${new Date().toLocaleTimeString()}`;
             if (logsStatusDot) logsStatusDot.className = 'ops-status-dot status-online logs-live-pulse';
         } else {
-            const errText = await res.text();
+            const errText = res.error || `Error HTTP ${res.status}`;
             if (!isPoll && logsTerminalContent) {
                 logsTerminalContent.textContent = `Error al consultar logs: ${errText}`;
             }

@@ -103,10 +103,9 @@ export async function fetchAndRenderSSL() {
         const serverQuery = srv ? `?server=${encodeURIComponent(srv)}` : '';
         const res = await apiFetch(`/api/ssl/inspect${serverQuery}`);
         if (!res.ok) {
-            const errText = await res.text();
-            throw new Error(errText || 'Error al inspeccionar SSL');
+            throw new Error(res.error || `Error HTTP ${res.status}`);
         }
-        const data = await res.json();
+        const data = res.data;
         sslItemsCache = Array.isArray(data) ? data : [];
         renderSSLTable(sslItemsCache);
     } catch (err) {
@@ -198,12 +197,12 @@ export async function toggleMaintenanceMode(serviceName, enable, triggerBtn) {
         const serverQuery = srv ? `?server=${encodeURIComponent(srv)}` : '';
         const res = await apiFetch(`/api/maintenance/toggle${serverQuery}`, {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ serviceName, enable })
         });
 
         if (!res.ok) {
-            const errText = await res.text();
-            throw new Error(errText || 'Error al cambiar modo mantenimiento');
+            throw new Error(res.error || 'Error al cambiar modo mantenimiento');
         }
 
         if (enable) {
@@ -243,8 +242,7 @@ export async function reloadTraefikProxy(btn) {
             method: 'POST'
         });
         if (!res.ok) {
-            const errText = await res.text();
-            throw new Error(errText || 'Error al recargar Traefik');
+            throw new Error(res.error || 'Error al recargar Traefik');
         }
         showToast('Traefik recargado y certificados revalidados', 'success');
         await fetchAndRenderSSL();

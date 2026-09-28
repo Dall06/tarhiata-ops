@@ -146,7 +146,7 @@ export function renderAppCards(services, callbacks = {}) {
 }
 
 export function renderServicesTable(services) {
-    const hostServicesTableBody = document.getElementById('hostServicesTableBody');
+    const hostServicesTableBody = document.getElementById('servicesTableBody') || document.getElementById('hostServicesTableBody');
     if (!hostServicesTableBody) return;
     hostServicesTableBody.innerHTML = '';
 
@@ -364,20 +364,49 @@ export function setupServicesEvents(onReloadStatus) {
     ensureServicesModalsMounted();
 
     const btnGlobalDeploy = document.getElementById('btnGlobalDeploy');
+    const btnOpenDeployModal = document.getElementById('btnOpenDeployModal');
+    const btnZeroStateDeployApp = document.getElementById('btnZeroStateDeployApp');
     const btnCloseDeployModal = document.getElementById('btnCloseDeployModal');
     const btnCancelDeploy = document.getElementById('btnCancelDeploy');
     const btnCloseEditServiceModal = document.getElementById('btnCloseEditServiceModal');
     const btnCancelEditService = document.getElementById('btnCancelEditService');
+    const btnEditServiceOpenEnv = document.getElementById('btnEditServiceOpenEnv');
+    const serviceSearchInput = document.getElementById('serviceSearchInput');
     const deployForm = document.getElementById('formDeploy') || document.getElementById('deployForm');
     const editServiceForm = document.getElementById('formEditService') || document.getElementById('editServiceForm');
     const editSvcExpose = document.getElementById('editServiceExpose') || document.getElementById('editSvcExpose');
     const editDomainField = document.getElementById('editDomainField') || document.getElementById('editDomainGroup');
 
     if (btnGlobalDeploy) btnGlobalDeploy.addEventListener('click', openDeployModal);
+    if (btnOpenDeployModal) btnOpenDeployModal.addEventListener('click', openDeployModal);
+    if (btnZeroStateDeployApp) btnZeroStateDeployApp.addEventListener('click', openDeployModal);
     if (btnCloseDeployModal) btnCloseDeployModal.addEventListener('click', closeDeployModal);
     if (btnCancelDeploy) btnCancelDeploy.addEventListener('click', closeDeployModal);
     if (btnCloseEditServiceModal) btnCloseEditServiceModal.addEventListener('click', closeEditServiceModal);
     if (btnCancelEditService) btnCancelEditService.addEventListener('click', closeEditServiceModal);
+
+    if (btnEditServiceOpenEnv) {
+        btnEditServiceOpenEnv.addEventListener('click', async () => {
+            const editSvcName = document.getElementById('editServiceName') || document.getElementById('editSvcName');
+            const name = editSvcName ? editSvcName.value.trim() : '';
+            if (name) {
+                closeEditServiceModal();
+                const { openEnvModal } = await import('/components/env/env.js');
+                openEnvModal(name);
+            }
+        });
+    }
+
+    if (serviceSearchInput) {
+        serviceSearchInput.addEventListener('input', () => {
+            const q = serviceSearchInput.value.toLowerCase().trim();
+            const filtered = (state.currentHostServices || []).filter(s =>
+                (s.name || '').toLowerCase().includes(q) ||
+                (s.description || '').toLowerCase().includes(q)
+            );
+            renderServicesTable(filtered);
+        });
+    }
 
     if (editSvcExpose && editDomainField) {
         editSvcExpose.addEventListener('change', () => {
@@ -400,10 +429,10 @@ export function setupServicesEvents(onReloadStatus) {
 
             const payload = {
                 name: depName ? depName.value.trim() : '',
-                image: depImage ? depImage.value.trim() : '',
+                imageSource: depImage ? depImage.value.trim() : '',
                 port: parseInt(depPort ? depPort.value || '80' : '80', 10),
                 domain: depDomain ? depDomain.value.trim() : '',
-                preHook: depPreHook ? depPreHook.value.trim() : '',
+                preDeployHook: depPreHook ? depPreHook.value.trim() : '',
                 autoMigrate: depAutoMigrate ? depAutoMigrate.checked : false,
                 server: state.selectedServerName || ''
             };
@@ -418,7 +447,8 @@ export function setupServicesEvents(onReloadStatus) {
             }
 
             try {
-                const res = await apiFetch('/api/deploy', {
+                const srv = state.selectedServerName || '';
+                const res = await apiFetch(`/api/services?server=${encodeURIComponent(srv)}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
@@ -436,6 +466,9 @@ export function setupServicesEvents(onReloadStatus) {
                 closeDeployModal();
                 if (onReloadStatus && state.selectedServerName) {
                     onReloadStatus(state.selectedServerName);
+                } else if (state.selectedServerName) {
+                    const { refreshServerTelemetry } = await import('/components/telemetry/telemetry.js');
+                    refreshServerTelemetry(state.selectedServerName, false);
                 }
             } finally {
                 if (btnSubmitDeploy) {
@@ -466,7 +499,8 @@ export function setupServicesEvents(onReloadStatus) {
             if (btnSubmitEdit) btnSubmitEdit.disabled = true;
 
             try {
-                const res = await apiFetch('/api/services/update', {
+                const srv = state.selectedServerName || '';
+                const res = await apiFetch(`/api/services/${encodeURIComponent(payload.name)}?server=${encodeURIComponent(srv)}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
@@ -483,6 +517,9 @@ export function setupServicesEvents(onReloadStatus) {
                 closeEditServiceModal();
                 if (onReloadStatus && state.selectedServerName) {
                     onReloadStatus(state.selectedServerName);
+                } else if (state.selectedServerName) {
+                    const { refreshServerTelemetry } = await import('/components/telemetry/telemetry.js');
+                    refreshServerTelemetry(state.selectedServerName, false);
                 }
             } finally {
                 if (btnSubmitEdit) btnSubmitEdit.disabled = false;

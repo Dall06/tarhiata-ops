@@ -132,7 +132,7 @@ export async function fetchAndRenderEnvVars(serviceName) {
             }
             return;
         }
-        const data = await res.json();
+        const data = res.data || {};
         const raw = data.rawContent || '';
         if (envRawTextarea) envRawTextarea.value = raw;
         renderEnvTableFromRaw(raw);
@@ -327,6 +327,7 @@ export function setupEnvListeners(onEnvSavedCallback) {
             try {
                 const res = await apiFetch(`/api/env?server=${encodeURIComponent(state.selectedServerName || '')}`, {
                     method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         serviceName: currentEnvServiceName,
                         rawContent: content
@@ -334,9 +335,8 @@ export function setupEnvListeners(onEnvSavedCallback) {
                 });
 
                 if (!res.ok) {
-                    const errText = await res.text();
-                    showToast(`Error al guardar variables: ${errText}`, 'error');
-                    if (envModalStatus) envModalStatus.textContent = `Error: ${errText}`;
+                    showToast(`Error al guardar variables: ${res.error || res.status}`, 'error');
+                    if (envModalStatus) envModalStatus.textContent = `Error: ${res.error || res.status}`;
                     return;
                 }
 

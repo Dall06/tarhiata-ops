@@ -421,6 +421,7 @@ export function closeServerModal() {
 }
 
 export function setupFleetEvents(loadHubStateCallback) {
+    ensureServerModalMounted();
     const btnOpenAddModal = document.getElementById('btnOpenAddModal');
     const btnFleetAddServer = document.getElementById('btnFleetAddServer');
     const btnCloseModal = document.getElementById('btnCloseModal');
@@ -432,6 +433,46 @@ export function setupFleetEvents(loadHubStateCallback) {
     const formServer = document.getElementById('formServer');
     const btnModalTest = document.getElementById('btnModalTest');
     const fleetSearchInput = document.getElementById('fleetSearchInput');
+    const serverSwitcherBtn = document.getElementById('serverSwitcherBtn');
+    const serverPopover = document.getElementById('serverPopover');
+    const serverSwitcherWrap = document.getElementById('serverSwitcherWrap');
+    const btnDeskActivate = document.getElementById('btnDeskActivate');
+    const btnSidebarOpenWorker = document.getElementById('btnSidebarOpenWorker');
+
+    if (serverSwitcherBtn && serverPopover) {
+        serverSwitcherBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = serverPopover.style.display !== 'none';
+            serverPopover.style.display = isOpen ? 'none' : 'flex';
+            serverPopover.classList.toggle('active', !isOpen);
+            serverSwitcherBtn.classList.toggle('open', !isOpen);
+        });
+    }
+
+    document.addEventListener('click', (e) => {
+        if (serverPopover && serverSwitcherWrap && !serverSwitcherWrap.contains(e.target)) {
+            serverPopover.style.display = 'none';
+            serverPopover.classList.remove('active');
+            if (serverSwitcherBtn) serverSwitcherBtn.classList.remove('open');
+        }
+    });
+
+    if (btnDeskActivate) {
+        btnDeskActivate.addEventListener('click', () => {
+            if (state.selectedServerName) switchActiveServer(state.selectedServerName, () => loadHubState());
+        });
+    }
+
+    if (btnSidebarOpenWorker) {
+        btnSidebarOpenWorker.addEventListener('click', async () => {
+            if (serverPopover) {
+                serverPopover.style.display = 'none';
+                serverPopover.classList.remove('active');
+            }
+            const { openWorkerModal } = await import('/components/nodes/nodes.js');
+            openWorkerModal();
+        });
+    }
 
     if (btnOpenAddModal) btnOpenAddModal.addEventListener('click', openAddModal);
     if (btnFleetAddServer) btnFleetAddServer.addEventListener('click', openAddModal);

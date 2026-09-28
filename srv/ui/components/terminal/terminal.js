@@ -21,16 +21,16 @@ export async function launchNativeTerminal(serverName, buttonEl) {
     try {
         const res = await apiFetch('/api/servers/open-terminal', {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: serverName })
         });
 
         if (!res.ok) {
-            const errText = await res.text();
-            showToast(`Error abriendo terminal de ${serverName}: ${errText}`, 'error');
+            showToast(`Error abriendo terminal de ${serverName}: ${res.error || res.status}`, 'error');
             return;
         }
 
-        const data = await res.json();
+        const data = res.data || {};
         if (data.launched) {
             showToast(`Terminal abierta en tu sistema (${serverName})`, 'success');
             return;
@@ -269,6 +269,7 @@ export async function executeTerminalCommand(cmdToRun) {
         try {
             const res = await apiFetch('/api/servers/terminal', {
                 method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     name: terminalActiveServer,
                     command: rawCmd,
@@ -279,11 +280,10 @@ export async function executeTerminalCommand(cmdToRun) {
             runningIndicator.remove();
 
             if (!res.ok) {
-                const errText = await res.text();
-                throw new Error(errText || `Error HTTP ${res.status}`);
+                throw new Error(res.error || `Error HTTP ${res.status}`);
             }
 
-            const data = await res.json();
+            const data = res.data || {};
 
             if (data.connected === false) {
                 const errLine = document.createElement('div');
@@ -332,6 +332,8 @@ export function setupTerminalListeners() {
     const btnTerminalDirectPC = document.getElementById('btnTerminalDirectPC');
     const btnFallbackOpenPC = document.getElementById('btnFallbackOpenPC');
     const btnDeskTerminal = document.getElementById('btnDeskTerminal');
+    const btnDeskNativeTerminal = document.getElementById('btnDeskNativeTerminal');
+    const btnTopActiveTerminal = document.getElementById('btnTopActiveTerminal');
     const terminalCommandInput = document.getElementById('terminalCommandInput');
     const btnTerminalSend = document.getElementById('btnTerminalSend');
     const btnTerminalClear = document.getElementById('btnTerminalClear');
@@ -351,9 +353,16 @@ export function setupTerminalListeners() {
     if (btnTerminalOpenPC) btnTerminalOpenPC.addEventListener('click', triggerPCTerminal);
     if (btnTerminalDirectPC) btnTerminalDirectPC.addEventListener('click', triggerPCTerminal);
     if (btnFallbackOpenPC) btnFallbackOpenPC.addEventListener('click', triggerPCTerminal);
+
     if (btnDeskTerminal) btnDeskTerminal.addEventListener('click', () => {
+        openTerminalModal(state.selectedServerName);
+    });
+    if (btnTopActiveTerminal) btnTopActiveTerminal.addEventListener('click', () => {
+        openTerminalModal(state.selectedServerName);
+    });
+    if (btnDeskNativeTerminal) btnDeskNativeTerminal.addEventListener('click', () => {
         const target = state.selectedServerName || (state.activeServer && state.activeServer.name);
-        if (target) launchNativeTerminal(target, btnDeskTerminal);
+        if (target) launchNativeTerminal(target, btnDeskNativeTerminal);
     });
 
     if (btnCloseTerminalModal) btnCloseTerminalModal.addEventListener('click', closeTerminalModal);

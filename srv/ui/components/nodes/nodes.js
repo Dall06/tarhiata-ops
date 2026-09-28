@@ -5,7 +5,7 @@
 
 import { state } from '/pkg/store/state.js';
 import { showToast } from '/pkg/toast/toast.js';
-import { escapeHtml } from '/pkg/jsutil/utils.js';
+import { escapeHtml, copyToClipboard } from '/pkg/jsutil/utils.js';
 import { openModal, closeModal } from '/pkg/modal/modal.js';
 import { apiFetch, consumeNDJSONStream } from '/pkg/apiclient/api.js';
 
@@ -222,11 +222,25 @@ export function setupNodesEvents(onReloadStatus) {
     const btnOpenWorkerModal = document.getElementById('btnOpenWorkerModal');
     const btnCloseWorkerModal = document.getElementById('btnCloseWorkerModal');
     const btnCancelWorker = document.getElementById('btnCancelWorker') || document.getElementById('btnCloseWorkerModalBottom');
+    const btnCopyJoinToken = document.getElementById('btnCopyJoinToken');
     const workerForm = document.getElementById('formWorker') || document.getElementById('workerForm');
 
     if (btnOpenWorkerModal) btnOpenWorkerModal.addEventListener('click', openWorkerModal);
     if (btnCloseWorkerModal) btnCloseWorkerModal.addEventListener('click', closeWorkerModal);
     if (btnCancelWorker) btnCancelWorker.addEventListener('click', closeWorkerModal);
+
+    if (btnCopyJoinToken) {
+        btnCopyJoinToken.addEventListener('click', async () => {
+            const srv = state.selectedServerName;
+            const res = await apiFetch(`/api/nodes/join-token?server=${encodeURIComponent(srv || '')}`);
+            if (res.ok && res.data && res.data.joinCommand) {
+                await copyToClipboard(res.data.joinCommand);
+                showToast('Comando docker swarm join copiado al portapapeles', 'success');
+            } else {
+                showToast(res.error || 'No se pudo obtener el token de Swarm', 'error');
+            }
+        });
+    }
 
     if (workerForm) {
         workerForm.addEventListener('submit', async (e) => {
@@ -259,7 +273,7 @@ export function setupNodesEvents(onReloadStatus) {
             if (workerLogsContent) workerLogsContent.innerHTML = `<span style="color:var(--text-muted);">Iniciando orquestación de VM en la nube...</span>\n`;
 
             try {
-                const res = await fetch('/api/swarm/provision-worker', {
+                const res = await fetch('/api/provision-worker', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)

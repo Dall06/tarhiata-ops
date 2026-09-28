@@ -342,6 +342,7 @@ func (w *WebServer) Echo() *echo.Echo {
 	e.Any("/api/services/restart", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServiceRestart))))
 	e.Any("/api/databases/restart", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServiceRestart))))
 	e.Any("/api/services/*", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServiceItem))))
+	e.Any("/api/deploy", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServices))))
 	e.Any("/api/deploy-service", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServices))))
 	e.Any("/api/databases", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleDatabases))))
 	e.Any("/api/databases/*", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleDatabaseItem))))
@@ -364,6 +365,7 @@ func (w *WebServer) Echo() *echo.Echo {
 	e.Any("/api/create-vm-bootstrap", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleCreateVMBootstrap))))
 	e.Any("/api/workers", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleWorkerProvision))))
 	e.Any("/api/provision-worker", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleWorkerProvision))))
+	e.Any("/api/swarm/provision-worker", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleWorkerProvision))))
 	e.Any("/api/observability", echo.WrapHandler(http.HandlerFunc(w.handleObservability)))
 	e.Any("/api/update", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServerUpdate))))
 	e.Any("/api/bootstrap-master", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleBootstrapMaster))))
@@ -1353,7 +1355,7 @@ func (w *WebServer) handleServices(rw http.ResponseWriter, req *http.Request) {
 
 func (w *WebServer) handleServiceItem(rw http.ResponseWriter, req *http.Request) {
 	name := strings.TrimPrefix(req.URL.Path, "/api/services/")
-	if !isValidNodeID(name) {
+	if name != "update" && !isValidNodeID(name) {
 		http.Error(rw, "Nombre de servicio inválido", http.StatusBadRequest)
 		return
 	}
@@ -1387,7 +1389,16 @@ func (w *WebServer) handleServiceItem(rw http.ResponseWriter, req *http.Request)
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return
 		}
-		svc.Name = name
+		if name == "update" {
+			if svc.Name == "" || !isValidNodeID(svc.Name) {
+				http.Error(rw, "Nombre de servicio inválido en payload", http.StatusBadRequest)
+				return
+			}
+			name = svc.Name
+		}
+		if name != "update" {
+			svc.Name = name
+		}
 		if err := w.repo.SaveService(svc); err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return

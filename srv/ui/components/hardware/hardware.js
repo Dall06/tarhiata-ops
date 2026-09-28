@@ -31,11 +31,10 @@ export async function loadHostDevices(forceFresh = false) {
         const freshParam = forceFresh ? '&fresh=true' : '';
         const res = await apiFetch(`/api/host/devices?server=${encodeURIComponent(serverName)}${freshParam}`);
         if (!res.ok) {
-            const errText = await res.text();
-            showToast(`Error al obtener dispositivos: ${errText}`, 'error');
+            showToast(`Error al obtener dispositivos: ${res.error || res.status}`, 'error');
             return;
         }
-        const data = await res.json();
+        const data = res.data || {};
         state.currentHostDevices = data;
         renderHostDevices(data);
     } catch (err) {

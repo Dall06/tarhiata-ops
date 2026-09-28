@@ -9,6 +9,15 @@ export function openModal(modalId) {
     modal.classList.add('active');
     modal.style.display = 'flex';
     document.body.classList.add('modal-open');
+
+    if (!modal.dataset.dismissAttached) {
+        modal.dataset.dismissAttached = 'true';
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeModal(modalId);
+            }
+        });
+    }
 }
 
 export function closeModal(modalId) {
@@ -23,15 +32,18 @@ export function closeModal(modalId) {
 
 export function setupModalDismissals() {
     document.querySelectorAll('.t-modal-overlay').forEach(overlay => {
-        overlay.addEventListener('click', (e) => {
-            if (e.target === overlay) {
-                overlay.classList.remove('active');
-                overlay.style.display = 'none';
-                if (!document.querySelector('.t-modal-overlay.active')) {
-                    document.body.classList.remove('modal-open');
+        if (!overlay.dataset.dismissAttached) {
+            overlay.dataset.dismissAttached = 'true';
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) {
+                    overlay.classList.remove('active');
+                    overlay.style.display = 'none';
+                    if (!document.querySelector('.t-modal-overlay.active')) {
+                        document.body.classList.remove('modal-open');
+                    }
                 }
-            }
-        });
+            });
+        }
     });
 
     document.addEventListener('keydown', (e) => {

@@ -13,6 +13,7 @@ export const state = {
     swarmDatabasesCache: [],
     swarmNodesCache: [],
     currentServiceLinks: [],
+    activeMaintenanceServices: new Set(),
     modalMode: 'local',
     dbDeployMode: 'single-node',
     currentActiveTab: 'tabSwarmServices',

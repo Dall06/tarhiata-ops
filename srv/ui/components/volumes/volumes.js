@@ -186,10 +186,9 @@ export async function fetchAndRenderVolumeFiles(targetPath) {
         const srvParam = srv ? `&server=${encodeURIComponent(srv)}` : '';
         const res = await apiFetch(`/api/volumes/files?path=${encodeURIComponent(targetPath)}${srvParam}`);
         if (!res.ok) {
-            const errText = await res.text();
-            throw new Error(errText || 'Error al obtener archivos');
+            throw new Error(res.error || `Error HTTP ${res.status}`);
         }
-        const items = await res.json();
+        const items = res.data;
         currentVolumeFiles = Array.isArray(items) ? items : [];
 
         currentVolumeFiles.sort((a, b) => {
@@ -300,8 +299,7 @@ export function renderVolumeTableRows(items) {
                     method: 'DELETE'
                 });
                 if (!res.ok) {
-                    const errText = await res.text();
-                    throw new Error(errText || 'Error al eliminar');
+                    throw new Error(res.error || `Error HTTP ${res.status}`);
                 }
                 showToast(`"${name}" eliminado correctamente`, 'success');
                 fetchAndRenderVolumeFiles(currentVolumePath);
@@ -330,10 +328,9 @@ export async function openVolumeFileEditor(filePath) {
         const srvParam = srv ? `&server=${encodeURIComponent(srv)}` : '';
         const res = await apiFetch(`/api/volumes/read?path=${encodeURIComponent(filePath)}${srvParam}`);
         if (!res.ok) {
-            const errText = await res.text();
-            throw new Error(errText || 'Error al leer archivo');
+            throw new Error(res.error || `Error HTTP ${res.status}`);
         }
-        const data = await res.json();
+        const data = res.data || {};
         if (volumeEditorTextarea) volumeEditorTextarea.value = data.content || '';
     } catch (err) {
         if (volumeEditorTextarea) volumeEditorTextarea.value = `Error al leer archivo: ${err.message}`;
@@ -388,14 +385,14 @@ export function setupVolumeListeners() {
                 const srvParam = srv ? `?server=${encodeURIComponent(srv)}` : '';
                 const res = await apiFetch(`/api/volumes/write${srvParam}`, {
                     method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         path: currentEditingFilePath,
                         content: volumeEditorTextarea.value
                     })
                 });
                 if (!res.ok) {
-                    const errText = await res.text();
-                    throw new Error(errText || 'Error al guardar archivo');
+                    throw new Error(res.error || `Error HTTP ${res.status}`);
                 }
                 showToast('Archivo guardado correctamente en el VPS', 'success');
             } catch (err) {
@@ -420,11 +417,11 @@ export function setupVolumeListeners() {
                 const srvParam = srv ? `?server=${encodeURIComponent(srv)}` : '';
                 const res = await apiFetch(`/api/volumes/mkdir${srvParam}`, {
                     method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ path: newFolderPath })
                 });
                 if (!res.ok) {
-                    const errText = await res.text();
-                    throw new Error(errText || 'Error al crear carpeta');
+                    throw new Error(res.error || `Error HTTP ${res.status}`);
                 }
                 showToast(`Carpeta "${cleanName}" creada`, 'success');
                 fetchAndRenderVolumeFiles(currentVolumePath);

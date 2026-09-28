@@ -439,6 +439,9 @@ export function setupDatabaseEvents(onReloadStatus) {
     ensureDatabasesModalsMounted();
 
     const btnGlobalDB = document.getElementById('btnGlobalDB');
+    const btnOpenDeployDBModal = document.getElementById('btnOpenDeployDBModal');
+    const btnZeroStateDeployDB = document.getElementById('btnZeroStateDeployDB');
+    const btnOpenBackupsModal = document.getElementById('btnOpenBackupsModal');
     const btnCloseDBModal = document.getElementById('btnCloseDBModal');
     const btnCancelDB = document.getElementById('btnCancelDB');
     const tabDBLocal = document.getElementById('tabDBLocal') || document.getElementById('tabDBSingle');
@@ -450,6 +453,12 @@ export function setupDatabaseEvents(onReloadStatus) {
     const btnRefreshBackupsModal = document.getElementById('btnRefreshBackupsModal');
 
     if (btnGlobalDB) btnGlobalDB.addEventListener('click', openDeployDBModal);
+    if (btnOpenDeployDBModal) btnOpenDeployDBModal.addEventListener('click', openDeployDBModal);
+    if (btnZeroStateDeployDB) btnZeroStateDeployDB.addEventListener('click', openDeployDBModal);
+    if (btnOpenBackupsModal) btnOpenBackupsModal.addEventListener('click', () => {
+        loadBackups(onReloadStatus);
+        openModal('backupsModal');
+    });
     if (btnCloseDBModal) btnCloseDBModal.addEventListener('click', closeDeployDBModal);
     if (btnCancelDB) btnCancelDB.addEventListener('click', closeDeployDBModal);
     if (btnCloseBackupsModal) btnCloseBackupsModal.addEventListener('click', () => closeModal('backupsModal'));
