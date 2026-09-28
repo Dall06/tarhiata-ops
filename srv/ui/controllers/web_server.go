@@ -19,15 +19,32 @@ import (
 	"github.com/Dall06/tarhiata-ops/opt/banner"
 	"github.com/Dall06/tarhiata-ops/opt/cloud"
 	"github.com/Dall06/tarhiata-ops/opt/server"
+	"github.com/Dall06/tarhiata-ops/pkg/apiclient"
 	"github.com/Dall06/tarhiata-ops/pkg/dockerutil"
 	"github.com/Dall06/tarhiata-ops/pkg/exs"
 	"github.com/Dall06/tarhiata-ops/pkg/httputil"
+	"github.com/Dall06/tarhiata-ops/pkg/jsutil"
+	"github.com/Dall06/tarhiata-ops/pkg/modal"
 	"github.com/Dall06/tarhiata-ops/pkg/osterminal"
+	"github.com/Dall06/tarhiata-ops/pkg/store"
+	"github.com/Dall06/tarhiata-ops/pkg/toast"
 	"github.com/Dall06/tarhiata-ops/pkg/validator"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
 	"github.com/Dall06/tarhiata-ops/srv/sys/usecases"
+	"github.com/Dall06/tarhiata-ops/srv/ui/components/databases"
+	"github.com/Dall06/tarhiata-ops/srv/ui/components/env"
+	"github.com/Dall06/tarhiata-ops/srv/ui/components/fleet"
+	"github.com/Dall06/tarhiata-ops/srv/ui/components/hardware"
+	"github.com/Dall06/tarhiata-ops/srv/ui/components/logs"
+	"github.com/Dall06/tarhiata-ops/srv/ui/components/nodes"
+	"github.com/Dall06/tarhiata-ops/srv/ui/components/services"
+	"github.com/Dall06/tarhiata-ops/srv/ui/components/ssl"
+	"github.com/Dall06/tarhiata-ops/srv/ui/components/telemetry"
+	"github.com/Dall06/tarhiata-ops/srv/ui/components/terminal"
+	"github.com/Dall06/tarhiata-ops/srv/ui/components/topology"
+	"github.com/Dall06/tarhiata-ops/srv/ui/components/volumes"
 	"github.com/Dall06/tarhiata-ops/srv/ui/dto"
 	"github.com/Dall06/tarhiata-ops/srv/ui/views/public"
 	"github.com/labstack/echo/v4"
@@ -253,6 +270,47 @@ func (w *WebServer) Echo() *echo.Echo {
 			return next(c)
 		}
 	}
+
+	// Mapeo de módulos frontend distribuidos en pkg/ y srv/ui/components/
+	embeddedModules := map[string][]byte{
+		"/pkg/apiclient/api.js":              apiclient.JSContent,
+		"/pkg/store/state.js":                store.JSContent,
+		"/pkg/toast/toast.js":                toast.JSContent,
+		"/pkg/modal/modal.js":                modal.JSContent,
+		"/pkg/jsutil/utils.js":               jsutil.JSContent,
+		"/components/fleet/fleet.js":         fleet.JSContent,
+		"/components/telemetry/telemetry.js": telemetry.JSContent,
+		"/components/services/services.js":   services.JSContent,
+		"/components/databases/databases.js": databases.JSContent,
+		"/components/nodes/nodes.js":         nodes.JSContent,
+		"/components/topology/topology.js":   topology.JSContent,
+		"/components/hardware/hardware.js":   hardware.JSContent,
+		"/components/terminal/terminal.js":   terminal.JSContent,
+		"/components/env/env.js":             env.JSContent,
+		"/components/volumes/volumes.js":     volumes.JSContent,
+		"/components/logs/logs.js":           logs.JSContent,
+		"/components/ssl/ssl.js":             ssl.JSContent,
+	}
+
+	serveModule := func(c echo.Context) error {
+		reqPath := c.Request().URL.Path
+		localPath := strings.TrimPrefix(reqPath, "/")
+		if strings.HasPrefix(localPath, "components/") {
+			localPath = filepath.Join("srv/ui", localPath)
+		}
+		if data, err := os.ReadFile(localPath); err == nil {
+			c.Response().Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			return c.Blob(http.StatusOK, "application/javascript; charset=utf-8", data)
+		}
+		if data, ok := embeddedModules[reqPath]; ok {
+			c.Response().Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			return c.Blob(http.StatusOK, "application/javascript; charset=utf-8", data)
+		}
+		return c.NoContent(http.StatusNotFound)
+	}
+
+	e.GET("/pkg/*", serveModule)
+	e.GET("/components/*", serveModule)
 
 	// Archivos estáticos y Single Page Application
 	var rootFS http.FileSystem = http.FS(public.FS)

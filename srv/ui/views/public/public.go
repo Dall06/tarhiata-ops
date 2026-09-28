@@ -2,5 +2,5 @@ package public
 
 import "embed"
 
-//go:embed index.html app.js style.css
+//go:embed *
 var FS embed.FS
