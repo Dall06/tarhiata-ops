@@ -8,34 +8,166 @@ import { showToast } from '/pkg/toast/toast.js';
 import { getGaugeColor, formatDockerVersion } from '/pkg/jsutil/utils.js';
 import { apiFetch } from '/pkg/apiclient/api.js';
 
+import { renderAppCards, renderServicesTable } from '/components/services/services.js';
+import { renderDatabaseCards } from '/components/databases/databases.js';
+import { renderNodesTable } from '/components/nodes/nodes.js';
+import { renderTopologyServicesTable } from '/components/topology/topology.js';
+
 let telemetryRequestId = 0;
 
 export function deactivateInitialSkeletons() {
     document.body.classList.remove('is-initial-loading');
+    document.body.classList.remove('is-server-loading');
     document.querySelectorAll('.is-loading-skeleton').forEach(el => {
         el.classList.remove('is-loading-skeleton');
     });
 }
 
 export function activateServerLoadingSkeletons(server) {
-    const serverNameVal = document.getElementById('serverNameVal');
-    const heroServerIP = document.getElementById('heroServerIP');
-    const heroServerStatus = document.getElementById('heroServerStatus');
+    document.body.classList.add('is-server-loading');
+    const deskServerTitle = document.getElementById('deskServerTitle');
+    const deskModeBadge = document.getElementById('deskModeBadge');
+    const deskHost = document.getElementById('deskHost');
+    const deskActiveBadge = document.getElementById('deskActiveBadge');
     const deskOS = document.getElementById('deskOS');
     const deskDocker = document.getElementById('deskDocker');
     const deskSwarm = document.getElementById('deskSwarm');
     const tileUptime = document.getElementById('tileUptime');
 
-    if (serverNameVal && server) serverNameVal.textContent = server.name;
-    if (heroServerIP && server) heroServerIP.textContent = server.host;
-    if (heroServerStatus) {
-        heroServerStatus.className = 'status-dot status-pending';
-        heroServerStatus.title = 'Conectando...';
+    if (deskServerTitle && server) deskServerTitle.textContent = server.name;
+    if (deskHost && server) deskHost.textContent = server.host;
+    if (deskModeBadge && server) {
+        const isLoc = (server.host === 'localhost' || server.host === '127.0.0.1');
+        deskModeBadge.textContent = isLoc ? 'LOCAL' : (server.cloudProvider || 'VPS').toUpperCase();
+    }
+    if (deskActiveBadge && server) {
+        deskActiveBadge.style.display = server.isActive ? 'inline-flex' : 'none';
     }
     if (deskOS) deskOS.textContent = 'Consultando...';
     if (deskDocker) deskDocker.textContent = 'Verificando...';
     if (deskSwarm) deskSwarm.textContent = 'Sincronizando...';
     if (tileUptime) tileUptime.textContent = 'Calculando...';
+}
+
+export function processSwarmStatus(serverName, data, isSilent = false) {
+    const swarmStateBadge = document.getElementById('swarmStateBadge');
+    const deskSwarm = document.getElementById('deskSwarm');
+    const deskDocker = document.getElementById('deskDocker');
+    const btnBootstrapSwarm = document.getElementById('btnBootstrapSwarm');
+    const tabServicesCount = document.getElementById('tabServicesCount');
+    const tabDatabasesCount = document.getElementById('tabDatabasesCount');
+    const linkPortainer = document.getElementById('linkPortainer');
+    const linkDozzle = document.getElementById('linkDozzle');
+    const linkTraefik = document.getElementById('linkTraefik');
+    const swarmServicesCardsGrid = document.getElementById('swarmServicesCardsGrid');
+    const swarmServicesEmpty = document.getElementById('swarmServicesEmpty');
+    const swarmDatabasesCardsGrid = document.getElementById('swarmDatabasesCardsGrid');
+    const swarmDatabasesEmpty = document.getElementById('swarmDatabasesEmpty');
+    const swarmNodesTableBody = document.getElementById('swarmNodesTableBody');
+    const topologyServicesTableBody = document.getElementById('topologyServicesTableBody');
+    const topologyServicesCountBadge = document.getElementById('topologyServicesCountBadge');
+
+    if (!data || !data.active) {
+        if (swarmStateBadge) {
+            swarmStateBadge.className = 'swarm-status-tag';
+            swarmStateBadge.style.color = '';
+            swarmStateBadge.style.background = '';
+            swarmStateBadge.textContent = 'Sin Framework';
+        }
+        if (deskSwarm) deskSwarm.textContent = 'Inactivo';
+        if (data && data.dockerVersion && deskDocker) {
+            deskDocker.textContent = formatDockerVersion(data.dockerVersion);
+            deskDocker.title = data.dockerVersion;
+        }
+        if (btnBootstrapSwarm) {
+            btnBootstrapSwarm.style.display = 'inline-flex';
+            btnBootstrapSwarm.disabled = false;
+            btnBootstrapSwarm.classList.remove('swarm-configured');
+            btnBootstrapSwarm.innerHTML = `🚀 <span>Instalar Framework</span>`;
+            btnBootstrapSwarm.title = `Instalar Framework de orquestación (Docker Swarm, Traefik, Portainer) en '${serverName}'`;
+        }
+        if (tabServicesCount) tabServicesCount.textContent = '0';
+        if (tabDatabasesCount) tabDatabasesCount.textContent = '0';
+
+        state.swarmServicesCache = [];
+        state.swarmDatabasesCache = [];
+        state.swarmNodesCache = [];
+
+        if (swarmServicesCardsGrid) swarmServicesCardsGrid.innerHTML = '';
+        if (swarmServicesEmpty) swarmServicesEmpty.style.display = 'flex';
+        if (swarmDatabasesCardsGrid) swarmDatabasesCardsGrid.innerHTML = '';
+        if (swarmDatabasesEmpty) swarmDatabasesEmpty.style.display = 'flex';
+        if (swarmNodesTableBody) {
+            swarmNodesTableBody.innerHTML = `<tr><td colspan="7" class="t-td-empty">El Framework no está instalado o activo en este servidor. Haz clic en "Instalar Framework".</td></tr>`;
+        }
+        if (topologyServicesTableBody) {
+            topologyServicesTableBody.innerHTML = `<tr><td colspan="6" class="t-td-empty">El Framework no está instalado o activo en este servidor.</td></tr>`;
+        }
+        if (topologyServicesCountBadge) topologyServicesCountBadge.textContent = '0 servicios';
+
+        if (linkPortainer) linkPortainer.href = '#';
+        if (linkDozzle) linkDozzle.href = '#';
+        if (linkTraefik) linkTraefik.href = '#';
+        return;
+    }
+
+    if (swarmStateBadge) {
+        swarmStateBadge.className = 'swarm-status-tag';
+        swarmStateBadge.style.color = 'var(--status-online)';
+        swarmStateBadge.style.background = 'rgba(16, 185, 129, 0.12)';
+        swarmStateBadge.textContent = '★ Clúster Operacional';
+    }
+    if (deskSwarm) deskSwarm.textContent = 'Operacional';
+    if (data.dockerVersion && deskDocker) {
+        deskDocker.textContent = formatDockerVersion(data.dockerVersion);
+        deskDocker.title = data.dockerVersion;
+    } else if (deskDocker && (!deskDocker.textContent || deskDocker.textContent === '—' || deskDocker.textContent === 'Verificando...')) {
+        deskDocker.textContent = 'Activo';
+    }
+
+    if (btnBootstrapSwarm) {
+        btnBootstrapSwarm.style.display = 'inline-flex';
+        btnBootstrapSwarm.disabled = true;
+        btnBootstrapSwarm.classList.add('swarm-configured');
+        btnBootstrapSwarm.innerHTML = `✓ <span>Framework Instalado</span>`;
+        btnBootstrapSwarm.title = `El Framework ya está instalado y activo en '${serverName}'`;
+    }
+
+    if (linkPortainer) linkPortainer.href = (data.dashboards && data.dashboards.portainer) || '#';
+    if (linkDozzle) linkDozzle.href = (data.dashboards && data.dashboards.dozzle) || '#';
+    if (linkTraefik) linkTraefik.href = (data.dashboards && data.dashboards.traefik) || '#';
+
+    const newServices = data.services || [];
+    const newDbs = data.databases || [];
+    const newNodes = data.nodes || [];
+
+    const servicesSig = JSON.stringify(newServices);
+    const oldServicesSig = JSON.stringify(state.swarmServicesCache);
+    const dbsSig = JSON.stringify(newDbs);
+    const oldDbsSig = JSON.stringify(state.swarmDatabasesCache);
+    const nodesSig = JSON.stringify(newNodes);
+    const oldNodesSig = JSON.stringify(state.swarmNodesCache);
+
+    state.swarmServicesCache = newServices;
+    state.swarmDatabasesCache = newDbs;
+    state.swarmNodesCache = newNodes;
+
+    if (tabServicesCount) tabServicesCount.textContent = state.swarmServicesCache.length;
+    if (tabDatabasesCount) tabDatabasesCount.textContent = state.swarmDatabasesCache.length;
+    if (topologyServicesCountBadge) {
+        topologyServicesCountBadge.textContent = `${state.swarmServicesCache.length + state.swarmDatabasesCache.length} servicios`;
+    }
+
+    if (!isSilent || servicesSig !== oldServicesSig) {
+        renderAppCards(state.swarmServicesCache);
+    }
+    if (!isSilent || dbsSig !== oldDbsSig) {
+        renderDatabaseCards(state.swarmDatabasesCache);
+    }
+    if (!isSilent || nodesSig !== oldNodesSig || servicesSig !== oldServicesSig || dbsSig !== oldDbsSig) {
+        renderNodesTable(state.swarmNodesCache);
+        renderTopologyServicesTable(state.swarmServicesCache, state.swarmDatabasesCache, state.currentServiceLinks);
+    }
 }
 
 export async function refreshServerTelemetry(serverName, isSilent = false, onProcessSwarm = null, onRenderHostServices = null) {
@@ -100,6 +232,8 @@ export async function refreshServerTelemetry(serverName, isSilent = false, onPro
             if (!isSilent) showToast(`Fallo al sondear host '${serverName}': ${errText}`, 'error');
             if (onProcessSwarm) {
                 onProcessSwarm(serverName, { active: false }, isSilent);
+            } else {
+                processSwarmStatus(serverName, { active: false }, isSilent);
             }
             if (btnBootstrapSwarm) {
                 btnBootstrapSwarm.style.display = 'inline-flex';
@@ -171,24 +305,40 @@ export async function refreshServerTelemetry(serverName, isSilent = false, onPro
         if (!isSilent || state.currentHostServices.length !== newHostServices.length) {
             state.currentHostServices = newHostServices;
             if (tabHostCount) tabHostCount.textContent = state.currentHostServices.length;
-            if (onRenderHostServices) onRenderHostServices(state.currentHostServices);
+            if (onRenderHostServices) {
+                onRenderHostServices(state.currentHostServices);
+            } else {
+                renderServicesTable(state.currentHostServices);
+            }
         }
 
-        // Procesar estado de Swarm
+        // Swarm Status
         if (swarmRes.ok) {
             const swarmData = await swarmRes.json();
-            if (currentReq === telemetryRequestId && serverName === state.selectedServerName && onProcessSwarm) {
-                onProcessSwarm(serverName, swarmData, isSilent);
+            if (currentReq === telemetryRequestId && serverName === state.selectedServerName) {
+                if (onProcessSwarm) {
+                    onProcessSwarm(serverName, swarmData, isSilent);
+                } else {
+                    processSwarmStatus(serverName, swarmData, isSilent);
+                }
             }
         } else {
-            if (currentReq === telemetryRequestId && serverName === state.selectedServerName && onProcessSwarm) {
-                onProcessSwarm(serverName, { active: false }, isSilent);
+            if (currentReq === telemetryRequestId && serverName === state.selectedServerName) {
+                if (onProcessSwarm) {
+                    onProcessSwarm(serverName, { active: false }, isSilent);
+                } else {
+                    processSwarmStatus(serverName, { active: false }, isSilent);
+                }
             }
         }
 
     } catch (err) {
-        if (currentReq === telemetryRequestId && serverName === state.selectedServerName && onProcessSwarm) {
-            onProcessSwarm(serverName, { active: false }, isSilent);
+        if (currentReq === telemetryRequestId && serverName === state.selectedServerName) {
+            if (onProcessSwarm) {
+                onProcessSwarm(serverName, { active: false }, isSilent);
+            } else {
+                processSwarmStatus(serverName, { active: false }, isSilent);
+            }
         }
         if (deskStatusDot) deskStatusDot.className = 'ops-status-dot status-offline';
         if (tileLatencyDisplay) tileLatencyDisplay.textContent = 'Latencia: —';

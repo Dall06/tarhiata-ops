@@ -18,6 +18,10 @@ func TestGetJSContent(t *testing.T) {
 			name:     "contains deactivateInitialSkeletons",
 			contains: "export function deactivateInitialSkeletons",
 		},
+		{
+			name:     "contains processSwarmStatus",
+			contains: "export function processSwarmStatus",
+		},
 	}
 
 	for _, tt := range tests {

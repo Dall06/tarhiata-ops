@@ -298,13 +298,21 @@ func (w *WebServer) Echo() *echo.Echo {
 		if strings.HasPrefix(localPath, "components/") {
 			localPath = filepath.Join("srv/ui", localPath)
 		}
+		mimeType := "application/javascript; charset=utf-8"
+		if strings.HasSuffix(reqPath, ".html") {
+			mimeType = "text/html; charset=utf-8"
+		} else if strings.HasSuffix(reqPath, ".css") {
+			mimeType = "text/css; charset=utf-8"
+		} else if strings.HasSuffix(reqPath, ".json") {
+			mimeType = "application/json; charset=utf-8"
+		}
 		if data, err := os.ReadFile(localPath); err == nil {
 			c.Response().Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-			return c.Blob(http.StatusOK, "application/javascript; charset=utf-8", data)
+			return c.Blob(http.StatusOK, mimeType, data)
 		}
 		if data, ok := embeddedModules[reqPath]; ok {
 			c.Response().Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-			return c.Blob(http.StatusOK, "application/javascript; charset=utf-8", data)
+			return c.Blob(http.StatusOK, mimeType, data)
 		}
 		return c.NoContent(http.StatusNotFound)
 	}

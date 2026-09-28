@@ -5,7 +5,7 @@ import { openModal, closeModal, setupModalDismissals } from '/pkg/modal/modal.js
 import { setupSecurityInterceptor, apiFetch } from '/pkg/apiclient/api.js';
 
 import { loadHubState, selectServer, setupFleetListeners } from '/components/fleet/fleet.js';
-import { refreshServerTelemetry, renderHostTelemetry } from '/components/telemetry/telemetry.js';
+import { refreshServerTelemetry } from '/components/telemetry/telemetry.js';
 import { loadSwarmStatus, renderAppCards, renderServicesTable, setupServicesListeners } from '/components/services/services.js';
 import { setupDatabasesListeners } from '/components/databases/databases.js';
 import { renderNodesTable, setupNodesListeners } from '/components/nodes/nodes.js';
@@ -91,7 +91,7 @@ export function activateTab(tabName) {
 }
 window.activateTab = activateTab;
 
-document.addEventListener('DOMContentLoaded', () => {
+function initApp() {
     // 1. Interceptors & Dismissals
     setupSecurityInterceptor();
     setupModalDismissals();
@@ -157,4 +157,10 @@ document.addEventListener('DOMContentLoaded', () => {
             refreshServerTelemetry(state.selectedServerName, true);
         }
     });
-});
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApp);
+} else {
+    initApp();
+}
