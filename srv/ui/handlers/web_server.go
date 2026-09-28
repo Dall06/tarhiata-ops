@@ -1299,7 +1299,20 @@ func (w *WebServer) handleSwarmStatus(rw http.ResponseWriter, req *http.Request)
 		slog.Warn("web_server: error obteniendo servicios para swarm status", "error", svcsErr)
 	} else {
 		for _, s := range savedSvcs {
-			if !liveServicesMap[s.Name] && !liveServicesMap["tarhiata-app-"+s.Name] {
+			sNameLower := strings.ToLower(strings.TrimSpace(s.Name))
+			alreadyRunning := false
+			for _, live := range status.Services {
+				liveLower := strings.ToLower(strings.TrimSpace(live.Name))
+				if liveLower == sNameLower ||
+					liveLower == "tarhiata-app-"+sNameLower ||
+					strings.HasPrefix(liveLower, sNameLower+"_") ||
+					strings.HasPrefix(liveLower, sNameLower+".") ||
+					strings.Contains(liveLower, sNameLower) {
+					alreadyRunning = true
+					break
+				}
+			}
+			if !alreadyRunning {
 				portsStr := fmt.Sprintf("%d", s.Port)
 				status.Services = append(status.Services, domain.SwarmServiceInfo{
 					ID:       "stopped",

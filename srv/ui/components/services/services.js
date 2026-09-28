@@ -139,34 +139,49 @@ export function renderMasterServicesTable(services, databases, links, callbacks 
             : `<span style="color:var(--text-muted); font-size:0.74rem;">Cualquiera (Global)</span>`;
 
         let actionsHtml = '';
+        const n = escapeHtml(it.name);
         if (it.type === 'framework') {
             actionsHtml = `
-                <div class="table-actions-cell" style="display:flex; gap:4px; flex-wrap:wrap;">
-                    <button type="button" class="mini-btn btn-logs-svc" data-name="${escapeHtml(it.name)}" title="Ver logs">📜 Logs</button>
-                    <button type="button" class="mini-btn btn-restart-svc" data-name="${escapeHtml(it.name)}" title="Reiniciar">🔄</button>
-                    <button type="button" class="mini-btn btn-vol-svc" data-name="${escapeHtml(it.name)}" title="Archivos">📁</button>
+                <div class="row-actions-wrap">
+                    <button type="button" class="row-action-primary btn-logs-svc" data-name="${n}">📜 Logs</button>
+                    <button type="button" class="row-action-chevron" data-dropdown="${n}-fw" title="Más acciones">▾</button>
+                    <div class="row-actions-dropdown" id="dd-${n}-fw">
+                        <button type="button" class="dd-item btn-metrics-svc" data-name="${n}">📊 Métricas</button>
+                        <button type="button" class="dd-item btn-restart-svc" data-name="${n}">🔄 Reiniciar</button>
+                        <button type="button" class="dd-item btn-vol-svc" data-name="${n}">📁 Archivos</button>
+                    </div>
                 </div>
             `;
         } else if (it.type === 'db') {
             actionsHtml = `
-                <div class="table-actions-cell" style="display:flex; gap:4px; flex-wrap:wrap;">
-                    <button type="button" class="mini-btn btn-logs-db" data-name="${escapeHtml(it.name)}" title="Ver logs">📜 Logs</button>
-                    <button type="button" class="mini-btn btn-restart-db" data-name="${escapeHtml(it.name)}" title="Reiniciar">🔄</button>
-                    <button type="button" class="mini-btn btn-backup-db" data-name="${escapeHtml(it.name)}" data-engine="${escapeHtml(it.engine || 'postgres')}" title="Backup">💾</button>
-                    <button type="button" class="mini-btn btn-vol-db" data-name="${escapeHtml(it.name)}" title="Archivos">📁</button>
-                    <button type="button" class="mini-btn btn-delete-db" data-name="${escapeHtml(it.name)}" style="color:var(--status-offline);" title="Eliminar BD">✕</button>
+                <div class="row-actions-wrap">
+                    <button type="button" class="row-action-primary btn-logs-db" data-name="${n}">📜 Logs</button>
+                    <button type="button" class="row-action-chevron" data-dropdown="${n}-db" title="Más acciones">▾</button>
+                    <div class="row-actions-dropdown" id="dd-${n}-db">
+                        <button type="button" class="dd-item btn-metrics-svc" data-name="${n}">📊 Métricas</button>
+                        <button type="button" class="dd-item btn-restart-db" data-name="${n}">🔄 Reiniciar</button>
+                        <button type="button" class="dd-item btn-backup-db" data-name="${n}" data-engine="${escapeHtml(it.engine || 'postgres')}">💾 Backup</button>
+                        <button type="button" class="dd-item btn-vol-db" data-name="${n}">📁 Archivos</button>
+                        <div class="dd-sep"></div>
+                        <button type="button" class="dd-item dd-danger btn-delete-db" data-name="${n}">✕ Eliminar BD</button>
+                    </div>
                 </div>
             `;
         } else {
             actionsHtml = `
-                <div class="table-actions-cell" style="display:flex; gap:4px; flex-wrap:wrap;">
-                    <button type="button" class="mini-btn btn-logs-svc" data-name="${escapeHtml(it.name)}" title="Ver logs">📜 Logs</button>
-                    <button type="button" class="mini-btn btn-restart-svc" data-name="${escapeHtml(it.name)}" title="Reiniciar">🔄</button>
-                    <button type="button" class="mini-btn btn-env-svc" data-name="${escapeHtml(it.name)}" title="Env">🔑 Env</button>
-                    <button type="button" class="mini-btn btn-history-svc" data-name="${escapeHtml(it.name)}" title="Versiones">⏳</button>
-                    <button type="button" class="mini-btn btn-vol-svc" data-name="${escapeHtml(it.name)}" title="Archivos">📁</button>
-                    <button type="button" class="mini-btn btn-edit-svc" data-name="${escapeHtml(it.name)}" data-expose="${it.expose}" data-domain="${escapeHtml(it.domain)}" title="Configurar">⚙️</button>
-                    <button type="button" class="mini-btn btn-del-svc" data-name="${escapeHtml(it.name)}" style="color:var(--status-offline);" title="Eliminar servicio">✕</button>
+                <div class="row-actions-wrap">
+                    <button type="button" class="row-action-primary btn-logs-svc" data-name="${n}">📜 Logs</button>
+                    <button type="button" class="row-action-chevron" data-dropdown="${n}-app" title="Más acciones">▾</button>
+                    <div class="row-actions-dropdown" id="dd-${n}-app">
+                        <button type="button" class="dd-item btn-metrics-svc" data-name="${n}">📊 Métricas</button>
+                        <button type="button" class="dd-item btn-env-svc" data-name="${n}">🔑 Variables Env</button>
+                        <button type="button" class="dd-item btn-restart-svc" data-name="${n}">🔄 Reiniciar</button>
+                        <button type="button" class="dd-item btn-history-svc" data-name="${n}">⏳ Versiones</button>
+                        <button type="button" class="dd-item btn-vol-svc" data-name="${n}">📁 Archivos</button>
+                        <button type="button" class="dd-item btn-edit-svc" data-name="${n}" data-expose="${it.expose}" data-domain="${escapeHtml(it.domain)}">⚙️ Configurar</button>
+                        <div class="dd-sep"></div>
+                        <button type="button" class="dd-item dd-danger btn-del-svc" data-name="${n}">✕ Eliminar</button>
+                    </div>
                 </div>
             `;
         }
@@ -206,6 +221,39 @@ export function renderMasterServicesTable(services, databases, links, callbacks 
 }
 
 export function wireMasterTableActions(callbacks = {}) {
+    // ─── Dropdown chevron toggle ───────────────────────────────────────────
+    document.querySelectorAll('.row-action-chevron').forEach(chevron => {
+        chevron.onclick = (e) => {
+            e.stopPropagation();
+            const ddId = 'dd-' + chevron.getAttribute('data-dropdown');
+            const dd = document.getElementById(ddId);
+            if (!dd) return;
+            const isOpen = dd.classList.contains('open');
+            // Cerrar todos los dropdowns abiertos primero
+            document.querySelectorAll('.row-actions-dropdown.open').forEach(el => el.classList.remove('open'));
+            document.querySelectorAll('.row-action-chevron.open').forEach(el => el.classList.remove('open'));
+            if (!isOpen) {
+                dd.classList.add('open');
+                chevron.classList.add('open');
+            }
+        };
+    });
+
+    // Cerrar dropdowns al hacer click fuera
+    if (!document._rowActionsClickOutside) {
+        document._rowActionsClickOutside = true;
+        document.addEventListener('click', () => {
+            document.querySelectorAll('.row-actions-dropdown.open').forEach(el => el.classList.remove('open'));
+            document.querySelectorAll('.row-action-chevron.open').forEach(el => el.classList.remove('open'));
+        });
+    }
+
+    // ─── Métricas ──────────────────────────────────────────────────────────
+    document.querySelectorAll('.btn-metrics-svc').forEach(btn => {
+        btn.onclick = () => openServiceMetricsModal(btn.getAttribute('data-name'));
+    });
+
+    // ─── Logs ──────────────────────────────────────────────────────────────
     document.querySelectorAll('.btn-logs-svc, .btn-logs-db').forEach(btn => {
         btn.onclick = () => {
             const name = btn.getAttribute('data-name');
@@ -880,4 +928,118 @@ export function setupServicesEvents(onReloadStatus) {
 }
 
 export const setupServicesListeners = setupServicesEvents;
+
+// ─── Metrics Modal ──────────────────────────────────────────────────────────
+
+function buildSparklineSVG(values, color) {
+    if (!values || values.length === 0) return '<text x="50%" y="50%" text-anchor="middle" fill="#6b7280" font-size="10">Sin datos</text>';
+    const W = 240;
+    const H = 48;
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = max - min || 1;
+    const pts = values.map((v, i) => {
+        const x = (i / (values.length - 1)) * W;
+        const y = H - ((v - min) / range) * (H - 4) - 2;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    const lastVal = values[values.length - 1];
+    const lastY = H - ((lastVal - min) / range) * (H - 4) - 2;
+    return `
+        <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+        <circle cx="${W}" cy="${lastY.toFixed(1)}" r="2.5" fill="${color}"/>
+    `;
+}
+
+export async function openServiceMetricsModal(serviceName) {
+    if (!serviceName) return;
+
+    let overlay = document.getElementById('serviceMetricsModal');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'serviceMetricsModal';
+        overlay.className = 't-modal-overlay';
+        overlay.innerHTML = `
+            <div class="t-modal-card metrics-modal-card" role="dialog" aria-modal="true">
+                <div class="t-modal-header">
+                    <span class="t-modal-title">📊 Métricas — <span id="metricsModalName"></span></span>
+                    <button type="button" class="t-close-btn" id="btnCloseMetricsModal" aria-label="Cerrar">✕</button>
+                </div>
+                <div id="metricsModalBody" class="metrics-grid">
+                    <div style="grid-column:1/-1; text-align:center; padding:32px; color:var(--text-muted);">⏳ Cargando métricas...</div>
+                </div>
+                <div class="t-modal-footer" style="padding:12px 20px; border-top:1px solid var(--border-subtle); display:flex; justify-content:flex-end; gap:8px;">
+                    <select id="metricsRangeSelect" style="background:var(--surface-input); border:1px solid var(--border-subtle); color:var(--text-secondary); padding:4px 8px; border-radius:var(--radius-sm); font-size:0.80rem;">
+                        <option value="1h">Última 1h</option>
+                        <option value="6h">Últimas 6h</option>
+                        <option value="24h">Últimas 24h</option>
+                    </select>
+                    <button type="button" class="t-btn t-btn-secondary" id="btnCloseMetricsModal2">Cerrar</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        document.getElementById('btnCloseMetricsModal').onclick = () => { overlay.style.display = 'none'; };
+        document.getElementById('btnCloseMetricsModal2').onclick = () => { overlay.style.display = 'none'; };
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.style.display = 'none'; });
+        document.getElementById('metricsRangeSelect').addEventListener('change', () => {
+            const name = document.getElementById('metricsModalName').textContent;
+            const range = document.getElementById('metricsRangeSelect').value;
+            loadMetrics(name, range);
+        });
+    }
+
+    const nameEl = document.getElementById('metricsModalName');
+    const body = document.getElementById('metricsModalBody');
+    if (nameEl) nameEl.textContent = serviceName;
+    if (body) body.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:32px; color:var(--text-muted);">⏳ Cargando métricas...</div>';
+    overlay.style.display = 'flex';
+
+    await loadMetrics(serviceName, document.getElementById('metricsRangeSelect')?.value || '1h');
+}
+
+async function loadMetrics(serviceName, range) {
+    const body = document.getElementById('metricsModalBody');
+    if (!body) return;
+    try {
+        const res = await apiFetch(`/api/observability/metrics?service=${encodeURIComponent(serviceName)}&range=${encodeURIComponent(range)}&server=${encodeURIComponent(state.selectedServerName || '')}`);
+        if (!res.ok || !res.data) {
+            body.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:32px; color:var(--status-offline);">No se pudieron cargar las métricas.</div>';
+            return;
+        }
+        const pts = res.data.points || [];
+        const cpuVals    = pts.map(p => parseFloat(p.cpu)    || 0);
+        const memVals    = pts.map(p => parseFloat(p.memory)  || 0);
+        const netVals    = pts.map(p => parseFloat(p.network) || 0);
+        const diskVals   = pts.map(p => parseFloat(p.disk)    || 0);
+
+        const lastCpu  = cpuVals.length  ? cpuVals[cpuVals.length - 1].toFixed(1)   : '—';
+        const lastMem  = memVals.length  ? memVals[memVals.length - 1].toFixed(1)   : '—';
+        const lastNet  = netVals.length  ? netVals[netVals.length - 1].toFixed(1)   : '—';
+        const lastDisk = diskVals.length ? diskVals[diskVals.length - 1].toFixed(1) : '—';
+
+        const charts = [
+            { label: 'CPU', unit: '%',   vals: cpuVals,  last: lastCpu,  color: '#818cf8' },
+            { label: 'Memoria', unit: '%', vals: memVals, last: lastMem,  color: '#34d399' },
+            { label: 'Red',     unit: 'KB/s', vals: netVals, last: lastNet, color: '#fbbf24' },
+            { label: 'Disco',   unit: '%', vals: diskVals, last: lastDisk, color: '#f87171' },
+        ];
+
+        body.innerHTML = charts.map(c => `
+            <div class="metric-chart-block">
+                <div class="metric-chart-label">
+                    <span>${c.label}</span>
+                    <span style="font-size:0.68rem; color:var(--text-muted); font-weight:400;">${pts.length} pts</span>
+                </div>
+                <div class="metric-chart-value">${c.last}<span style="font-size:0.70rem; font-weight:400; color:var(--text-muted); margin-left:3px;">${c.unit}</span></div>
+                <svg class="metric-sparkline" viewBox="0 0 240 48" preserveAspectRatio="none">
+                    ${buildSparklineSVG(c.vals, c.color)}
+                </svg>
+            </div>
+        `).join('');
+    } catch (err) {
+        body.innerHTML = `<div style="grid-column:1/-1; text-align:center; padding:32px; color:var(--status-offline);">Error: ${escapeHtml(String(err))}</div>`;
+    }
+}
 

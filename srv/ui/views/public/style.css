@@ -3390,3 +3390,167 @@ body.is-server-loading .skeleton-hide {
     .logs-search-input { width: 100%; }
 }
 
+
+/* ==========================================================================
+   ROW ACTIONS DROPDOWN
+   ========================================================================== */
+.row-actions-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.row-action-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    font-size: 0.76rem;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: var(--ease-out);
+    white-space: nowrap;
+}
+
+.row-action-primary:hover {
+    background: var(--surface-card);
+    color: var(--text-pure);
+    border-color: var(--border-strong);
+}
+
+.row-action-chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 26px;
+    font-size: 0.7rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: var(--ease-out);
+}
+
+.row-action-chevron:hover,
+.row-action-chevron.open {
+    background: var(--surface-card);
+    color: var(--text-pure);
+    border-color: var(--border-strong);
+}
+
+.row-actions-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    min-width: 170px;
+    background: var(--surface-popover);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    z-index: 500;
+    overflow: hidden;
+    display: none;
+    animation: dropdownFade 0.12s ease-out;
+}
+
+.row-actions-dropdown.open {
+    display: block;
+}
+
+@keyframes dropdownFade {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.row-actions-dropdown .dd-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    font-size: 0.80rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+    transition: background 0.1s;
+}
+
+.row-actions-dropdown .dd-item:hover {
+    background: rgba(255,255,255,0.05);
+    color: var(--text-pure);
+}
+
+.row-actions-dropdown .dd-item.dd-danger {
+    color: var(--status-offline);
+}
+
+.row-actions-dropdown .dd-item.dd-danger:hover {
+    background: rgba(239,68,68,0.1);
+}
+
+.row-actions-dropdown .dd-sep {
+    height: 1px;
+    background: var(--border-subtle);
+    margin: 3px 0;
+}
+
+/* ==========================================================================
+   METRICS SPARKLINE MODAL
+   ========================================================================== */
+.metrics-modal-card {
+    max-width: 680px;
+}
+
+.metrics-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    padding: 18px 20px;
+}
+
+.metric-chart-block {
+    background: var(--surface-input);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+}
+
+.metric-chart-label {
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.metric-chart-value {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-pure);
+    margin-bottom: 6px;
+    font-family: var(--font-mono);
+}
+
+.metric-sparkline {
+    width: 100%;
+    height: 48px;
+    display: block;
+}
+
+@media (max-width: 600px) {
+    .metrics-grid { grid-template-columns: 1fr; }
+}

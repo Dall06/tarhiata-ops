@@ -24,6 +24,8 @@ if [ -n "$svcs" ]; then
 fi
 echo "===TARHIATA_NODES==="
 docker node ls --format '{{.ID}}\t{{.Hostname}}\t{{.Status}}\t{{.Availability}}\t{{.ManagerStatus}}\t{{.EngineVersion}}' 2>/dev/null
+echo "===TARHIATA_CONTAINERS==="
+docker ps --format '{{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}' 2>/dev/null
 echo "===TARHIATA_END==="`
 
 // SwarmBundlePayload contiene las secciones parseadas del comando unificado de Swarm.
@@ -33,6 +35,7 @@ type SwarmBundlePayload struct {
 	ServicesRaw   string
 	InspectRaw    string
 	NodesRaw      string
+	ContainersRaw string
 }
 
 func extractSection(raw, startMarker, endMarker string) string {
@@ -48,7 +51,7 @@ func extractSection(raw, startMarker, endMarker string) string {
 	return strings.TrimSpace(content[:endIdx])
 }
 
-// ParseSwarmBundle divide la salida delimitada en sus 5 secciones.
+// ParseSwarmBundle divide la salida delimitada en sus secciones.
 func ParseSwarmBundle(raw string) (SwarmBundlePayload, error) {
 	if !strings.Contains(raw, "===TARHIATA_DOCKER_VER===") {
 		return SwarmBundlePayload{}, fmt.Errorf("salida no contiene delimitadores de Tarhiata Swarm")
@@ -59,7 +62,13 @@ func ParseSwarmBundle(raw string) (SwarmBundlePayload, error) {
 		SwarmState:    extractSection(raw, "===TARHIATA_SWARM_STATE===", "===TARHIATA_SERVICES==="),
 		ServicesRaw:   extractSection(raw, "===TARHIATA_SERVICES===", "===TARHIATA_INSPECT==="),
 		InspectRaw:    extractSection(raw, "===TARHIATA_INSPECT===", "===TARHIATA_NODES==="),
-		NodesRaw:      extractSection(raw, "===TARHIATA_NODES===", "===TARHIATA_END==="),
+		NodesRaw:      extractSection(raw, "===TARHIATA_NODES===", "===TARHIATA_CONTAINERS==="),
+		ContainersRaw: extractSection(raw, "===TARHIATA_CONTAINERS===", "===TARHIATA_END==="),
+	}
+
+	// Compatibilidad hacia atrás: si no existe TARHIATA_CONTAINERS, tomar hasta END.
+	if payload.ContainersRaw == "" && strings.Contains(raw, "===TARHIATA_NODES===") {
+		payload.NodesRaw = extractSection(raw, "===TARHIATA_NODES===", "===TARHIATA_END===")
 	}
 
 	return payload, nil
@@ -123,6 +132,9 @@ func (uc *GetSwarmStatusUseCase) Execute(config domain.ServerConfig) (*domain.Sw
 				if payload.InspectRaw != "" {
 					enrichSwarmServicesWithInspect(status.Services, payload.InspectRaw)
 				}
+				if payload.ContainersRaw != "" {
+					status.Services = enrichSwarmServicesWithLiveContainers(status.Services, payload.ContainersRaw)
+				}
 			}
 
 			if payload.NodesRaw != "" {
@@ -160,12 +172,90 @@ func (uc *GetSwarmStatusUseCase) Execute(config domain.ServerConfig) (*domain.Sw
 		}
 	}
 
+	// Consultar también contenedores vivos para validar réplicas reales y contenedores standalone
+	resPs, errPs := uc.executor.RunCommand("docker ps --format '{{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}' 2>/dev/null")
+	if errPs == nil && resPs != nil && resPs.ExitCode == 0 {
+		status.Services = enrichSwarmServicesWithLiveContainers(status.Services, resPs.Output)
+	}
+
 	resNodes, err := uc.executor.RunCommand("docker node ls --format '{{.ID}}\t{{.Hostname}}\t{{.Status}}\t{{.Availability}}\t{{.ManagerStatus}}\t{{.EngineVersion}}'")
 	if err == nil && resNodes != nil && resNodes.ExitCode == 0 {
 		status.Nodes = ParseSwarmNodes(resNodes.Output)
 	}
 
 	return status, nil
+}
+
+func enrichSwarmServicesWithLiveContainers(services []domain.SwarmServiceInfo, rawPs string) []domain.SwarmServiceInfo {
+	lines := strings.Split(rawPs, "\n")
+	type containerInfo struct {
+		name   string
+		status string
+		image  string
+		ports  string
+	}
+	runningContainers := make([]containerInfo, 0)
+	for _, l := range lines {
+		parts := strings.Split(strings.TrimSpace(l), "\t")
+		if len(parts) >= 2 && parts[0] != "" {
+			cName := strings.TrimSpace(parts[0])
+			cStatus := strings.TrimSpace(parts[1])
+			cImage := ""
+			cPorts := ""
+			if len(parts) >= 3 {
+				cImage = strings.TrimSpace(parts[2])
+			}
+			if len(parts) >= 4 {
+				cPorts = strings.TrimSpace(parts[3])
+			}
+			runningContainers = append(runningContainers, containerInfo{
+				name:   cName,
+				status: cStatus,
+				image:  cImage,
+				ports:  cPorts,
+			})
+		}
+	}
+
+	for i := range services {
+		sName := strings.ToLower(services[i].Name)
+		for _, c := range runningContainers {
+			cName := strings.ToLower(c.name)
+			if strings.Contains(c.status, "Up") && (cName == sName || strings.HasPrefix(cName, sName) || strings.Contains(cName, sName)) {
+				if strings.HasPrefix(services[i].Replicas, "0/") || services[i].Replicas == "0" {
+					services[i].Replicas = "1/1"
+				}
+				break
+			}
+		}
+	}
+
+	for _, c := range runningContainers {
+		if !strings.Contains(c.status, "Up") {
+			continue
+		}
+		cNameLower := strings.ToLower(c.name)
+		found := false
+		for _, s := range services {
+			sNameLower := strings.ToLower(s.Name)
+			if sNameLower == cNameLower || strings.HasPrefix(cNameLower, sNameLower) || strings.Contains(cNameLower, sNameLower) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			services = append(services, domain.SwarmServiceInfo{
+				ID:       "container",
+				Name:     c.name,
+				Mode:     "standalone",
+				Replicas: "1/1",
+				Image:    c.image,
+				Ports:    c.ports,
+			})
+		}
+	}
+
+	return services
 }
 
 // enrichSwarmServicesWithInspect añade datos de exposición pública (Traefik) y dominio a los servicios.
