@@ -59,9 +59,15 @@ Download the pre-compiled executable binary directly for your operating system w
 - **🗄️ 1-Click Database & Object Storage Engines:**
   - Instant provisioning for **PostgreSQL**, **MongoDB**, **MySQL**, **Redis**, and **MinIO (S3 Object Storage)**.
   - Recovery Mode (`/opt/data/db-*` host volume retention) prevents accidental data loss during redeployments.
-- **🚀 Zero-Downtime Rolling Updates:**
-  - Automated Traefik v3 HTTPS SSL certificate management (Let's Encrypt / ZeroSSL).
-  - Swarm `start-first` rolling updates with automatic rollback on deployment failures.
+- **🚀 Zero-Downtime Rolling Updates & Instant Rollback:**
+  - Automated Traefik v3 HTTPS SSL certificate management (Let's Encrypt / ZeroSSL) & ACME monitor.
+  - Swarm `start-first` rolling updates with 1-click arbitrary version history rollback.
+- **🔄 Continuous Git Webhook Auto-Deploy (CI/CD):**
+  - Secure HMAC SHA-256 webhook listener (`/api/webhooks/deploy`) for GitHub, GitLab, Gitea, and CI pipelines ([Read Guide](docs/webhooks-ci-cd.md)).
+- **🔔 Outbound Webhook Alerts:**
+  - Real-time notification engine for Discord, Telegram, Slack, and generic webhooks.
+- **📜 Immutable Audit Log Explorer:**
+  - Visual timeline and audit explorer for tracking deployment, security, and cluster operations.
 - **🔑 Developer SSH Key Access Control:**
   - Real-time team key management (`tarhiata ssh-key`). Add and revoke team developer SSH access instantly with **Vultr Master Account Protection** (blocking accidental deletion of primary server keys).
 - **🏗️ Multi-Node Cluster Scaling via Vultr API v2:**

@@ -57,9 +57,15 @@ Descarga el ejecutable pre-compilado listo para usar en tu sistema operativo sin
 - **🗄️ Motores de Base de Datos y Almacenamiento 1-Click:**
   - Aprovisionamiento instantáneo para **PostgreSQL**, **MongoDB**, **MySQL**, **Redis** y **MinIO (Object Storage S3)**.
   - Modo Recuperación (retención de volumen host en `/opt/data/db-*`) que previene pérdida accidental de datos.
-- **🚀 Despliegues Rolling Updates Zero-Downtime:**
-  - Gestión automática de certificados SSL HTTPS con Traefik v3 (Let's Encrypt / ZeroSSL).
-  - Actualizaciones progresivas `start-first` en Swarm con rollback automático si falla el despliegue.
+- **🚀 Despliegues Rolling Updates Zero-Downtime & Rollback Instantáneo:**
+  - Gestión automática de certificados SSL HTTPS con Traefik v3 (Let's Encrypt / ZeroSSL) y monitor preventivo ACME.
+  - Actualizaciones progresivas `start-first` en Swarm con rollback instantáneo de versiones en 1 clic.
+- **🔄 Auto-Despliegue Continuo con Git Webhooks (CI/CD):**
+  - Endpoint seguro con validación criptográfica HMAC SHA-256 (`/api/webhooks/deploy`) para GitHub, GitLab, Gitea y CI/CD ([Leer Guía](webhooks-ci-cd.md)).
+- **🔔 Notificaciones y Alertas Salientes:**
+  - Motor de avisos en tiempo real para Discord, Telegram, Slack y Webhooks HTTP genéricos.
+- **📜 Registro de Auditoría Visual e Inmutable:**
+  - Visor y explorador interactivo de auditoría para trazabilidad de despliegues, seguridad y estado del clúster.
 - **🔑 Control de Acceso por Llaves SSH para Equipos:**
   - Gestión de llaves SSH de desarrolladores en caliente (`tarhiata ssh-key`). Agrega y revoca accesos con **Protección de Cuenta Maestra Vultr** (evitando la eliminación accidental de llaves del servidor).
 - **🏗️ Escalamiento Multi-Nodo vía Vultr API v2:**
