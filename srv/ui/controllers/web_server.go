@@ -45,7 +45,7 @@ import (
 	"github.com/Dall06/tarhiata-ops/srv/ui/components/terminal"
 	"github.com/Dall06/tarhiata-ops/srv/ui/components/topology"
 	"github.com/Dall06/tarhiata-ops/srv/ui/components/volumes"
-	"github.com/Dall06/tarhiata-ops/srv/ui/dto"
+	dto "github.com/Dall06/tarhiata-ops/srv/ui/domain"
 	"github.com/Dall06/tarhiata-ops/srv/ui/views/public"
 	"github.com/labstack/echo/v4"
 	echomw "github.com/labstack/echo/v4/middleware"

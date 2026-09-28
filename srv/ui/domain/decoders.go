@@ -1,15 +1,15 @@
-package dto
+package domain
 
 import (
 	"encoding/json"
 
-	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
+	sysdomain "github.com/Dall06/tarhiata-ops/srv/sys/domain"
 )
 
 // DecodeServerConfig decodifica tanto la notación camelCase como snake_case enviada desde la interfaz web o CLI.
-func DecodeServerConfig(data []byte) (domain.ServerConfig, error) {
-	var c domain.ServerConfig
-	type Alias domain.ServerConfig
+func DecodeServerConfig(data []byte) (sysdomain.ServerConfig, error) {
+	var c sysdomain.ServerConfig
+	type Alias sysdomain.ServerConfig
 	aux := struct {
 		Alias
 		KeyPath       string `json:"key_path"`
@@ -23,7 +23,7 @@ func DecodeServerConfig(data []byte) (domain.ServerConfig, error) {
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return c, err
 	}
-	c = domain.ServerConfig(aux.Alias)
+	c = sysdomain.ServerConfig(aux.Alias)
 	if c.PrivateKey == "" {
 		if aux.KeyPath != "" {
 			c.PrivateKey = aux.KeyPath
@@ -44,14 +44,14 @@ func DecodeServerConfig(data []byte) (domain.ServerConfig, error) {
 }
 
 // DecodeSavedService decodifica servicios recibidos en notación camelCase o snake_case.
-func DecodeSavedService(data []byte) (domain.SavedService, error) {
-	var s domain.SavedService
-	type Alias domain.SavedService
+func DecodeSavedService(data []byte) (sysdomain.SavedService, error) {
+	var s sysdomain.SavedService
+	type Alias sysdomain.SavedService
 	aux := struct {
 		Alias
 		ImageSourceSnake    string `json:"image_source"`
 		EnableSSLSnake      *bool  `json:"enable_ssl"`
-		PreDeployHookSnake string `json:"pre_deploy_hook"`
+		PreDeployHookSnake  string `json:"pre_deploy_hook"`
 		HealthcheckCmdSnake string `json:"healthcheck_cmd"`
 		EnvVarsSnake        string `json:"env_vars"`
 		EnvFilePathSnake    string `json:"env_file_path"`
@@ -62,7 +62,7 @@ func DecodeSavedService(data []byte) (domain.SavedService, error) {
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return s, err
 	}
-	s = domain.SavedService(aux.Alias)
+	s = sysdomain.SavedService(aux.Alias)
 	if s.ImageSource == "" && aux.ImageSourceSnake != "" {
 		s.ImageSource = aux.ImageSourceSnake
 	}
@@ -88,9 +88,9 @@ func DecodeSavedService(data []byte) (domain.SavedService, error) {
 }
 
 // DecodeServiceLink decodifica enlaces recibidos en notación camelCase o snake_case.
-func DecodeServiceLink(data []byte) (domain.ServiceLink, error) {
-	var l domain.ServiceLink
-	type Alias domain.ServiceLink
+func DecodeServiceLink(data []byte) (sysdomain.ServiceLink, error) {
+	var l sysdomain.ServiceLink
+	type Alias sysdomain.ServiceLink
 	aux := struct {
 		Alias
 		SourceSvcSnake  string `json:"source_svc"`
@@ -102,7 +102,7 @@ func DecodeServiceLink(data []byte) (domain.ServiceLink, error) {
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return l, err
 	}
-	l = domain.ServiceLink(aux.Alias)
+	l = sysdomain.ServiceLink(aux.Alias)
 	if l.SourceSvc == "" && aux.SourceSvcSnake != "" {
 		l.SourceSvc = aux.SourceSvcSnake
 	}
@@ -116,9 +116,9 @@ func DecodeServiceLink(data []byte) (domain.ServiceLink, error) {
 }
 
 // DecodeSavedDatabase decodifica bases de datos recibidas en camelCase o snake_case.
-func DecodeSavedDatabase(data []byte) (domain.SavedDatabase, error) {
-	var d domain.SavedDatabase
-	type Alias domain.SavedDatabase
+func DecodeSavedDatabase(data []byte) (sysdomain.SavedDatabase, error) {
+	var d sysdomain.SavedDatabase
+	type Alias sysdomain.SavedDatabase
 	aux := struct {
 		Alias
 		DeployTypeSnake     string `json:"deploy_type"`
@@ -132,7 +132,7 @@ func DecodeSavedDatabase(data []byte) (domain.SavedDatabase, error) {
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return d, err
 	}
-	d = domain.SavedDatabase(aux.Alias)
+	d = sysdomain.SavedDatabase(aux.Alias)
 	if d.DeployType == "" && aux.DeployTypeSnake != "" {
 		d.DeployType = aux.DeployTypeSnake
 	}
