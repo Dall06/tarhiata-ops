@@ -46,13 +46,13 @@ export function renderFleetDirectory(onSelectServer, onSwitchActive, onDeleteSer
                 <span class="status-dot status-pending" id="fleet-dot-${escapeHtml(s.name)}"></span>
                 <span class="fleet-item-name">${escapeHtml(s.name)}</span>
                 <span class="fleet-badge">${badgeProv}</span>
-                ${isActive ? '<span class="fleet-badge" style="background:rgba(16,185,129,0.15); color:var(--accent-success); border-color:rgba(16,185,129,0.3);">ACTIVO</span>' : ''}
+                ${isActive ? '<span class="fleet-badge fleet-badge-active">PRINCIPAL</span>' : ''}
             </div>
             <div class="fleet-item-meta">
-                <span>${escapeHtml(s.host)}</span>
+                <span class="fleet-host-text">${escapeHtml(s.host)}</span>
                 <div class="fleet-item-actions">
-                    ${!isActive ? `<button class="mini-btn mini-btn-accent btn-make-active" title="Establecer como servidor principal">Principal</button>` : ''}
-                    <button class="mini-btn btn-delete-srv" title="Eliminar servidor">✕</button>
+                    ${!isActive ? `<button type="button" class="mini-btn mini-btn-accent btn-make-active" title="Establecer como servidor principal">Principal</button>` : ''}
+                    <button type="button" class="mini-btn btn-delete-srv" title="Eliminar servidor">✕</button>
                 </div>
             </div>
         `;
