@@ -29,16 +29,23 @@ export async function loadHostDevices(forceFresh = false) {
 
     try {
         const freshParam = forceFresh ? '&fresh=true' : '';
-        const res = await apiFetch(`/api/host/devices?server=${encodeURIComponent(serverName)}${freshParam}`);
-        if (!res.ok) {
-            showToast(`Error al obtener dispositivos: ${res.error || res.status}`, 'error');
-            return;
+        const [resDev, resSec] = await Promise.all([
+            apiFetch(`/api/host/devices?server=${encodeURIComponent(serverName)}${freshParam}`),
+            apiFetch(`/api/host/security?server=${encodeURIComponent(serverName)}${freshParam}`)
+        ]);
+
+        if (resDev.ok && resDev.data) {
+            state.currentHostDevices = resDev.data;
+            renderHostDevices(resDev.data);
+        } else {
+            showToast(`Error al obtener dispositivos: ${resDev.error || resDev.status}`, 'error');
         }
-        const data = res.data || {};
-        state.currentHostDevices = data;
-        renderHostDevices(data);
+
+        if (resSec.ok && resSec.data) {
+            renderSecurityReport(resSec.data);
+        }
     } catch (err) {
-        showToast(`Fallo de conexión al inspeccionar dispositivos: ${err.message}`, 'error');
+        showToast(`Fallo de conexión al inspeccionar host: ${err.message}`, 'error');
     } finally {
         isLoadingDevices = false;
         if (btnRefreshDevices) btnRefreshDevices.disabled = false;
@@ -198,5 +205,78 @@ export function renderHostDevices(data) {
                 </tr>
             `).join('');
         }
+    }
+}
+
+export function renderSecurityReport(sec) {
+    if (!sec) return;
+    const secUfwBadge = document.getElementById('secUfwBadge');
+    const secF2bBadge = document.getElementById('secF2bBadge');
+    const secUfwTableBody = document.getElementById('secUfwTableBody');
+    const secF2bStatusPill = document.getElementById('secF2bStatusPill');
+    const secF2bBody = document.getElementById('secF2bBody');
+
+    // 1. UFW Rules
+    if (secUfwBadge) {
+        secUfwBadge.textContent = sec.ufwActive ? 'UFW: ACTIVO' : 'UFW: INACTIVO';
+        secUfwBadge.style.color = sec.ufwActive ? 'var(--status-online)' : 'var(--text-muted)';
+    }
+
+    if (secUfwTableBody) {
+        const rules = sec.ufwRules || [];
+        if (rules.length === 0) {
+            secUfwTableBody.innerHTML = `<tr><td colspan="5" class="t-td-empty">${sec.ufwActive ? 'Sin reglas de puertos configuradas' : 'Cortafuegos UFW inactivo o sin reglas'}</td></tr>`;
+        } else {
+            secUfwTableBody.innerHTML = rules.map(r => {
+                const isAllow = (r.action || '').toUpperCase().includes('ALLOW');
+                const actionBadge = isAllow
+                    ? `<span class="t-badge" style="background:rgba(16,185,129,0.15); color:var(--status-online); border-color:rgba(16,185,129,0.3);">${escapeHtml(r.action)}</span>`
+                    : `<span class="t-badge" style="background:rgba(244,63,94,0.15); color:var(--status-offline); border-color:rgba(244,63,94,0.3);">${escapeHtml(r.action)}</span>`;
+                return `
+                    <tr>
+                        <td><code>${escapeHtml(r.number || '—')}</code></td>
+                        <td><strong style="color:var(--text-pure);">${escapeHtml(r.to || '—')}</strong></td>
+                        <td>${actionBadge}</td>
+                        <td><code>${escapeHtml(r.from || 'Anywhere')}</code></td>
+                        <td><span class="t-badge">${escapeHtml(r.proto || 'any')}</span></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+    }
+
+    // 2. Fail2Ban
+    const f2b = sec.fail2ban || {};
+    if (secF2bBadge) {
+        secF2bBadge.textContent = f2b.active ? `Fail2Ban: ACTIVO (${(f2b.jails || []).length} jaulas)` : 'Fail2Ban: INACTIVO';
+        secF2bBadge.style.color = f2b.active ? 'var(--status-online)' : 'var(--text-muted)';
+    }
+
+    if (secF2bStatusPill) {
+        secF2bStatusPill.textContent = f2b.active ? 'Operacional' : 'No Detectado / Inactivo';
+        secF2bStatusPill.style.color = f2b.active ? 'var(--status-online)' : 'var(--text-muted)';
+    }
+
+    if (secF2bBody) {
+        const jails = f2b.jails || [];
+        const banned = f2b.bannedIps || [];
+        secF2bBody.innerHTML = `
+            <div style="display:flex; flex-wrap:wrap; gap:16px; margin-bottom:10px;">
+                <div style="font-size:0.80rem;">
+                    <span style="color:var(--text-muted);">Jaulas Activas:</span>
+                    <strong style="color:var(--text-pure); margin-left:6px;">${jails.length > 0 ? jails.map(j => `<span class="t-badge">${escapeHtml(j)}</span>`).join(' ') : 'Ninguna'}</strong>
+                </div>
+                <div style="font-size:0.80rem;">
+                    <span style="color:var(--text-muted);">Total IPs Bloqueadas:</span>
+                    <strong style="color:${f2b.totalBanned > 0 ? 'var(--status-warning)' : 'var(--status-online)'}; margin-left:6px;">${f2b.totalBanned || 0}</strong>
+                </div>
+            </div>
+            ${banned.length > 0 ? `
+                <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:6px;">IPs Bloqueadas Recientes:</div>
+                <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                    ${banned.map(ip => `<code style="background:rgba(244,63,94,0.12); color:#fca5a5; padding:2px 6px; border-radius:3px; border:1px solid rgba(244,63,94,0.25); font-family:var(--font-mono); font-size:0.72rem;">${escapeHtml(ip)}</code>`).join('')}
+                </div>
+            ` : '<div style="font-size:0.76rem; color:var(--text-muted);">No hay IPs bloqueadas actualmente en la lista negra.</div>'}
+        `;
     }
 }

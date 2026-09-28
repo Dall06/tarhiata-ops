@@ -59,9 +59,18 @@
 
             <!-- Global Action Controls -->
             <div class="nav-right">
+                <button type="button" class="action-btn action-btn-ghost action-btn-spotlight" id="btnNavSpotlight" title="Paleta de Comandos rápida (⌘K / Ctrl+K)">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    <span>Spotlight</span>
+                    <kbd class="nav-kbd-hint">⌘K</kbd>
+                </button>
                 <button type="button" class="action-btn action-btn-ghost" id="btnTestAll" title="Probar conectividad de los servidores">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
                     <span>Sondear Red</span>
+                </button>
+                <button type="button" class="action-btn action-btn-ghost" id="btnDownloadReport" title="Descargar reporte de diagnóstico completo (.md)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    <span>Reporte</span>
                 </button>
                 <button type="button" class="action-btn action-btn-ghost" id="btnTopSSL" title="Inspección de certificados SSL y mantenimiento Traefik">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
@@ -656,6 +665,46 @@
                                     <tr><td colspan="4" class="t-td-empty">Consultando controladores PCI...</td></tr>
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+
+                    <!-- 6. Seguridad & Cortafuegos (UFW / Fail2Ban) -->
+                    <div class="hw-section-block">
+                        <div class="hw-section-header">
+                            <h3 class="hw-section-title">🛡️ Cortafuegos UFW &amp; Protección Fail2Ban</h3>
+                            <div style="display:flex; gap:6px;">
+                                <span class="t-badge" id="secUfwBadge">UFW: Consultando</span>
+                                <span class="t-badge" id="secF2bBadge">Fail2Ban: Consultando</span>
+                            </div>
+                        </div>
+                        <div class="security-grid-block">
+                            <!-- Reglas UFW -->
+                            <div class="tactical-table-wrap" style="margin-bottom: 12px;">
+                                <table class="t-table">
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 10%;">#</th>
+                                            <th style="width: 25%;">Puerto / Destino</th>
+                                            <th style="width: 20%;">Acción</th>
+                                            <th style="width: 30%;">Origen</th>
+                                            <th style="width: 15%;">Protocolo</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="secUfwTableBody">
+                                        <tr><td colspan="5" class="t-td-empty">Consultando reglas de firewall UFW...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <!-- Estado Fail2Ban -->
+                            <div class="sec-f2b-card" id="secF2bCard">
+                                <div class="sec-f2b-header">
+                                    <span style="font-weight: 700; color: var(--text-pure);">Protección de Intrusión (Fail2Ban)</span>
+                                    <span id="secF2bStatusPill" class="t-badge">Verificando...</span>
+                                </div>
+                                <div class="sec-f2b-body" id="secF2bBody">
+                                    <span style="color: var(--text-muted); font-size: 0.78rem;">Consultando jaulas activas e historial de IPs bloqueadas...</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

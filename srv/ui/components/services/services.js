@@ -8,6 +8,7 @@ import { showToast } from '/pkg/toast/toast.js';
 import { escapeHtml } from '/pkg/jsutil/utils.js';
 import { openModal, closeModal } from '/pkg/modal/modal.js';
 import { apiFetch, consumeNDJSONStream } from '/pkg/apiclient/api.js';
+import { sendDesktopNotification } from '/pkg/notify/notify.js';
 
 export function renderAppCards(services, callbacks = {}) {
     const swarmServicesCardsGrid = document.getElementById('swarmServicesCardsGrid');
@@ -459,10 +460,12 @@ export function setupServicesEvents(onReloadStatus) {
                         deployFeedback.innerHTML = `<span style="color:var(--status-offline);">✕ ${escapeHtml(res.error)}</span>`;
                     }
                     showToast(`Error al desplegar: ${res.error}`, 'error');
+                    sendDesktopNotification('Fallo de Despliegue', `Error al desplegar '${payload.name}': ${res.error}`);
                     return;
                 }
 
                 showToast(`¡Servicio '${payload.name}' desplegado con éxito!`, 'success');
+                sendDesktopNotification('Despliegue Exitoso', `El servicio '${payload.name}' se encuentra activo.`);
                 closeDeployModal();
                 if (onReloadStatus && state.selectedServerName) {
                     onReloadStatus(state.selectedServerName);

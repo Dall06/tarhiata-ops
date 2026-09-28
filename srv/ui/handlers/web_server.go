@@ -25,6 +25,7 @@ import (
 	"github.com/Dall06/tarhiata-ops/pkg/httputil"
 	"github.com/Dall06/tarhiata-ops/pkg/jsutil"
 	"github.com/Dall06/tarhiata-ops/pkg/modal"
+	"github.com/Dall06/tarhiata-ops/pkg/notify"
 	"github.com/Dall06/tarhiata-ops/pkg/osterminal"
 	"github.com/Dall06/tarhiata-ops/pkg/store"
 	"github.com/Dall06/tarhiata-ops/pkg/toast"
@@ -40,6 +41,7 @@ import (
 	"github.com/Dall06/tarhiata-ops/srv/ui/components/logs"
 	"github.com/Dall06/tarhiata-ops/srv/ui/components/nodes"
 	"github.com/Dall06/tarhiata-ops/srv/ui/components/services"
+	"github.com/Dall06/tarhiata-ops/srv/ui/components/spotlight"
 	"github.com/Dall06/tarhiata-ops/srv/ui/components/ssl"
 	"github.com/Dall06/tarhiata-ops/srv/ui/components/telemetry"
 	"github.com/Dall06/tarhiata-ops/srv/ui/components/terminal"
@@ -277,6 +279,7 @@ func (w *WebServer) Echo() *echo.Echo {
 		"/pkg/store/state.js":                store.JSContent,
 		"/pkg/toast/toast.js":                toast.JSContent,
 		"/pkg/modal/modal.js":                modal.JSContent,
+		"/pkg/notify/notify.js":              notify.JSContent,
 		"/pkg/jsutil/utils.js":               jsutil.JSContent,
 		"/components/fleet/fleet.js":         fleet.JSContent,
 		"/components/telemetry/telemetry.js": telemetry.JSContent,
@@ -285,6 +288,7 @@ func (w *WebServer) Echo() *echo.Echo {
 		"/components/nodes/nodes.js":         nodes.JSContent,
 		"/components/topology/topology.js":   topology.JSContent,
 		"/components/hardware/hardware.js":   hardware.JSContent,
+		"/components/spotlight/spotlight.js": spotlight.JSContent,
 		"/components/terminal/terminal.js":   terminal.JSContent,
 		"/components/env/env.js":             env.JSContent,
 		"/components/volumes/volumes.js":     volumes.JSContent,
@@ -360,6 +364,8 @@ func (w *WebServer) Echo() *echo.Echo {
 	e.Any("/api/host/services", echo.WrapHandler(http.HandlerFunc(w.handleHostServices)))
 	e.Any("/api/host/inspect", echo.WrapHandler(http.HandlerFunc(w.handleHostInspect)))
 	e.Any("/api/host/devices", echo.WrapHandler(http.HandlerFunc(w.handleHostDevices)))
+	e.Any("/api/host/security", echo.WrapHandler(http.HandlerFunc(w.handleHostSecurity)))
+	e.Any("/api/system/report", echo.WrapHandler(http.HandlerFunc(w.handleSystemReport)))
 	e.Any("/api/swarm/status", echo.WrapHandler(http.HandlerFunc(w.handleSwarmStatus)))
 	e.Any("/api/bootstrap", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleBootstrap))))
 	e.Any("/api/create-vm-bootstrap", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleCreateVMBootstrap))))
@@ -1039,6 +1045,168 @@ func (w *WebServer) handleHostDevices(rw http.ResponseWriter, req *http.Request)
 
 	w.setCache(cacheKey, devices, 15*time.Second)
 	jsonResponse(rw, devices)
+}
+
+func (w *WebServer) handleHostSecurity(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(rw, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	cfg, err := w.getTargetServerConfig(req)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	cacheKey := "security:" + cfg.Name
+	if req.URL.Query().Get("fresh") != "true" && req.URL.Query().Get("force") != "true" {
+		if cached, ok := w.getCache(cacheKey); ok {
+			jsonResponse(rw, cached)
+			return
+		}
+	}
+
+	sshExec := repositories.NewCryptoSSHExecutor()
+	defer func() {
+		if clErr := sshExec.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando sshExec en host security", "error", clErr)
+		}
+	}()
+
+	if err := sshExec.Connect(*cfg); err != nil {
+		http.Error(rw, fmt.Sprintf("Error conectando SSH al servidor: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	uc := usecases.NewInspectSecurityUseCase(sshExec)
+	report, err := uc.Execute()
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("Error inspeccionando seguridad del host: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.setCache(cacheKey, report, 15*time.Second)
+	jsonResponse(rw, report)
+}
+
+func (w *WebServer) handleSystemReport(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(rw, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	cfg, err := w.getTargetServerConfig(req)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	sshExec := repositories.NewCryptoSSHExecutor()
+	defer func() {
+		if clErr := sshExec.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando sshExec en system report", "error", clErr)
+		}
+	}()
+
+	if err := sshExec.Connect(*cfg); err != nil {
+		http.Error(rw, fmt.Sprintf("Error conectando SSH: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	inspectUC := usecases.NewInspectHostUseCase(sshExec)
+	telemetry, _ := inspectUC.Execute(*cfg)
+	var tel domain.HostInspection
+	if telemetry != nil {
+		tel = *telemetry
+	}
+
+	secUC := usecases.NewInspectSecurityUseCase(sshExec)
+	secReport, _ := secUC.Execute()
+
+	swarmUC := usecases.NewGetSwarmStatusUseCase(sshExec)
+	swarmStatus, _ := swarmUC.Execute(*cfg)
+	var swSt domain.SwarmStatus
+	if swarmStatus != nil {
+		swSt = *swarmStatus
+	}
+
+	dbs, _ := w.repo.GetDatabases()
+
+	report := domain.SystemDiagnosticReport{
+		Timestamp:   time.Now(),
+		ServerName:  cfg.Name,
+		Host:        cfg.Host,
+		Telemetry:   tel,
+		Security:    secReport,
+		SwarmStatus: swSt,
+		Databases:   dbs,
+		GeneratedBy: "Tarhiata Cloud Studio",
+	}
+
+	if req.URL.Query().Get("format") == "markdown" || req.URL.Query().Get("format") == "md" {
+		md := generateMarkdownReport(report)
+		rw.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		rw.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"tarhiata-diagnostic-%s-%s.md\"", cfg.Name, time.Now().Format("20060102-150405")))
+		rw.WriteHeader(http.StatusOK)
+		if _, writeErr := rw.Write([]byte(md)); writeErr != nil {
+			slog.Warn("web_server: error escribiendo reporte markdown", "error", writeErr)
+		}
+		return
+	}
+
+	jsonResponse(rw, report)
+}
+
+func generateMarkdownReport(r domain.SystemDiagnosticReport) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("# 📊 Tarhiata-Ops — Reporte de Diagnóstico de Sistema\n\n"))
+	sb.WriteString(fmt.Sprintf("- **Servidor:** `%s` (%s)\n", r.ServerName, r.Host))
+	sb.WriteString(fmt.Sprintf("- **Fecha:** %s\n", r.Timestamp.Format("2006-01-02 15:04:05 MST")))
+	sb.WriteString(fmt.Sprintf("- **Sistema Operativo:** %s\n", r.Telemetry.Metrics.OS))
+	sb.WriteString(fmt.Sprintf("- **Hostname:** %s\n", r.Telemetry.Metrics.Hostname))
+	sb.WriteString(fmt.Sprintf("- **Docker Version:** %s (Swarm Activo: %v)\n\n", r.SwarmStatus.DockerVersion, r.SwarmStatus.Active))
+
+	sb.WriteString("## ⚡ Telemetría de Recursos\n")
+	sb.WriteString(fmt.Sprintf("- **CPU:** %.1f%% uso | Cores: %d | LoadAvg: %s\n", r.Telemetry.Metrics.CPUPercent, r.Telemetry.Metrics.CPUCores, r.Telemetry.Metrics.LoadAvg))
+	sb.WriteString(fmt.Sprintf("- **RAM:** %d MB / %d MB (%.1f%% uso)\n", r.Telemetry.Metrics.MemoryUsedMB, r.Telemetry.Metrics.MemoryTotalMB, r.Telemetry.Metrics.MemoryPercent))
+	sb.WriteString(fmt.Sprintf("- **Disco:** %.1f GB / %.1f GB (%.1f%% uso)\n", r.Telemetry.Metrics.DiskUsedGB, r.Telemetry.Metrics.DiskTotalGB, r.Telemetry.Metrics.DiskPercent))
+	sb.WriteString(fmt.Sprintf("- **Uptime:** %s\n\n", r.Telemetry.Metrics.Uptime))
+
+	sb.WriteString("## 🛡️ Seguridad y Cortafuegos\n")
+	sb.WriteString(fmt.Sprintf("- **UFW Activo:** %v\n", r.Security.UFWActive))
+	if len(r.Security.UFWRules) > 0 {
+		sb.WriteString("| # | Puerto/Destino | Acción | Origen | Protocolo |\n|---|---|---|---|---|\n")
+		for _, rule := range r.Security.UFWRules {
+			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s |\n", rule.Number, rule.To, rule.Action, rule.From, rule.Proto))
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString(fmt.Sprintf("- **Fail2Ban Activo:** %v | Jaulas: %s | IPs Bloqueadas: %d\n\n", r.Security.Fail2Ban.Active, strings.Join(r.Security.Fail2Ban.Jails, ", "), r.Security.Fail2Ban.TotalBanned))
+
+	sb.WriteString("## 🚀 Contenedores y Servicios Swarm\n")
+	if len(r.SwarmStatus.Services) > 0 {
+		sb.WriteString("| Servicio | Modo | Réplicas | Imagen | Dominio |\n|---|---|---|---|---|\n")
+		for _, s := range r.SwarmStatus.Services {
+			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s |\n", s.Name, s.Mode, s.Replicas, s.Image, s.Domain))
+		}
+		sb.WriteString("\n")
+	}
+	if len(r.SwarmStatus.Services) == 0 {
+		sb.WriteString("*No se detectaron servicios en ejecución en el clúster.*\n\n")
+	}
+
+	sb.WriteString("## 🗄️ Bases de Datos\n")
+	if len(r.Databases) > 0 {
+		sb.WriteString("| Nombre | Motor | Tipo | Puerto Interno | Nodo |\n|---|---|---|---|---|\n")
+		for _, db := range r.Databases {
+			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %d | %s |\n", db.Name, db.Engine, db.DeployType, db.InternalPort, db.TargetNode))
+		}
+		sb.WriteString("\n")
+	}
+	if len(r.Databases) == 0 {
+		sb.WriteString("*Sin bases de datos persistentes registradas.*\n\n")
+	}
+
+	return sb.String()
 }
 
 func (w *WebServer) handleSwarmStatus(rw http.ResponseWriter, req *http.Request) {

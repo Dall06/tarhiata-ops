@@ -11,6 +11,7 @@ import { setupDatabasesListeners } from '/components/databases/databases.js';
 import { renderNodesTable, setupNodesListeners } from '/components/nodes/nodes.js';
 import { loadServiceLinks, renderTopologyServicesTable, setupTopologyListeners } from '/components/topology/topology.js';
 import { loadHostDevices, renderHostDevices } from '/components/hardware/hardware.js';
+import { setupSpotlightListeners, openSpotlight, downloadSystemReport } from '/components/spotlight/spotlight.js';
 import { openTerminalModal, closeTerminalModal, executeTerminalCommand, launchNativeTerminal, setupTerminalListeners } from '/components/terminal/terminal.js';
 import { openEnvModal, closeEnvModal, setupEnvListeners } from '/components/env/env.js';
 import { openVolumeModal, closeVolumeModal, setupVolumeListeners } from '/components/volumes/volumes.js';
@@ -37,6 +38,8 @@ window.openLogsModal = openLogsModal;
 window.closeLogsModal = closeLogsModal;
 window.openSSLModal = openSSLModal;
 window.closeSSLModal = closeSSLModal;
+window.openSpotlight = openSpotlight;
+window.downloadSystemReport = downloadSystemReport;
 
 // Tab Switching Navigation
 export function activateTab(tabName) {
@@ -103,6 +106,7 @@ function initApp() {
     setupNodesListeners();
     setupTopologyListeners();
     setupTerminalListeners();
+    setupSpotlightListeners();
     setupEnvListeners(async () => {
         if (state.selectedServerName) await loadSwarmStatus(state.selectedServerName);
     });
@@ -117,6 +121,8 @@ function initApp() {
     const tabHostDevices = document.getElementById('tabHostDevices');
     const tabSwarmTopology = document.getElementById('tabSwarmTopology');
     const btnRefreshDevices = document.getElementById('btnRefreshDevices');
+    const btnNavSpotlight = document.getElementById('btnNavSpotlight');
+    const btnDownloadReport = document.getElementById('btnDownloadReport');
 
     if (tabSwarmServices) tabSwarmServices.addEventListener('click', () => activateTab('services'));
     if (tabSwarmDatabases) tabSwarmDatabases.addEventListener('click', () => activateTab('databases'));
@@ -124,6 +130,8 @@ function initApp() {
     if (tabHostDevices) tabHostDevices.addEventListener('click', () => activateTab('devices'));
     if (tabSwarmTopology) tabSwarmTopology.addEventListener('click', () => activateTab('services'));
     if (btnRefreshDevices) btnRefreshDevices.addEventListener('click', () => loadHostDevices(true));
+    if (btnNavSpotlight) btnNavSpotlight.addEventListener('click', () => openSpotlight());
+    if (btnDownloadReport) btnDownloadReport.addEventListener('click', () => downloadSystemReport());
 
     // 4. Initial Load
     const initialHash = (location.hash || '#services').replace('#', '');

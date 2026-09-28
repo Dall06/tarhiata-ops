@@ -8,6 +8,7 @@ import { showToast } from '/pkg/toast/toast.js';
 import { escapeHtml, getDefaultPort, copyToClipboard } from '/pkg/jsutil/utils.js';
 import { openModal, closeModal } from '/pkg/modal/modal.js';
 import { apiFetch } from '/pkg/apiclient/api.js';
+import { sendDesktopNotification } from '/pkg/notify/notify.js';
 
 export function renderDatabaseCards(databases, callbacks = {}) {
     const swarmDatabasesCardsGrid = document.getElementById('swarmDatabasesCardsGrid');
@@ -512,9 +513,11 @@ export function setupDatabaseEvents(onReloadStatus) {
                         dbFeedback.innerHTML = `<span style="color:var(--status-offline);">✕ ${escapeHtml(res.error)}</span>`;
                     }
                     showToast(`Error al crear BD: ${res.error}`, 'error');
+                    sendDesktopNotification('Fallo Base de Datos', `Error al crear '${payload.name}': ${res.error}`);
                     return;
                 }
                 showToast(`Base de datos '${payload.name}' creada exitosamente.`, 'success');
+                sendDesktopNotification('Base de Datos Creada', `Base de datos '${payload.name}' aprovisionada exitosamente.`);
                 closeDeployDBModal();
                 if (onReloadStatus && state.selectedServerName) {
                     onReloadStatus(state.selectedServerName);

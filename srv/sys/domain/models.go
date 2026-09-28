@@ -366,4 +366,42 @@ type SnapshotDownloadResult struct {
 	Filename string `json:"filename"`
 }
 
+// UFWRule representa una regla de puerto y tráfico en el firewall UFW.
+type UFWRule struct {
+	Number string `json:"number"`
+	To     string `json:"to"`
+	Action string `json:"action"`
+	From   string `json:"from"`
+	Proto  string `json:"proto"`
+}
+
+// Fail2BanReport contiene el estado de las jaulas activas e IPs bloqueadas por Fail2Ban.
+type Fail2BanReport struct {
+	Active      bool     `json:"active"`
+	Jails       []string `json:"jails"`
+	TotalBanned int      `json:"totalBanned"`
+	BannedIPs   []string `json:"bannedIps"`
+	FailedCount int      `json:"failedCount"`
+}
+
+// SecurityReport consolida el estado del firewall UFW y Fail2Ban.
+type SecurityReport struct {
+	UFWActive bool           `json:"ufwActive"`
+	UFWRules  []UFWRule      `json:"ufwRules"`
+	Fail2Ban  Fail2BanReport `json:"fail2ban"`
+	RawUFW    string         `json:"rawUfw"`
+}
+
+// SystemDiagnosticReport consolida una instantánea completa del servidor para auditoría y soporte.
+type SystemDiagnosticReport struct {
+	Timestamp   time.Time          `json:"timestamp"`
+	ServerName  string             `json:"serverName"`
+	Host        string             `json:"host"`
+	Telemetry   HostInspection     `json:"telemetry"`
+	Security    SecurityReport     `json:"security"`
+	SwarmStatus SwarmStatus        `json:"swarmStatus"`
+	Databases   []SavedDatabase    `json:"databases"`
+	GeneratedBy string             `json:"generatedBy"`
+}
+
 
