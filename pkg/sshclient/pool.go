@@ -74,22 +74,38 @@ func (p *Pool) Get(host, user, privateKeyPath string, port int) (*Client, error)
 	key := PoolKey(host, user, privateKeyPath, port)
 
 	p.mu.Lock()
-	if entry, exists := p.clients[key]; exists {
-		if entry.client != nil && entry.client.CheckConnection() {
-			entry.lastUsed = time.Now()
-			entry.inUse++
-			p.mu.Unlock()
-			return entry.client, nil
-		}
-		if entry.client != nil {
-			if err := entry.client.Close(); err != nil {
-				slog.Debug("falló cierre de cliente ssh inactivo o muerto en pool", "key", key, "error", err)
-			}
-		}
-		delete(p.clients, key)
+	entry, exists := p.clients[key]
+	var candidate *Client
+	if exists && entry != nil {
+		candidate = entry.client
 	}
 	dial := p.dialFn
 	p.mu.Unlock()
+
+	if candidate != nil && candidate.CheckConnection() {
+		p.mu.Lock()
+		if current, ok := p.clients[key]; ok && current != nil && current.client == candidate {
+			current.lastUsed = time.Now()
+			current.inUse++
+			p.mu.Unlock()
+			return candidate, nil
+		}
+		p.mu.Unlock()
+	}
+
+	// Si el candidato murió o no existe, limpiar del mapa
+	if candidate != nil {
+		p.mu.Lock()
+		if current, ok := p.clients[key]; ok && current != nil && current.client == candidate {
+			delete(p.clients, key)
+			go func(c *Client) {
+				if err := c.Close(); err != nil {
+					slog.Debug("falló cierre de cliente ssh inactivo en pool", "error", err)
+				}
+			}(candidate)
+		}
+		p.mu.Unlock()
+	}
 
 	client, err := dial(host, user, privateKeyPath, port)
 	if err != nil {
@@ -98,15 +114,6 @@ func (p *Pool) Get(host, user, privateKeyPath string, port int) (*Client, error)
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
-	if existing, exists := p.clients[key]; exists && existing.client != nil && existing.client.CheckConnection() {
-		if err := client.Close(); err != nil {
-			slog.Debug("falló cierre de cliente ssh redundante", "key", key, "error", err)
-		}
-		existing.lastUsed = time.Now()
-		existing.inUse++
-		return existing.client, nil
-	}
 
 	p.clients[key] = &pooledEntry{
 		client:   client,

@@ -77,6 +77,9 @@ export function renderAppCards(services, callbacks = {}) {
                     <button type="button" class="mini-btn btn-env-svc" data-name="${escapeHtml(svc.name)}" title="Gestionar variables de entorno .env">
                         🔑 Env
                     </button>
+                    <button type="button" class="mini-btn btn-history-svc" data-name="${escapeHtml(svc.name)}" title="Historial de versiones y rollback instantáneo">
+                        ⏳ Versiones
+                    </button>
                     <button type="button" class="mini-btn btn-vol-svc" data-name="${escapeHtml(svc.name)}" title="Explorar archivos del volumen de almacenamiento">
                         📁 Archivos
                     </button>
@@ -112,6 +115,13 @@ export function renderAppCards(services, callbacks = {}) {
         btn.addEventListener('click', () => {
             const name = btn.getAttribute('data-name');
             if (name && callbacks.onOpenEnv) callbacks.onOpenEnv(name);
+        });
+    });
+
+    document.querySelectorAll('.btn-history-svc').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const name = btn.getAttribute('data-name');
+            if (name) openHistoryModal(name, callbacks.onReloadStatus);
         });
     });
 
@@ -316,6 +326,46 @@ export function ensureServicesModalsMounted() {
             </div>
         </form>
     </div>
+</div>
+
+<!-- Modal: Historial de Versiones y Rollback -->
+<div class="t-modal-overlay" id="historyModal" style="display:none;" role="dialog" aria-modal="true">
+    <div class="t-modal-card" style="max-width: 720px;">
+        <div class="t-modal-header">
+            <div>
+                <h2 class="t-modal-title">⏳ Historial: <span id="historyServiceName" style="color:var(--brand-primary); font-family:var(--font-mono);">—</span></h2>
+                <span class="t-modal-desc">Versiones y snapshots de despliegues previos con restauración 1-click</span>
+            </div>
+            <button type="button" class="t-close-btn" id="btnCloseHistoryModal" aria-label="Cerrar">×</button>
+        </div>
+        <div class="form-body">
+            <div class="fast-notice">
+                <span class="notice-icon">🔄</span>
+                <div>
+                    <strong>Rollback Instantáneo</strong>
+                    <p>Restaura cualquier versión histórica de tu aplicación en Docker Swarm con toda su configuración anterior intacta.</p>
+                </div>
+            </div>
+            <div style="margin-top:14px; max-height:360px; overflow-y:auto;">
+                <table class="t-table" style="width:100%; font-size:0.8rem;">
+                    <thead>
+                        <tr>
+                            <th style="width:25%;">Fecha</th>
+                            <th style="width:35%;">Imagen Docker</th>
+                            <th style="width:20%;">Puerto / Dominio</th>
+                            <th style="width:20%; text-align:center;">Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyTableBody">
+                        <tr><td colspan="4" class="t-td-empty">Cargando versiones...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="t-modal-footer">
+            <button type="button" class="t-btn t-btn-secondary" id="btnCancelHistory">Cerrar</button>
+        </div>
+    </div>
 </div>`;
     while (div.firstElementChild) {
         document.body.appendChild(div.firstElementChild);
@@ -361,6 +411,119 @@ export function closeEditServiceModal() {
     closeModal('editServiceModal');
 }
 
+export async function openHistoryModal(serviceName, onReloadCallback) {
+    ensureServicesModalsMounted();
+    const historyServiceName = document.getElementById('historyServiceName');
+    const historyTableBody = document.getElementById('historyTableBody');
+    if (historyServiceName) historyServiceName.textContent = serviceName;
+    if (historyTableBody) {
+        historyTableBody.innerHTML = `<tr><td colspan="4" class="t-td-empty">Consultando historial de '${escapeHtml(serviceName)}'...</td></tr>`;
+    }
+    openModal('historyModal');
+
+    try {
+        const srv = state.selectedServerName || '';
+        const res = await apiFetch(`/api/services/history?name=${encodeURIComponent(serviceName)}&server=${encodeURIComponent(srv)}`);
+        if (!res.ok) {
+            if (historyTableBody) {
+                historyTableBody.innerHTML = `<tr><td colspan="4" class="t-td-empty" style="color:var(--status-offline);">Error al cargar historial: ${escapeHtml(res.error)}</td></tr>`;
+            }
+            return;
+        }
+
+        const list = res.data || [];
+        if (list.length === 0) {
+            if (historyTableBody) {
+                historyTableBody.innerHTML = `<tr><td colspan="4" class="t-td-empty">No hay snapshots históricos registrados aún para esta app.</td></tr>`;
+            }
+            return;
+        }
+
+        if (historyTableBody) {
+            historyTableBody.innerHTML = '';
+            list.forEach(rec => {
+                const tr = document.createElement('tr');
+                const dateStr = rec.createdAt ? new Date(rec.createdAt).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+                tr.innerHTML = `
+                    <td>
+                        <span style="font-size:0.75rem; color:var(--text-secondary); font-family:var(--font-mono);">${escapeHtml(dateStr)}</span>
+                        ${rec.status === 'active' ? '<br><span class="t-badge" style="background:rgba(16,185,129,0.15); color:#10b981; font-size:0.65rem;">ACTIVA</span>' : ''}
+                    </td>
+                    <td>
+                        <span style="font-family:var(--font-mono); font-size:0.78rem; font-weight:600; color:var(--text-primary);" title="${escapeHtml(rec.imageSource || '')}">${escapeHtml(rec.imageSource || '—')}</span>
+                    </td>
+                    <td>
+                        <span style="font-size:0.75rem; color:var(--text-secondary); font-family:var(--font-mono);">${escapeHtml(rec.domain || 'Puerto ' + rec.port)}</span>
+                    </td>
+                    <td style="text-align:center;">
+                        <button type="button" class="mini-btn mini-btn-accent btn-rollback-rec" data-id="${rec.id}" title="Restaurar esta versión">
+                            🔄 Rollback
+                        </button>
+                    </td>
+                `;
+
+                const btnRollback = tr.querySelector('.btn-rollback-rec');
+                if (btnRollback) {
+                    btnRollback.addEventListener('click', async () => {
+                        await rollbackToVersion(rec.id, serviceName, onReloadCallback, btnRollback);
+                    });
+                }
+
+                historyTableBody.appendChild(tr);
+            });
+        }
+    } catch (err) {
+        if (historyTableBody) {
+            historyTableBody.innerHTML = `<tr><td colspan="4" class="t-td-empty" style="color:var(--status-offline);">Fallo de conexión: ${escapeHtml(err.message)}</td></tr>`;
+        }
+    }
+}
+
+export function closeHistoryModal() {
+    closeModal('historyModal');
+}
+
+export async function rollbackToVersion(recordId, serviceName, onReloadCallback, btnElement) {
+    if (!recordId) return;
+    if (!confirm(`¿Deseas restaurar la versión #${recordId} de '${serviceName}' en Docker Swarm?`)) return;
+
+    if (btnElement) {
+        btnElement.disabled = true;
+        btnElement.textContent = '⏳...';
+    }
+    showToast(`Ejecutando rollback de '${serviceName}' a versión #${recordId}...`, 'info');
+
+    try {
+        const srv = state.selectedServerName || '';
+        const res = await apiFetch('/api/services/rollback-version', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: recordId, server: srv })
+        });
+
+        if (!res.ok) {
+            showToast(`Error en rollback: ${res.error}`, 'error');
+            return;
+        }
+
+        showToast(`¡Servicio '${serviceName}' restaurado con éxito!`, 'success');
+        closeHistoryModal();
+        if (onReloadCallback && state.selectedServerName) {
+            onReloadCallback(state.selectedServerName);
+        } else if (state.selectedServerName) {
+            const { refreshServerTelemetry } = await import('/components/telemetry/telemetry.js');
+            refreshServerTelemetry(state.selectedServerName, false);
+        }
+    } catch (err) {
+        showToast(`Fallo en rollback: ${err.message}`, 'error');
+    } finally {
+        if (btnElement) {
+            btnElement.disabled = false;
+            btnElement.textContent = '🔄 Rollback';
+        }
+    }
+}
+
 export function setupServicesEvents(onReloadStatus) {
     ensureServicesModalsMounted();
 
@@ -371,6 +534,8 @@ export function setupServicesEvents(onReloadStatus) {
     const btnCancelDeploy = document.getElementById('btnCancelDeploy');
     const btnCloseEditServiceModal = document.getElementById('btnCloseEditServiceModal');
     const btnCancelEditService = document.getElementById('btnCancelEditService');
+    const btnCloseHistoryModal = document.getElementById('btnCloseHistoryModal');
+    const btnCancelHistory = document.getElementById('btnCancelHistory');
     const btnEditServiceOpenEnv = document.getElementById('btnEditServiceOpenEnv');
     const serviceSearchInput = document.getElementById('serviceSearchInput');
     const deployForm = document.getElementById('formDeploy') || document.getElementById('deployForm');
@@ -385,6 +550,8 @@ export function setupServicesEvents(onReloadStatus) {
     if (btnCancelDeploy) btnCancelDeploy.addEventListener('click', closeDeployModal);
     if (btnCloseEditServiceModal) btnCloseEditServiceModal.addEventListener('click', closeEditServiceModal);
     if (btnCancelEditService) btnCancelEditService.addEventListener('click', closeEditServiceModal);
+    if (btnCloseHistoryModal) btnCloseHistoryModal.addEventListener('click', closeHistoryModal);
+    if (btnCancelHistory) btnCancelHistory.addEventListener('click', closeHistoryModal);
 
     if (btnEditServiceOpenEnv) {
         btnEditServiceOpenEnv.addEventListener('click', async () => {

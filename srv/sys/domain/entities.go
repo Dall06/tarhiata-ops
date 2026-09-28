@@ -137,3 +137,27 @@ type DockerRegistry struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
+
+// DeploymentRecord representa una versión histórica de despliegue de un servicio.
+type DeploymentRecord struct {
+	ID          int       `json:"id"`
+	ServiceName string    `json:"serviceName"`
+	ImageTag    string    `json:"imageTag"`
+	EnvVars     string    `json:"envVars"`
+	Port        int       `json:"port"`
+	Domain      string    `json:"domain"`
+	Expose      bool      `json:"expose"`
+	DeployedAt  time.Time `json:"deployedAt"`
+	Status      string    `json:"status"` // "success", "failed", "rolled_back"
+}
+
+// AlertSettings almacena la configuración de destinos de alertas salientes.
+type AlertSettings struct {
+	DiscordURL    string `json:"discordUrl"`
+	TelegramToken string `json:"telegramToken"`
+	TelegramChat  string `json:"telegramChat"`
+	SlackURL      string `json:"slackUrl"`
+	GenericURL    string `json:"genericUrl"`
+	Enabled       bool   `json:"enabled"`
+}
+

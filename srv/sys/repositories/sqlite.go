@@ -287,6 +287,36 @@ func (r *SQLiteRepository) migrate() error {
 		return err
 	}
 
+	queryAlertConfig := `
+	CREATE TABLE IF NOT EXISTS alert_config (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		discord_url TEXT NOT NULL DEFAULT '',
+		telegram_token TEXT NOT NULL DEFAULT '',
+		telegram_chat TEXT NOT NULL DEFAULT '',
+		slack_url TEXT NOT NULL DEFAULT '',
+		generic_url TEXT NOT NULL DEFAULT '',
+		enabled INTEGER NOT NULL DEFAULT 0
+	);`
+	if _, err := r.db.Exec(queryAlertConfig); err != nil {
+		return err
+	}
+
+	queryDeploymentHistory := `
+	CREATE TABLE IF NOT EXISTS deployment_history (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		service_name TEXT NOT NULL,
+		image_tag TEXT NOT NULL,
+		env_vars TEXT NOT NULL DEFAULT '',
+		port INTEGER NOT NULL DEFAULT 80,
+		domain TEXT NOT NULL DEFAULT '',
+		expose INTEGER NOT NULL DEFAULT 0,
+		deployed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		status TEXT NOT NULL DEFAULT 'success'
+	);`
+	if _, err := r.db.Exec(queryDeploymentHistory); err != nil {
+		return err
+	}
+
 	r.addColumnIfMissing("migration_files", "down_content", "TEXT NOT NULL DEFAULT ''")
 
 	return nil
@@ -972,3 +1002,152 @@ func (r *SQLiteRepository) GetAuditLogs(limit int) ([]domain.AuditLog, error) {
 	}
 	return list, nil
 }
+
+// --- Outbound Alert Settings Repository Methods ---
+
+func (r *SQLiteRepository) SaveAlertSettings(settings domain.AlertSettings) error {
+	enabledInt := 0
+	if settings.Enabled {
+		enabledInt = 1
+	}
+	query := `
+	INSERT INTO alert_config (id, discord_url, telegram_token, telegram_chat, slack_url, generic_url, enabled)
+	VALUES (1, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET
+		discord_url = excluded.discord_url,
+		telegram_token = excluded.telegram_token,
+		telegram_chat = excluded.telegram_chat,
+		slack_url = excluded.slack_url,
+		generic_url = excluded.generic_url,
+		enabled = excluded.enabled;`
+	_, err := r.db.Exec(query,
+		settings.DiscordURL,
+		settings.TelegramToken,
+		settings.TelegramChat,
+		settings.SlackURL,
+		settings.GenericURL,
+		enabledInt,
+	)
+	return err
+}
+
+func (r *SQLiteRepository) GetAlertSettings() (*domain.AlertSettings, error) {
+	query := `SELECT discord_url, telegram_token, telegram_chat, slack_url, generic_url, enabled FROM alert_config WHERE id = 1`
+	var s domain.AlertSettings
+	var enabledInt int
+	err := r.db.QueryRow(query).Scan(
+		&s.DiscordURL,
+		&s.TelegramToken,
+		&s.TelegramChat,
+		&s.SlackURL,
+		&s.GenericURL,
+		&enabledInt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return &domain.AlertSettings{Enabled: false}, nil
+		}
+		return nil, err
+	}
+	s.Enabled = (enabledInt == 1)
+	return &s, nil
+}
+
+// --- Deployment History Repository Methods ---
+
+func (r *SQLiteRepository) SaveDeploymentRecord(record domain.DeploymentRecord) error {
+	exposeInt := 0
+	if record.Expose {
+		exposeInt = 1
+	}
+	deployedAt := record.DeployedAt
+	if deployedAt.IsZero() {
+		deployedAt = time.Now()
+	}
+	status := record.Status
+	if strings.TrimSpace(status) == "" {
+		status = "success"
+	}
+	query := `
+	INSERT INTO deployment_history (service_name, image_tag, env_vars, port, domain, expose, deployed_at, status)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?);`
+	_, err := r.db.Exec(query,
+		record.ServiceName,
+		record.ImageTag,
+		record.EnvVars,
+		record.Port,
+		record.Domain,
+		exposeInt,
+		deployedAt,
+		status,
+	)
+	return err
+}
+
+func (r *SQLiteRepository) GetDeploymentHistory(serviceName string, limit int) ([]domain.DeploymentRecord, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	query := `
+	SELECT id, service_name, image_tag, env_vars, port, domain, expose, deployed_at, status
+	FROM deployment_history
+	WHERE service_name = ?
+	ORDER BY id DESC
+	LIMIT ?;`
+	rows, err := r.db.Query(query, serviceName, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []domain.DeploymentRecord
+	for rows.Next() {
+		var rec domain.DeploymentRecord
+		var exposeInt int
+		if errScan := rows.Scan(
+			&rec.ID,
+			&rec.ServiceName,
+			&rec.ImageTag,
+			&rec.EnvVars,
+			&rec.Port,
+			&rec.Domain,
+			&exposeInt,
+			&rec.DeployedAt,
+			&rec.Status,
+		); errScan != nil {
+			return nil, errScan
+		}
+		rec.Expose = (exposeInt == 1)
+		records = append(records, rec)
+	}
+	return records, rows.Err()
+}
+
+func (r *SQLiteRepository) GetDeploymentRecordByID(id int) (*domain.DeploymentRecord, error) {
+	query := `
+	SELECT id, service_name, image_tag, env_vars, port, domain, expose, deployed_at, status
+	FROM deployment_history
+	WHERE id = ?;`
+	var rec domain.DeploymentRecord
+	var exposeInt int
+	err := r.db.QueryRow(query, id).Scan(
+		&rec.ID,
+		&rec.ServiceName,
+		&rec.ImageTag,
+		&rec.EnvVars,
+		&rec.Port,
+		&rec.Domain,
+		&exposeInt,
+		&rec.DeployedAt,
+		&rec.Status,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	rec.Expose = (exposeInt == 1)
+	return &rec, nil
+}
+

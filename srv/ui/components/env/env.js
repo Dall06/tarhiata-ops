@@ -5,6 +5,7 @@ import { escapeHtml, copyToClipboard, isSensitiveKey } from '/pkg/jsutil/utils.j
 
 let currentEnvServiceName = '';
 let currentEnvMode = 'table';
+let originalRawContent = '';
 
 export function ensureEnvModalMounted() {
     if (document.getElementById('envModal')) return;
@@ -29,6 +30,9 @@ export function ensureEnvModalMounted() {
                 </button>
                 <button type="button" class="mode-btn" id="envTabRaw">
                     <span>Editor .env (Raw)</span>
+                </button>
+                <button type="button" class="mode-btn" id="envTabDiff">
+                    <span>🔍 Diff / Cambios</span>
                 </button>
             </div>
             <div style="display:flex; gap:8px;">
@@ -67,6 +71,11 @@ export function ensureEnvModalMounted() {
                 <div style="font-size:0.72rem; color:var(--text-muted); margin-top:6px;">
                     💡 Formato estándar de archivo <code>.env</code> (una variable por línea en formato <code>CLAVE=VALOR</code>).
                 </div>
+            </div>
+
+            <!-- Modo Diff Visual -->
+            <div id="envDiffView" class="env-diff-wrap" style="display:none;">
+                <div id="envDiffContent"></div>
             </div>
         </div>
 
@@ -127,6 +136,7 @@ export async function fetchAndRenderEnvVars(serviceName) {
     try {
         const res = await apiFetch(`/api/env?service=${encodeURIComponent(serviceName)}&server=${encodeURIComponent(state.selectedServerName || '')}`);
         if (!res.ok) {
+            originalRawContent = '';
             if (envTableBody) {
                 envTableBody.innerHTML = `<tr><td colspan="3" class="t-td-empty">Sin variables configuradas aún. Pulsa 'Agregar Variable'.</td></tr>`;
             }
@@ -134,14 +144,102 @@ export async function fetchAndRenderEnvVars(serviceName) {
         }
         const data = res.data || {};
         const raw = data.rawContent || '';
+        originalRawContent = raw;
         if (envRawTextarea) envRawTextarea.value = raw;
         renderEnvTableFromRaw(raw);
     } catch (err) {
+        originalRawContent = '';
         if (envTableBody) {
             envTableBody.innerHTML = `<tr><td colspan="3" class="t-td-empty" style="color:var(--status-offline);">Error de conexión: ${escapeHtml(err.message)}</td></tr>`;
         }
     }
 }
+
+export function parseEnvMap(rawContent) {
+    const map = new Map();
+    if (!rawContent) return map;
+    const lines = rawContent.split('\n');
+    lines.forEach(line => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return;
+        const idx = trimmed.indexOf('=');
+        if (idx === -1) return;
+        const key = trimmed.slice(0, idx).trim();
+        let val = trimmed.slice(idx + 1).trim();
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+            val = val.slice(1, -1);
+        }
+        map.set(key, val);
+    });
+    return map;
+}
+
+export function renderEnvDiff(originalRaw, currentRaw) {
+    const envDiffContent = document.getElementById('envDiffContent');
+    if (!envDiffContent) return;
+
+    const origMap = parseEnvMap(originalRaw);
+    const currMap = parseEnvMap(currentRaw);
+
+    const allKeys = Array.from(new Set([...origMap.keys(), ...currMap.keys()])).sort();
+    let changesCount = 0;
+    const htmlLines = [];
+
+    allKeys.forEach(key => {
+        const origVal = origMap.get(key);
+        const currVal = currMap.get(key);
+        const isOrigSensitive = isSensitiveKey(key);
+
+        if (origVal === undefined && currVal !== undefined) {
+            // Added
+            changesCount++;
+            const displayVal = isOrigSensitive ? '••••••••' : escapeHtml(currVal);
+            htmlLines.push(`<div class="diff-line diff-line-added"><span style="font-weight:700;">+</span> <span>${escapeHtml(key)}=${displayVal}</span> <span class="t-badge" style="margin-left:auto; font-size:0.65rem; background:rgba(16,185,129,0.2);">NUEVA</span></div>`);
+        } else if (origVal !== undefined && currVal === undefined) {
+            // Removed
+            changesCount++;
+            const displayVal = isOrigSensitive ? '••••••••' : escapeHtml(origVal);
+            htmlLines.push(`<div class="diff-line diff-line-removed"><span style="font-weight:700;">-</span> <span>${escapeHtml(key)}=${displayVal}</span> <span class="t-badge" style="margin-left:auto; font-size:0.65rem; background:rgba(244,63,94,0.2);">ELIMINADA</span></div>`);
+        } else if (origVal !== currVal) {
+            // Modified
+            changesCount++;
+            const oldDisplay = isOrigSensitive ? '••••••••' : escapeHtml(origVal);
+            const newDisplay = isOrigSensitive ? '••••••••' : escapeHtml(currVal);
+            htmlLines.push(`<div class="diff-line diff-line-removed"><span style="font-weight:700;">-</span> <span>${escapeHtml(key)}=${oldDisplay}</span></div>`);
+            htmlLines.push(`<div class="diff-line diff-line-added"><span style="font-weight:700;">+</span> <span>${escapeHtml(key)}=${newDisplay}</span> <span class="t-badge" style="margin-left:auto; font-size:0.65rem; background:rgba(99,102,241,0.2);">MODIFICADA</span></div>`);
+        } else {
+            // Unchanged
+            const displayVal = isOrigSensitive ? '••••••••' : escapeHtml(currVal);
+            htmlLines.push(`<div class="diff-line diff-line-unchanged"><span style="opacity:0.4;">&nbsp;</span> <span>${escapeHtml(key)}=${displayVal}</span></div>`);
+        }
+    });
+
+    if (changesCount === 0 && allKeys.length === 0) {
+        envDiffContent.innerHTML = `<div class="diff-empty-state">Sin variables configuradas actualmente.</div>`;
+        return;
+    }
+
+    if (changesCount === 0) {
+        envDiffContent.innerHTML = `
+            <div class="diff-empty-state" style="color:var(--status-online);">
+                ✓ No hay cambios pendientes respecto a la versión activa en el servidor (${allKeys.length} variables sin modificar).
+            </div>
+            <div style="margin-top:10px; opacity:0.6;">
+                ${htmlLines.join('')}
+            </div>
+        `;
+        return;
+    }
+
+    envDiffContent.innerHTML = `
+        <div style="margin-bottom:10px; font-size:0.75rem; color:var(--text-secondary); display:flex; justify-content:space-between;">
+            <span><strong>${changesCount}</strong> cambio(s) detectado(s)</span>
+            <span>Comparando con servidor</span>
+        </div>
+        ${htmlLines.join('')}
+    `;
+}
+
 
 
 export function renderEnvTableFromRaw(rawContent) {
@@ -246,8 +344,10 @@ export function setupEnvListeners(onEnvSavedCallback) {
     const envModal = document.getElementById('envModal');
     const envTabTable = document.getElementById('envTabTable');
     const envTabRaw = document.getElementById('envTabRaw');
+    const envTabDiff = document.getElementById('envTabDiff');
     const envTableView = document.getElementById('envTableView');
     const envRawView = document.getElementById('envRawView');
+    const envDiffView = document.getElementById('envDiffView');
     const envRawTextarea = document.getElementById('envRawTextarea');
     const envTableBody = document.getElementById('envTableBody');
     const btnAddEnvRow = document.getElementById('btnAddEnvRow');
@@ -265,8 +365,10 @@ export function setupEnvListeners(onEnvSavedCallback) {
             currentEnvMode = 'table';
             envTabTable.classList.add('active');
             if (envTabRaw) envTabRaw.classList.remove('active');
+            if (envTabDiff) envTabDiff.classList.remove('active');
             if (envTableView) envTableView.style.display = 'block';
             if (envRawView) envRawView.style.display = 'none';
+            if (envDiffView) envDiffView.style.display = 'none';
         });
     }
 
@@ -278,8 +380,24 @@ export function setupEnvListeners(onEnvSavedCallback) {
             currentEnvMode = 'raw';
             envTabRaw.classList.add('active');
             if (envTabTable) envTabTable.classList.remove('active');
+            if (envTabDiff) envTabDiff.classList.remove('active');
             if (envRawView) envRawView.style.display = 'block';
             if (envTableView) envTableView.style.display = 'none';
+            if (envDiffView) envDiffView.style.display = 'none';
+        });
+    }
+
+    if (envTabDiff) {
+        envTabDiff.addEventListener('click', () => {
+            const currentContent = currentEnvMode === 'raw' && envRawTextarea ? envRawTextarea.value : collectEnvFromTable();
+            currentEnvMode = 'diff';
+            envTabDiff.classList.add('active');
+            if (envTabTable) envTabTable.classList.remove('active');
+            if (envTabRaw) envTabRaw.classList.remove('active');
+            if (envDiffView) envDiffView.style.display = 'block';
+            if (envTableView) envTableView.style.display = 'none';
+            if (envRawView) envRawView.style.display = 'none';
+            renderEnvDiff(originalRawContent, currentContent);
         });
     }
 

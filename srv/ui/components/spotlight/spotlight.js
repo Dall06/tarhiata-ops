@@ -172,6 +172,32 @@ export function buildSpotlightRegistry() {
     });
 
     items.push({
+        id: 'action-open-audit',
+        category: 'Acciones Rápidas',
+        icon: '📜',
+        title: 'Explorador de Audit Log',
+        subtitle: 'Consultar registro histórico inmutable de eventos y cambios',
+        handler: () => {
+            const btn = document.getElementById('btnTopAudit');
+            if (btn) btn.click();
+            else if (window.openAuditModal) window.openAuditModal();
+        }
+    });
+
+    items.push({
+        id: 'action-open-alerts',
+        category: 'Acciones Rápidas',
+        icon: '🔔',
+        title: 'Configurar Alertas Webhook (Discord / Telegram / Slack)',
+        subtitle: 'Ajustar canales y destinatarios de notificaciones automáticas',
+        handler: () => {
+            const btn = document.getElementById('btnTopAlerts');
+            if (btn) btn.click();
+            else if (window.openAlertsModal) window.openAlertsModal();
+        }
+    });
+
+    items.push({
         id: 'action-enable-notif',
         category: 'Acciones Rápidas',
         icon: '🔔',

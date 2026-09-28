@@ -34,6 +34,8 @@ import (
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
 	"github.com/Dall06/tarhiata-ops/srv/sys/usecases"
+	"github.com/Dall06/tarhiata-ops/srv/ui/components/alerts"
+	"github.com/Dall06/tarhiata-ops/srv/ui/components/audit"
 	"github.com/Dall06/tarhiata-ops/srv/ui/components/databases"
 	"github.com/Dall06/tarhiata-ops/srv/ui/components/env"
 	"github.com/Dall06/tarhiata-ops/srv/ui/components/fleet"
@@ -282,6 +284,8 @@ func (w *WebServer) Echo() *echo.Echo {
 		"/pkg/notify/notify.js":              notify.JSContent,
 		"/pkg/jsutil/utils.js":               jsutil.JSContent,
 		"/components/fleet/fleet.js":         fleet.JSContent,
+		"/components/alerts/alerts.js":       alerts.JSContent,
+		"/components/audit/audit.js":         audit.JSContent,
 		"/components/telemetry/telemetry.js": telemetry.JSContent,
 		"/components/services/services.js":   services.JSContent,
 		"/components/databases/databases.js": databases.JSContent,
@@ -412,6 +416,14 @@ func (w *WebServer) Echo() *echo.Echo {
 	e.Any("/api/terminal/exec", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleTerminalExec))))
 	e.Any("/api/logs", echo.WrapHandler(http.HandlerFunc(w.handleLogs)))
 	e.Any("/api/audit-logs", echo.WrapHandler(http.HandlerFunc(w.handleAuditLogs)))
+	e.Any("/api/settings/alerts", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleAlertSettings))))
+	e.Any("/api/alerts/test", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleAlertTest))))
+	e.Any("/api/services/history", echo.WrapHandler(http.HandlerFunc(w.handleServiceHistory)))
+	e.Any("/api/services/rollback-version", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServiceRollbackToVersion))))
+	e.Any("/api/ssl/certificates", echo.WrapHandler(http.HandlerFunc(w.handleSSLCertificates)))
+	e.Any("/api/nodes/drain", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleNodeDrain))))
+	e.Any("/api/nodes/activate", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleNodeActivate))))
+	e.Any("/api/webhooks/deploy", echo.WrapHandler(http.HandlerFunc(w.handleWebhookDeploy)))
 	e.Any("/api/stats", echo.WrapHandler(http.HandlerFunc(w.handleContainerStats)))
 	e.Any("/api/databases/health", echo.WrapHandler(http.HandlerFunc(w.handleDBHealth)))
 	e.Any("/api/vultr/plans", echo.WrapHandler(http.HandlerFunc(w.handleVultrPlans)))
@@ -4664,3 +4676,405 @@ func (w *WebServer) handleSSHKeys(rw http.ResponseWriter, req *http.Request) {
 		jsonError(rw, "Método no permitido", http.StatusMethodNotAllowed)
 	}
 }
+
+// --- Outbound Alerts Handlers ---
+
+func (w *WebServer) handleAlertSettings(rw http.ResponseWriter, req *http.Request) {
+	switch req.Method {
+	case http.MethodGet:
+		settings, err := w.repo.GetAlertSettings()
+		if err != nil {
+			jsonError(rw, fmt.Sprintf("Error obteniendo configuración de alertas: %v", err), http.StatusInternalServerError)
+			return
+		}
+		if settings == nil {
+			settings = &domain.AlertSettings{Enabled: false}
+		}
+		jsonResponse(rw, settings)
+
+	case http.MethodPost:
+		var s domain.AlertSettings
+		if err := json.NewDecoder(req.Body).Decode(&s); err != nil {
+			jsonError(rw, "Cuerpo JSON inválido", http.StatusBadRequest)
+			return
+		}
+		if err := w.repo.SaveAlertSettings(s); err != nil {
+			jsonError(rw, fmt.Sprintf("Error guardando alertas: %v", err), http.StatusInternalServerError)
+			return
+		}
+		jsonResponse(rw, map[string]interface{}{"status": "saved", "settings": s})
+
+	default:
+		jsonError(rw, "Método no permitido", http.StatusMethodNotAllowed)
+	}
+}
+
+func (w *WebServer) handleAlertTest(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		jsonError(rw, "Método no permitido", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var testReq struct {
+		Settings *domain.AlertSettings `json:"settings,omitempty"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&testReq); err != nil && err != io.EOF {
+		slog.Debug("aviso decodificando test alert body", "error", err)
+	}
+
+	settings := testReq.Settings
+	if settings == nil {
+		var err error
+		settings, err = w.repo.GetAlertSettings()
+		if err != nil {
+			jsonError(rw, fmt.Sprintf("Error leyendo configuración de alertas: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+	if settings == nil || !settings.Enabled {
+		settings = &domain.AlertSettings{Enabled: true}
+	}
+
+	sender := notify.NewSender(5 * time.Second)
+	ev := notify.AlertEvent{
+		Title:       "Alerta de Prueba — Tarhiata Cloud Studio",
+		Description: "Conectividad exitosa con el canal de notificaciones configurado.",
+		Severity:    notify.SeveritySuccess,
+		ServerName:  "tarhiata-control-plane",
+		Fields:      map[string]string{"Estado": "Operativo", "Timestamp": time.Now().Format(time.RFC3339)},
+		Timestamp:   time.Now(),
+	}
+
+	cfg := notify.WebhookConfig{
+		DiscordURL:    settings.DiscordURL,
+		TelegramToken: settings.TelegramToken,
+		TelegramChat:  settings.TelegramChat,
+		SlackURL:      settings.SlackURL,
+		GenericURL:    settings.GenericURL,
+		Enabled:       true,
+	}
+
+	errs := sender.Dispatch(req.Context(), cfg, ev)
+	if len(errs) > 0 {
+		var errMsgs []string
+		for _, e := range errs {
+			errMsgs = append(errMsgs, e.Error())
+		}
+		jsonResponse(rw, map[string]interface{}{
+			"status":   "partial_failure",
+			"errors":   errMsgs,
+			"message":  "Se detectaron fallos al despachar la alerta de prueba",
+		})
+		return
+	}
+
+	jsonResponse(rw, map[string]string{"status": "dispatched", "message": "Alerta de prueba enviada exitosamente"})
+}
+
+// --- Deployment History & Version Rollback Handlers ---
+
+func (w *WebServer) handleServiceHistory(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		jsonError(rw, "Método no permitido", http.StatusMethodNotAllowed)
+		return
+	}
+	serviceName := req.URL.Query().Get("name")
+	if strings.TrimSpace(serviceName) == "" {
+		jsonError(rw, "Parámetro 'name' de servicio requerido", http.StatusBadRequest)
+		return
+	}
+	history, err := w.repo.GetDeploymentHistory(serviceName, 30)
+	if err != nil {
+		jsonError(rw, fmt.Sprintf("Error obteniendo historial: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if history == nil {
+		history = []domain.DeploymentRecord{}
+	}
+	jsonResponse(rw, history)
+}
+
+func (w *WebServer) handleServiceRollbackToVersion(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		jsonError(rw, "Método no permitido", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body struct {
+		ServiceName string `json:"serviceName"`
+		VersionID   int    `json:"versionId"`
+		Server      string `json:"server,omitempty"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		jsonError(rw, "Cuerpo JSON inválido", http.StatusBadRequest)
+		return
+	}
+	if body.ServiceName == "" || body.VersionID <= 0 {
+		jsonError(rw, "Parámetros 'serviceName' y 'versionId' válidos requeridos", http.StatusBadRequest)
+		return
+	}
+
+	cfg := w.resolveTargetServer(body.Server)
+	if cfg == nil || (cfg.Host == "" && !isLocalConfig(cfg)) {
+		jsonError(rw, "Servidor VPS no configurado", http.StatusBadRequest)
+		return
+	}
+
+	sshExec := repositories.NewCryptoSSHExecutor()
+	defer func() {
+		if clErr := sshExec.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando sshExec en rollback de versión", "error", clErr)
+		}
+	}()
+
+	uc := usecases.NewManageDeploymentHistoryUseCase(w.repo, sshExec)
+	rec, err := uc.RollbackToVersion(body.ServiceName, body.VersionID, *cfg)
+	if err != nil {
+		jsonError(rw, fmt.Sprintf("Error revirtiendo a versión %d: %v", body.VersionID, err), http.StatusInternalServerError)
+		return
+	}
+
+	_ = w.repo.SaveAuditLog(domain.AuditLog{
+		Action:       "ROLLBACK",
+		ResourceType: "service",
+		ResourceName: body.ServiceName,
+		Details:      fmt.Sprintf("Revertido a versión ID %d (imagen %s)", body.VersionID, rec.ImageTag),
+		Timestamp:    time.Now(),
+	})
+
+	jsonResponse(rw, map[string]interface{}{
+		"status":  "rolled_back",
+		"record":  rec,
+		"message": fmt.Sprintf("Servicio revertido a la versión %d (%s)", body.VersionID, rec.ImageTag),
+	})
+}
+
+// --- ACME SSL Certificates Handler ---
+
+func (w *WebServer) handleSSLCertificates(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		jsonError(rw, "Método no permitido", http.StatusMethodNotAllowed)
+		return
+	}
+
+	cfg, err := w.getTargetServerConfig(req)
+	if err != nil {
+		jsonError(rw, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	sshExec := repositories.NewCryptoSSHExecutor()
+	defer func() {
+		if clErr := sshExec.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando sshExec en ssl certs", "error", clErr)
+		}
+	}()
+
+	uc := usecases.NewInspectSSLAcmeUseCase(sshExec)
+	certs, err := uc.Execute(*cfg)
+	if err != nil {
+		jsonError(rw, fmt.Sprintf("Error inspeccionando certificados ACME: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if certs == nil {
+		certs = []usecases.ACMECertificateSummary{}
+	}
+	jsonResponse(rw, certs)
+}
+
+// --- Node Drain & Maintenance Handlers ---
+
+func (w *WebServer) handleNodeDrain(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		jsonError(rw, "Método no permitido", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body struct {
+		NodeID string `json:"nodeId"`
+		Server string `json:"server,omitempty"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil || strings.TrimSpace(body.NodeID) == "" {
+		jsonError(rw, "Parámetro 'nodeId' requerido", http.StatusBadRequest)
+		return
+	}
+
+	cfg := w.resolveTargetServer(body.Server)
+	if cfg == nil || (cfg.Host == "" && !isLocalConfig(cfg)) {
+		jsonError(rw, "Servidor VPS no configurado", http.StatusBadRequest)
+		return
+	}
+
+	sshExec := repositories.NewCryptoSSHExecutor()
+	defer func() {
+		if clErr := sshExec.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando sshExec en node drain", "error", clErr)
+		}
+	}()
+
+	uc := usecases.NewDrainNodeUseCase(sshExec)
+	res, err := uc.Execute(body.NodeID, "drain", *cfg)
+	if err != nil {
+		jsonError(rw, fmt.Sprintf("Error drenando nodo: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	_ = w.repo.SaveAuditLog(domain.AuditLog{
+		Action:       "DRAIN",
+		ResourceType: "node",
+		ResourceName: body.NodeID,
+		Details:      res.Message,
+		Timestamp:    time.Now(),
+	})
+
+	jsonResponse(rw, res)
+}
+
+func (w *WebServer) handleNodeActivate(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		jsonError(rw, "Método no permitido", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body struct {
+		NodeID string `json:"nodeId"`
+		Server string `json:"server,omitempty"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil || strings.TrimSpace(body.NodeID) == "" {
+		jsonError(rw, "Parámetro 'nodeId' requerido", http.StatusBadRequest)
+		return
+	}
+
+	cfg := w.resolveTargetServer(body.Server)
+	if cfg == nil || (cfg.Host == "" && !isLocalConfig(cfg)) {
+		jsonError(rw, "Servidor VPS no configurado", http.StatusBadRequest)
+		return
+	}
+
+	sshExec := repositories.NewCryptoSSHExecutor()
+	defer func() {
+		if clErr := sshExec.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando sshExec en node activate", "error", clErr)
+		}
+	}()
+
+	uc := usecases.NewDrainNodeUseCase(sshExec)
+	res, err := uc.Execute(body.NodeID, "active", *cfg)
+	if err != nil {
+		jsonError(rw, fmt.Sprintf("Error reactivando nodo: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	_ = w.repo.SaveAuditLog(domain.AuditLog{
+		Action:       "EDIT",
+		ResourceType: "node",
+		ResourceName: body.NodeID,
+		Details:      res.Message,
+		Timestamp:    time.Now(),
+	})
+
+	jsonResponse(rw, res)
+}
+
+// --- Git Webhook Auto-Deploy Handler ---
+
+func (w *WebServer) handleWebhookDeploy(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		jsonError(rw, "Método no permitido", http.StatusMethodNotAllowed)
+		return
+	}
+
+	serviceName := req.URL.Query().Get("service")
+	token := req.URL.Query().Get("token")
+	imageTag := req.URL.Query().Get("image")
+
+	bodyBytes, err := io.ReadAll(req.Body)
+	if err != nil {
+		jsonError(rw, "Error leyendo cuerpo de webhook", http.StatusBadRequest)
+		return
+	}
+
+	if serviceName == "" {
+		var genericPayload struct {
+			Service string `json:"service"`
+			Image   string `json:"image"`
+		}
+		if errJSON := json.Unmarshal(bodyBytes, &genericPayload); errJSON == nil {
+			if genericPayload.Service != "" {
+				serviceName = genericPayload.Service
+			}
+			if genericPayload.Image != "" && imageTag == "" {
+				imageTag = genericPayload.Image
+			}
+		}
+	}
+
+	if strings.TrimSpace(serviceName) == "" {
+		jsonError(rw, "Parámetro 'service' requerido en webhook", http.StatusBadRequest)
+		return
+	}
+
+	// Validación opcional de firma HMAC si viene en header
+	sigHeader := req.Header.Get("X-Hub-Signature-256")
+	if sigHeader != "" && token != "" {
+		if !usecases.VerifySignature(token, bodyBytes, sigHeader) {
+			jsonError(rw, "Firma de webhook inválida (HMAC SHA-256 mismatch)", http.StatusUnauthorized)
+			return
+		}
+	}
+
+	cfg := w.getConfig()
+	if cfg == nil || (cfg.Host == "" && !isLocalConfig(cfg)) {
+		jsonError(rw, "Servidor VPS no configurado", http.StatusBadRequest)
+		return
+	}
+
+	sshExec := repositories.NewCryptoSSHExecutor()
+	defer func() {
+		if clErr := sshExec.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando sshExec en webhook deploy", "error", clErr)
+		}
+	}()
+
+	uc := usecases.NewTriggerWebhookDeployUseCase(w.repo, sshExec)
+	rec, err := uc.Execute(serviceName, imageTag, *cfg)
+	if err != nil {
+		jsonError(rw, fmt.Sprintf("Error en auto-despliegue de webhook: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	_ = w.repo.SaveAuditLog(domain.AuditLog{
+		Action:       "DEPLOY",
+		ResourceType: "service",
+		ResourceName: serviceName,
+		Details:      fmt.Sprintf("Auto-despliegue por Git Webhook (imagen: %s)", rec.ImageTag),
+		Timestamp:    time.Now(),
+	})
+
+	// Enviar alerta si hay canales configurados
+	if alertSettings, errAlert := w.repo.GetAlertSettings(); errAlert == nil && alertSettings != nil && alertSettings.Enabled {
+		sender := notify.NewSender(5 * time.Second)
+		_ = sender.Dispatch(req.Context(), notify.WebhookConfig{
+			DiscordURL:    alertSettings.DiscordURL,
+			TelegramToken: alertSettings.TelegramToken,
+			TelegramChat:  alertSettings.TelegramChat,
+			SlackURL:      alertSettings.SlackURL,
+			GenericURL:    alertSettings.GenericURL,
+			Enabled:       true,
+		}, notify.AlertEvent{
+			Title:       fmt.Sprintf("Auto-Despliegue: %s", serviceName),
+			Description: fmt.Sprintf("Servicio actualizado automáticamente vía Git Webhook con imagen `%s`.", rec.ImageTag),
+			Severity:    notify.SeveritySuccess,
+			ServerName:  cfg.Name,
+			Resource:    serviceName,
+			Timestamp:   time.Now(),
+		})
+	}
+
+	jsonResponse(rw, map[string]interface{}{
+		"status":  "deployed",
+		"record":  rec,
+		"message": fmt.Sprintf("Servicio '%s' actualizado exitosamente a '%s'", serviceName, rec.ImageTag),
+	})
+}
+

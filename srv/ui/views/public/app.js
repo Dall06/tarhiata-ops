@@ -17,6 +17,8 @@ import { openEnvModal, closeEnvModal, setupEnvListeners } from '/components/env/
 import { openVolumeModal, closeVolumeModal, setupVolumeListeners } from '/components/volumes/volumes.js';
 import { openLogsModal, closeLogsModal, setupLogsListeners } from '/components/logs/logs.js';
 import { openSSLModal, closeSSLModal, setupSSLListeners } from '/components/ssl/ssl.js';
+import { openAuditModal, setupAuditListeners } from '/components/audit/audit.js';
+import { openAlertsModal, setupAlertsListeners } from '/components/alerts/alerts.js';
 
 // Expose critical handlers to window for inline events and cross-module convenience
 window.state = state;
@@ -38,6 +40,8 @@ window.openLogsModal = openLogsModal;
 window.closeLogsModal = closeLogsModal;
 window.openSSLModal = openSSLModal;
 window.closeSSLModal = closeSSLModal;
+window.openAuditModal = openAuditModal;
+window.openAlertsModal = openAlertsModal;
 window.openSpotlight = openSpotlight;
 window.downloadSystemReport = downloadSystemReport;
 
@@ -113,6 +117,8 @@ function initApp() {
     setupVolumeListeners();
     setupLogsListeners();
     setupSSLListeners();
+    setupAuditListeners();
+    setupAlertsListeners();
 
     // 3. Tab listeners
     const tabSwarmServices = document.getElementById('tabSwarmServices');
@@ -123,6 +129,9 @@ function initApp() {
     const btnRefreshDevices = document.getElementById('btnRefreshDevices');
     const btnNavSpotlight = document.getElementById('btnNavSpotlight');
     const btnDownloadReport = document.getElementById('btnDownloadReport');
+    const btnTopAudit = document.getElementById('btnTopAudit');
+    const btnTopAlerts = document.getElementById('btnTopAlerts');
+    const btnTopSSL = document.getElementById('btnTopSSL');
 
     if (tabSwarmServices) tabSwarmServices.addEventListener('click', () => activateTab('services'));
     if (tabSwarmDatabases) tabSwarmDatabases.addEventListener('click', () => activateTab('databases'));
@@ -132,6 +141,9 @@ function initApp() {
     if (btnRefreshDevices) btnRefreshDevices.addEventListener('click', () => loadHostDevices(true));
     if (btnNavSpotlight) btnNavSpotlight.addEventListener('click', () => openSpotlight());
     if (btnDownloadReport) btnDownloadReport.addEventListener('click', () => downloadSystemReport());
+    if (btnTopAudit) btnTopAudit.addEventListener('click', () => openAuditModal());
+    if (btnTopAlerts) btnTopAlerts.addEventListener('click', () => openAlertsModal());
+    if (btnTopSSL) btnTopSSL.addEventListener('click', () => openSSLModal());
 
     // 4. Initial Load
     const initialHash = (location.hash || '#services').replace('#', '');

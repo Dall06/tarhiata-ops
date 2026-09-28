@@ -1,0 +1,63 @@
+<!-- Modal: Explorador de Audit Log -->
+<div class="t-modal-overlay" id="auditModal" style="display:none;" role="dialog" aria-modal="true">
+    <div class="t-modal-card audit-modal-card" style="max-width:880px; width:94vw;">
+        <div class="t-modal-header">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <div class="modal-header-icon" style="background:rgba(99,102,241,0.15); color:var(--brand-primary-hover);">📜</div>
+                <div>
+                    <h2 class="t-modal-title">Bitácora de Auditoría (Audit Log)</h2>
+                    <p class="t-modal-desc">Registro histórico inmutable de eventos, despliegues, modificaciones de entorno y comandos.</p>
+                </div>
+            </div>
+            <button type="button" class="t-close-btn" id="btnCloseAuditModal" aria-label="Cerrar">&times;</button>
+        </div>
+
+        <div class="t-modal-subhead" style="display:flex; justify-content:space-between; align-items:center; padding:10px 20px; background:var(--surface-input); border-bottom:1px solid var(--border-subtle); flex-wrap:wrap; gap:8px;">
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <input type="text" id="auditSearchInput" class="t-input" placeholder="Buscar por recurso, acción o detalle..." style="max-width:240px; height:30px; font-size:0.75rem; padding:4px 8px;">
+                <select id="auditActionFilter" class="t-input" style="height:30px; font-size:0.75rem; padding:2px 8px; max-width:140px;">
+                    <option value="">Todas las acciones</option>
+                    <option value="DEPLOY">DEPLOY</option>
+                    <option value="EDIT">EDIT</option>
+                    <option value="DELETE">DELETE</option>
+                    <option value="ROLLBACK">ROLLBACK</option>
+                    <option value="LINK">LINK</option>
+                    <option value="DRAIN">DRAIN</option>
+                    <option value="PROVISION">PROVISION</option>
+                </select>
+            </div>
+            <div style="display:flex; gap:8px;">
+                <button type="button" class="mini-btn" id="btnRefreshAuditLogs" title="Actualizar registros">
+                    🔄 Recargar
+                </button>
+            </div>
+        </div>
+
+        <div class="form-body" style="padding:16px 20px; max-height:480px; overflow-y:auto;">
+            <table class="t-table" id="auditTable" style="width:100%; font-size:0.8rem;">
+                <thead>
+                    <tr>
+                        <th style="width:150px;">Fecha y Hora</th>
+                        <th style="width:100px;">Acción</th>
+                        <th style="width:100px;">Tipo</th>
+                        <th style="width:160px;">Recurso</th>
+                        <th>Detalles</th>
+                    </tr>
+                </thead>
+                <tbody id="auditTableBody">
+                    <!-- Generado dinámicamente -->
+                </tbody>
+            </table>
+            <div id="auditEmptyNotice" style="display:none; text-align:center; padding:32px 16px; color:var(--text-muted); font-size:0.82rem;">
+                No se encontraron registros de auditoría que coincidan con el filtro.
+            </div>
+        </div>
+
+        <div class="t-modal-footer">
+            <span style="font-size:0.75rem; color:var(--text-muted);" id="auditLogsCount">
+                0 eventos registrados
+            </span>
+            <button type="button" class="t-btn t-btn-secondary" id="btnCloseAuditModalBottom">Cerrar</button>
+        </div>
+    </div>
+</div>

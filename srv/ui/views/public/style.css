@@ -3308,6 +3308,52 @@ body.is-server-loading .skeleton-hide {
     gap: 6px;
 }
 
+/* ==========================================================================
+   21. VISOR DE DIFFS (ENV & CONFIGURACIÓN)
+   ========================================================================== */
+.env-diff-wrap {
+    background: var(--surface-input);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    max-height: 380px;
+    overflow-y: auto;
+    line-height: 1.6;
+}
+
+.diff-line {
+    padding: 3px 8px;
+    border-radius: 2px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    display: flex;
+    gap: 8px;
+}
+
+.diff-line-added {
+    background: rgba(16, 185, 129, 0.12);
+    color: #34d399;
+    border-left: 3px solid #10b981;
+}
+
+.diff-line-removed {
+    background: rgba(244, 63, 94, 0.12);
+    color: #fb7185;
+    border-left: 3px solid #f43f5e;
+}
+
+.diff-line-unchanged {
+    color: var(--text-secondary);
+}
+
+.diff-empty-state {
+    text-align: center;
+    padding: 24px;
+    color: var(--text-muted);
+}
+
 @media (max-width: 768px) {
     .studio-navbar { height: auto; padding: 10px 16px; flex-wrap: wrap; gap: 10px; }
     .nav-left { width: 100%; justify-content: space-between; gap: 8px; }
@@ -3323,3 +3369,4 @@ body.is-server-loading .skeleton-hide {
     .logs-toolbar-left, .logs-toolbar-right { justify-content: space-between; }
     .logs-search-input { width: 100%; }
 }
+

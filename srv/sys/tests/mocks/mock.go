@@ -15,18 +15,22 @@ type MockConfigRepository struct {
 	Migrations    []domain.MigrationFile
 	Backups       []domain.SavedBackup
 	AuditLogs     []domain.AuditLog
+	AlertSettings *domain.AlertSettings
+	Deployments   []domain.DeploymentRecord
 }
 
 func NewMockConfigRepository() *MockConfigRepository {
 	return &MockConfigRepository{
-		Services:   []domain.SavedService{},
-		Databases:  []domain.SavedDatabase{},
-		Links:      []domain.ServiceLink{},
-		Previews:   []domain.SavedPreviewEnv{},
-		Registries: []domain.SavedRegistryCredential{},
-		Migrations: []domain.MigrationFile{},
-		Backups:    []domain.SavedBackup{},
-		AuditLogs:  []domain.AuditLog{},
+		Services:      []domain.SavedService{},
+		Databases:     []domain.SavedDatabase{},
+		Links:         []domain.ServiceLink{},
+		Previews:      []domain.SavedPreviewEnv{},
+		Registries:    []domain.SavedRegistryCredential{},
+		Migrations:    []domain.MigrationFile{},
+		Backups:       []domain.SavedBackup{},
+		AuditLogs:     []domain.AuditLog{},
+		AlertSettings: &domain.AlertSettings{Enabled: false},
+		Deployments:   []domain.DeploymentRecord{},
 	}
 }
 
@@ -289,6 +293,46 @@ func (m *MockConfigRepository) SaveAuditLog(log domain.AuditLog) error {
 
 func (m *MockConfigRepository) GetAuditLogs(limit int) ([]domain.AuditLog, error) {
 	return m.AuditLogs, nil
+}
+
+func (m *MockConfigRepository) SaveAlertSettings(settings domain.AlertSettings) error {
+	m.AlertSettings = &settings
+	return nil
+}
+
+func (m *MockConfigRepository) GetAlertSettings() (*domain.AlertSettings, error) {
+	if m.AlertSettings == nil {
+		return &domain.AlertSettings{Enabled: false}, nil
+	}
+	return m.AlertSettings, nil
+}
+
+func (m *MockConfigRepository) SaveDeploymentRecord(record domain.DeploymentRecord) error {
+	record.ID = len(m.Deployments) + 1
+	m.Deployments = append(m.Deployments, record)
+	return nil
+}
+
+func (m *MockConfigRepository) GetDeploymentHistory(serviceName string, limit int) ([]domain.DeploymentRecord, error) {
+	var filtered []domain.DeploymentRecord
+	for i := len(m.Deployments) - 1; i >= 0; i-- {
+		if m.Deployments[i].ServiceName == serviceName {
+			filtered = append(filtered, m.Deployments[i])
+			if limit > 0 && len(filtered) >= limit {
+				break
+			}
+		}
+	}
+	return filtered, nil
+}
+
+func (m *MockConfigRepository) GetDeploymentRecordByID(id int) (*domain.DeploymentRecord, error) {
+	for _, d := range m.Deployments {
+		if d.ID == id {
+			return &d, nil
+		}
+	}
+	return nil, nil
 }
 
 func (m *MockConfigRepository) Close() error {

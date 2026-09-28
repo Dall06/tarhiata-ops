@@ -62,6 +62,11 @@ func (m *mockRepo) GetBackupByID(id int) (*domain.SavedBackup, error)           
 func (m *mockRepo) DeleteBackup(id int) error                                                { return nil }
 func (m *mockRepo) SaveAuditLog(log domain.AuditLog) error                                     { return nil }
 func (m *mockRepo) GetAuditLogs(limit int) ([]domain.AuditLog, error)                          { return nil, nil }
+func (m *mockRepo) SaveAlertSettings(settings domain.AlertSettings) error                       { return nil }
+func (m *mockRepo) GetAlertSettings() (*domain.AlertSettings, error)                           { return &domain.AlertSettings{Enabled: false}, nil }
+func (m *mockRepo) SaveDeploymentRecord(record domain.DeploymentRecord) error                   { return nil }
+func (m *mockRepo) GetDeploymentHistory(serviceName string, limit int) ([]domain.DeploymentRecord, error) { return nil, nil }
+func (m *mockRepo) GetDeploymentRecordByID(id int) (*domain.DeploymentRecord, error)           { return nil, nil }
 func (m *mockRepo) Close() error                                                              { return nil }
 
 func TestWebServer_HandleNodesGet(t *testing.T) {

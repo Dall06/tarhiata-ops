@@ -66,6 +66,15 @@ type ConfigRepository interface {
 	SaveAuditLog(log domain.AuditLog) error
 	GetAuditLogs(limit int) ([]domain.AuditLog, error)
 
+	// --- Configuración de Alertas Salientes ---
+	SaveAlertSettings(settings domain.AlertSettings) error
+	GetAlertSettings() (*domain.AlertSettings, error)
+
+	// --- Historial de Despliegues y Rollback Arbitrario ---
+	SaveDeploymentRecord(record domain.DeploymentRecord) error
+	GetDeploymentHistory(serviceName string, limit int) ([]domain.DeploymentRecord, error)
+	GetDeploymentRecordByID(id int) (*domain.DeploymentRecord, error)
+
 	// Close cierra la conexión a la base de datos local.
 	Close() error
 }

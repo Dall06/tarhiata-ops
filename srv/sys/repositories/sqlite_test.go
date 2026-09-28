@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 )
@@ -588,3 +589,134 @@ func TestSQLiteNotFoundCases(t *testing.T) {
 		t.Errorf("expected nil registry, got: %v (err: %v)", reg, err)
 	}
 }
+
+func TestSQLiteAlertSettings_TableDriven(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "alerts_test.db")
+	repo, err := NewSQLiteRepository(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create repo: %v", err)
+	}
+	defer repo.Close()
+
+	tests := []struct {
+		name     string
+		settings domain.AlertSettings
+	}{
+		{
+			name: "Save and retrieve enabled Discord and Slack",
+			settings: domain.AlertSettings{
+				DiscordURL: "https://discord.com/api/webhooks/123/abc",
+				SlackURL:   "https://hooks.slack.com/services/T00/B00/X00",
+				Enabled:    true,
+			},
+		},
+		{
+			name: "Save and retrieve Telegram and Generic Webhook",
+			settings: domain.AlertSettings{
+				TelegramToken: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11",
+				TelegramChat:  "-1001234567890",
+				GenericURL:    "https://api.mycompany.com/tarhiata-alerts",
+				Enabled:       false,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := repo.SaveAlertSettings(tc.settings); err != nil {
+				t.Fatalf("SaveAlertSettings() error = %v", err)
+			}
+			got, err := repo.GetAlertSettings()
+			if err != nil {
+				t.Fatalf("GetAlertSettings() error = %v", err)
+			}
+			if got.DiscordURL != tc.settings.DiscordURL {
+				t.Errorf("expected DiscordURL %q, got %q", tc.settings.DiscordURL, got.DiscordURL)
+			}
+			if got.TelegramToken != tc.settings.TelegramToken {
+				t.Errorf("expected TelegramToken %q, got %q", tc.settings.TelegramToken, got.TelegramToken)
+			}
+			if got.TelegramChat != tc.settings.TelegramChat {
+				t.Errorf("expected TelegramChat %q, got %q", tc.settings.TelegramChat, got.TelegramChat)
+			}
+			if got.SlackURL != tc.settings.SlackURL {
+				t.Errorf("expected SlackURL %q, got %q", tc.settings.SlackURL, got.SlackURL)
+			}
+			if got.GenericURL != tc.settings.GenericURL {
+				t.Errorf("expected GenericURL %q, got %q", tc.settings.GenericURL, got.GenericURL)
+			}
+			if got.Enabled != tc.settings.Enabled {
+				t.Errorf("expected Enabled %v, got %v", tc.settings.Enabled, got.Enabled)
+			}
+		})
+	}
+}
+
+func TestSQLiteDeploymentHistory_TableDriven(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "deploys_test.db")
+	repo, err := NewSQLiteRepository(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create repo: %v", err)
+	}
+	defer repo.Close()
+
+	records := []domain.DeploymentRecord{
+		{
+			ServiceName: "app-api",
+			ImageTag:    "node:18-alpine",
+			EnvVars:     "PORT=3000\nNODE_ENV=production",
+			Port:        3000,
+			Domain:      "api.example.com",
+			Expose:      true,
+			DeployedAt:  time.Now().Add(-2 * time.Hour),
+			Status:      "success",
+		},
+		{
+			ServiceName: "app-api",
+			ImageTag:    "node:20-alpine",
+			EnvVars:     "PORT=3000\nNODE_ENV=production\nFEATURE_X=true",
+			Port:        3000,
+			Domain:      "api.example.com",
+			Expose:      true,
+			DeployedAt:  time.Now().Add(-1 * time.Hour),
+			Status:      "success",
+		},
+		{
+			ServiceName: "app-frontend",
+			ImageTag:    "nginx:alpine",
+			Port:        80,
+			Domain:      "app.example.com",
+			Expose:      true,
+			DeployedAt:  time.Now(),
+			Status:      "success",
+		},
+	}
+
+	for _, r := range records {
+		if err := repo.SaveDeploymentRecord(r); err != nil {
+			t.Fatalf("SaveDeploymentRecord() error = %v", err)
+		}
+	}
+
+	history, err := repo.GetDeploymentHistory("app-api", 10)
+	if err != nil {
+		t.Fatalf("GetDeploymentHistory() error = %v", err)
+	}
+	if len(history) != 2 {
+		t.Fatalf("expected 2 history records for app-api, got %d", len(history))
+	}
+	if history[0].ImageTag != "node:20-alpine" {
+		t.Errorf("expected latest imageTag node:20-alpine, got %s", history[0].ImageTag)
+	}
+
+	single, err := repo.GetDeploymentRecordByID(history[0].ID)
+	if err != nil || single == nil {
+		t.Fatalf("GetDeploymentRecordByID() error = %v, got %v", err, single)
+	}
+	if single.ServiceName != "app-api" {
+		t.Errorf("expected serviceName app-api, got %s", single.ServiceName)
+	}
+}
+
