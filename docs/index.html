@@ -1,192 +1,257 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tarhiata-Ops — Private PaaS for Your Own VPS</title>
-    <meta name="description" content="Zero-overhead, local-first private PaaS. Deploy, orchestrate and observe containerized apps on your own VPS with the UX of Vercel — but 100% yours. Made in México 🇲🇽">
-    <meta property="og:title" content="Tarhiata-Ops — Private PaaS for Your Own VPS">
-    <meta property="og:description" content="Zero-overhead, local-first private PaaS. Deploy apps on your own VPS with the UX of Vercel — 100% free, 0 MB overhead, full data sovereignty.">
+    <title>Tarhiata Cloud — Private PaaS &amp; Studio para tu propio VPS</title>
+    <meta name="description" content="PaaS privado de cero sobrecarga y local-first. Despliega, orquesta y monitorea contenedores en tu propio VPS con la experiencia de Vercel y Railway — 100% tuyo y soberano.">
+    <meta property="og:title" content="Tarhiata Cloud — Private PaaS para tu propio VPS">
+    <meta property="og:description" content="PaaS privado local-first. Despliega aplicaciones en tu propio VPS con la UX de Vercel — 100% libre, 0 MB de consumo en servidor, soberanía total de datos.">
     <meta property="og:type" content="website">
     <meta name="twitter:card" content="summary_large_image">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Inter:ital,opsz,wght@0,14..32,300;0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;0,14..32,800;0,14..32,900;1,14..32,400&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='12' fill='%236366f1'/><path d='M28 50 L44 66 L72 34' stroke='white' stroke-width='10' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         :root {
-            --bg: #09090b;
-            --bg2: #0e0e11;
-            --bg3: #121215;
-            --border: #27272a;
-            --border2: #3f3f46;
-            --text: #f4f4f5;
-            --muted: #71717a;
-            --muted2: #a1a1aa;
-            --green: #22c55e;
-            --green2: #16a34a;
-            --blue: #3b82f6;
-            --purple: #a855f7;
-            --yellow: #eab308;
-            --font-ui: 'Inter', system-ui, sans-serif;
-            --font-mono: 'Fira Code', 'Cascadia Code', monospace;
+            --surface-bg: #07090e;
+            --surface-canvas: #090d16;
+            --surface-nav: rgba(11, 16, 26, 0.92);
+            --surface-card: #0e1422;
+            --surface-card-hover: #141c2f;
+            --surface-card-elevated: #12192a;
+            --surface-popover: #101626;
+            --surface-input: #080c14;
+
+            --border-subtle: rgba(255, 255, 255, 0.08);
+            --border-mid: rgba(255, 255, 255, 0.14);
+            --border-strong: rgba(255, 255, 255, 0.24);
+            --border-focus: #6366f1;
+
+            --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            --font-mono: 'JetBrains Mono', ui-monospace, Menlo, Monaco, Consolas, monospace;
+
+            --text-pure: #ffffff;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --text-dim: #475569;
+
+            --brand-primary: #6366f1;
+            --brand-primary-hover: #4f46e5;
+            --brand-primary-glow: rgba(99, 102, 241, 0.25);
+
+            --status-online: #10b981;
+            --status-online-glow: rgba(16, 185, 129, 0.25);
+            --status-warning: #f59e0b;
+            --status-offline: #f43f5e;
+
+            --radius-xs: 3px;
+            --radius-sm: 4px;
+            --radius-md: 6px;
+            --radius-lg: 8px;
+            --radius-xl: 12px;
+
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 4px 14px -2px rgba(0, 0, 0, 0.5);
+            --shadow-lg: 0 12px 32px -4px rgba(0, 0, 0, 0.7);
+            --shadow-glow: 0 0 24px rgba(99, 102, 241, 0.2);
+
+            --ease-out: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
         html { scroll-behavior: smooth; }
 
         body {
-            background: var(--bg);
-            color: var(--text);
-            font-family: var(--font-ui);
-            line-height: 1.6;
+            background-color: var(--surface-bg);
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            line-height: 1.5;
             -webkit-font-smoothing: antialiased;
+            letter-spacing: -0.011em;
             overflow-x: hidden;
         }
 
-        /* NOISE TEXTURE */
+        /* Subtle grid background */
         body::before {
             content: '';
             position: fixed;
             inset: 0;
-            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+            background-image: 
+                linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 40px 40px;
             pointer-events: none;
             z-index: 0;
-            opacity: 0.4;
         }
 
-        /* NAV */
-        nav {
+        /* Top Navigation Bar */
+        nav.studio-navbar {
             position: fixed;
             top: 0; left: 0; right: 0;
-            z-index: 100;
+            z-index: 1000;
+            background: var(--surface-nav);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border-subtle);
+            height: 60px;
+        }
+
+        .nav-container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 0 24px;
+            height: 100%;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 0 32px;
-            height: 60px;
-            background: rgba(9,9,11,0.85);
-            backdrop-filter: blur(16px);
-            border-bottom: 1px solid var(--border);
+            gap: 16px;
         }
 
-        .nav-logo {
+        .studio-brand {
             display: flex;
             align-items: center;
             gap: 10px;
-            font-family: var(--font-mono);
-            font-size: 0.95rem;
-            font-weight: 700;
-            color: var(--text);
             text-decoration: none;
+            user-select: none;
         }
 
-        .nav-logo .dot { color: var(--green); }
+        .brand-gem {
+            width: 28px;
+            height: 28px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            border-radius: var(--radius-sm);
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 1px 6px rgba(99, 102, 241, 0.35);
+        }
+
+        .brand-text-title {
+            font-size: 0.95rem;
+            font-weight: 800;
+            color: var(--text-pure);
+            letter-spacing: 0.05em;
+        }
 
         .nav-links {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
         }
 
         .nav-links a {
-            color: var(--muted2);
+            color: var(--text-secondary);
             text-decoration: none;
-            font-size: 0.85rem;
-            padding: 6px 14px;
-            border-radius: 6px;
-            transition: color 0.15s, background 0.15s;
+            font-size: 0.82rem;
+            font-weight: 600;
+            padding: 6px 12px;
+            border-radius: var(--radius-sm);
+            transition: var(--ease-out);
         }
-        .nav-links a:hover { color: var(--text); background: rgba(255,255,255,0.05); }
 
-        .btn-nav {
-            background: var(--green);
-            color: #000 !important;
-            font-weight: 600 !important;
-            padding: 7px 16px !important;
-            border-radius: 7px !important;
-            transition: background 0.15s, transform 0.1s !important;
+        .nav-links a:hover {
+            color: var(--text-pure);
+            background: rgba(255, 255, 255, 0.05);
         }
-        .btn-nav:hover { background: var(--green2) !important; transform: translateY(-1px) !important; }
 
-        /* SECTIONS */
-        section { position: relative; z-index: 1; }
+        .btn-nav-primary {
+            background: var(--brand-primary) !important;
+            color: #ffffff !important;
+            padding: 6px 14px !important;
+            box-shadow: 0 1px 6px var(--brand-primary-glow) !important;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
 
-        /* HERO */
-        .hero {
-            min-height: 100vh;
+        .btn-nav-primary:hover {
+            background: var(--brand-primary-hover) !important;
+        }
+
+        /* HERO SECTION */
+        section.hero {
+            min-height: 90vh;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             text-align: center;
-            padding: 100px 24px 80px;
+            padding: 120px 24px 70px;
             position: relative;
+            z-index: 1;
             overflow: hidden;
         }
 
         .hero-glow {
             position: absolute;
-            width: 800px; height: 800px;
-            background: radial-gradient(circle, rgba(34,197,94,0.08) 0%, transparent 70%);
-            top: 50%; left: 50%;
-            transform: translate(-50%, -55%);
+            width: 900px;
+            height: 600px;
+            background: radial-gradient(ellipse at center, rgba(99, 102, 241, 0.14) 0%, transparent 65%);
+            top: 25%;
+            left: 50%;
+            transform: translate(-50%, -50%);
             pointer-events: none;
+            z-index: -1;
         }
 
         .hero-badge {
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            background: rgba(34,197,94,0.08);
-            border: 1px solid rgba(34,197,94,0.25);
-            color: var(--green);
-            font-size: 0.78rem;
+            background: rgba(99, 102, 241, 0.1);
+            border: 1px solid rgba(99, 102, 241, 0.28);
+            color: #a5b4fc;
+            font-size: 0.76rem;
             font-weight: 600;
-            padding: 5px 14px;
-            border-radius: 100px;
-            margin-bottom: 28px;
-            font-family: var(--font-mono);
-            letter-spacing: 0.05em;
-        }
-
-        .hero-badge .pulse {
-            width: 7px; height: 7px;
-            background: var(--green);
-            border-radius: 50%;
-            animation: pulse 2s ease-in-out infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.4; transform: scale(0.8); }
-        }
-
-        h1 {
-            font-size: clamp(2.8rem, 6vw, 5.2rem);
-            font-weight: 900;
-            line-height: 1.05;
-            letter-spacing: -0.04em;
+            padding: 4px 12px;
+            border-radius: var(--radius-sm);
             margin-bottom: 24px;
-            background: linear-gradient(135deg, #f4f4f5 0%, #a1a1aa 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+            font-family: var(--font-mono);
+            letter-spacing: 0.02em;
         }
 
-        h1 span.accent {
-            background: linear-gradient(135deg, var(--green) 0%, #86efac 100%);
+        .hero-badge .status-pulse {
+            width: 7px;
+            height: 7px;
+            background: var(--status-online);
+            border-radius: 50%;
+            box-shadow: 0 0 6px var(--status-online);
+            animation: pulseDot 2s infinite ease-in-out;
+        }
+
+        @keyframes pulseDot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.85); }
+        }
+
+        h1.hero-title {
+            font-size: clamp(2.6rem, 5.5vw, 4.6rem);
+            font-weight: 800;
+            line-height: 1.1;
+            letter-spacing: -0.035em;
+            margin-bottom: 20px;
+            color: #ffffff;
+            max-width: 900px;
+        }
+
+        h1.hero-title span.gradient-text {
+            background: linear-gradient(135deg, #a5b4fc 0%, #6366f1 50%, #38bdf8 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
         }
 
         .hero-sub {
-            font-size: clamp(1rem, 2vw, 1.2rem);
-            color: var(--muted2);
-            max-width: 580px;
-            margin: 0 auto 40px;
-            line-height: 1.7;
+            font-size: clamp(0.95rem, 1.8vw, 1.12rem);
+            color: var(--text-secondary);
+            max-width: 620px;
+            margin: 0 auto 36px;
+            line-height: 1.6;
         }
 
         .hero-actions {
@@ -194,278 +259,494 @@
             gap: 12px;
             flex-wrap: wrap;
             justify-content: center;
-            margin-bottom: 64px;
+            margin-bottom: 56px;
         }
 
-        .btn-primary {
+        .btn-action-primary {
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            background: var(--green);
-            color: #000;
+            background: var(--brand-primary);
+            color: #ffffff;
             font-weight: 700;
-            font-size: 0.95rem;
-            padding: 12px 28px;
-            border-radius: 8px;
+            font-size: 0.88rem;
+            padding: 10px 22px;
+            border-radius: var(--radius-sm);
             text-decoration: none;
-            transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
-            box-shadow: 0 0 24px rgba(34,197,94,0.3);
-        }
-        .btn-primary:hover {
-            background: var(--green2);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 32px rgba(34,197,94,0.4);
+            transition: var(--ease-out);
+            box-shadow: 0 2px 12px var(--brand-primary-glow);
         }
 
-        .btn-secondary {
+        .btn-action-primary:hover {
+            background: var(--brand-primary-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px var(--brand-primary-glow);
+        }
+
+        .btn-action-secondary {
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            background: transparent;
-            color: var(--text);
+            background: var(--surface-card);
+            color: var(--text-primary);
             font-weight: 600;
-            font-size: 0.95rem;
-            padding: 12px 28px;
-            border-radius: 8px;
-            border: 1px solid var(--border2);
+            font-size: 0.88rem;
+            padding: 10px 22px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-subtle);
             text-decoration: none;
-            transition: border-color 0.15s, background 0.15s, transform 0.1s;
-        }
-        .btn-secondary:hover {
-            border-color: var(--muted2);
-            background: rgba(255,255,255,0.04);
-            transform: translateY(-2px);
+            transition: var(--ease-out);
         }
 
-        /* TERMINAL PREVIEW */
-        .terminal-preview {
+        .btn-action-secondary:hover {
+            border-color: var(--border-mid);
+            background: var(--surface-card-hover);
+            color: var(--text-pure);
+            transform: translateY(-1px);
+        }
+
+        /* LIVE STUDIO PREVIEW (Bento Mockup) */
+        .studio-preview-frame {
             width: 100%;
-            max-width: 740px;
+            max-width: 1020px;
             margin: 0 auto;
-            background: var(--bg3);
-            border: 1px solid var(--border);
-            border-radius: 12px;
+            background: var(--surface-card-elevated);
+            border: 1px solid var(--border-mid);
+            border-radius: var(--radius-lg);
             overflow: hidden;
-            box-shadow: 0 0 80px rgba(0,0,0,0.6), 0 0 40px rgba(34,197,94,0.06);
+            box-shadow: 0 24px 60px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.05);
             text-align: left;
         }
 
-        .term-bar {
+        .preview-topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 16px;
+            background: #0b0f19;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .preview-dots {
             display: flex;
             align-items: center;
             gap: 6px;
-            padding: 10px 16px;
-            background: #121215;
-            border-bottom: 1px solid var(--border);
         }
-        .term-dot { width: 12px; height: 12px; border-radius: 50%; }
-        .term-dot.r { background: #ef4444; }
-        .term-dot.y { background: #eab308; }
-        .term-dot.g { background: #22c55e; }
-        .term-title { margin-left: 10px; font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); }
 
-        .term-body {
-            padding: 20px 24px;
+        .p-dot { width: 10px; height: 10px; border-radius: 50%; }
+        .p-dot.r { background: #ef4444; }
+        .p-dot.y { background: #eab308; }
+        .p-dot.g { background: #10b981; }
+
+        .preview-title-chip {
             font-family: var(--font-mono);
-            font-size: 0.82rem;
-            line-height: 1.8;
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            background: rgba(255, 255, 255, 0.04);
+            padding: 2px 10px;
+            border-radius: var(--radius-xs);
+            border: 1px solid var(--border-subtle);
         }
 
-        .term-line { display: flex; gap: 8px; }
-        .term-prompt { color: var(--green); user-select: none; }
-        .term-cmd { color: #f4f4f5; }
-        .term-out { color: var(--muted2); padding-left: 20px; }
-        .term-ok { color: var(--green); padding-left: 20px; }
-        .term-dim { color: var(--muted); padding-left: 20px; }
-        .term-blue { color: #60a5fa; }
-        .term-purple { color: #c084fc; }
+        .preview-badge-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-family: var(--font-mono);
+            font-size: 0.70rem;
+            color: var(--status-online);
+            background: rgba(16, 185, 129, 0.12);
+            padding: 2px 8px;
+            border-radius: var(--radius-xs);
+        }
+
+        .preview-body {
+            padding: 20px;
+            background: var(--surface-bg);
+            display: grid;
+            grid-template-columns: 1.15fr 1fr;
+            gap: 14px;
+        }
+
+        @media (max-width: 820px) {
+            .preview-body { grid-template-columns: 1fr; }
+        }
+
+        .mock-bento-tile {
+            background: var(--surface-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .mock-identity-tile {
+            background: radial-gradient(circle at top left, rgba(99, 102, 241, 0.1), transparent 50%),
+                        linear-gradient(145deg, #131926, #0c111a);
+            border-color: rgba(99, 102, 241, 0.25);
+        }
+
+        .mock-tile-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .mock-server-name {
+            font-size: 1.05rem;
+            font-weight: 800;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .mock-host-chip {
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            color: var(--text-secondary);
+            background: rgba(0, 0, 0, 0.4);
+            padding: 2px 6px;
+            border-radius: 4px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .mock-gauges-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .mock-gauge {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm);
+            padding: 10px;
+        }
+
+        .mock-gauge-top {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        .mock-gauge-val {
+            font-family: var(--font-mono);
+            font-weight: 700;
+            font-size: 0.85rem;
+            color: var(--text-pure);
+        }
+
+        .mock-progress-bar {
+            height: 4px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 6px;
+        }
+
+        .mock-progress-fill {
+            height: 100%;
+            background: var(--brand-primary);
+            border-radius: 2px;
+        }
+
+        .mock-progress-fill.green { background: var(--status-online); }
+        .mock-progress-fill.amber { background: var(--status-warning); }
+
+        .mock-services-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .mock-service-card {
+            background: var(--surface-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm);
+            padding: 10px 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .mock-svc-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .mock-svc-icon {
+            width: 26px;
+            height: 26px;
+            background: rgba(99, 102, 241, 0.15);
+            border: 1px solid rgba(99, 102, 241, 0.25);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+        }
+
+        .mock-svc-name {
+            font-size: 0.80rem;
+            font-weight: 700;
+            color: var(--text-pure);
+        }
+
+        .mock-svc-domain {
+            font-size: 0.70rem;
+            font-family: var(--font-mono);
+            color: #a5b4fc;
+        }
+
+        .mock-svc-tag {
+            font-size: 0.65rem;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 3px;
+            background: rgba(16, 185, 129, 0.12);
+            color: var(--status-online);
+            border: 1px solid rgba(16, 185, 129, 0.25);
+            font-family: var(--font-mono);
+        }
 
         /* STATS BAND */
         .stats-band {
             display: flex;
             justify-content: center;
-            gap: 0;
             flex-wrap: wrap;
-            border-top: 1px solid var(--border);
-            border-bottom: 1px solid var(--border);
-            background: var(--bg2);
+            border-top: 1px solid var(--border-subtle);
+            border-bottom: 1px solid var(--border-subtle);
+            background: var(--surface-canvas);
+            position: relative;
+            z-index: 1;
         }
+
         .stat-item {
             flex: 1;
-            min-width: 160px;
-            padding: 32px 24px;
+            min-width: 180px;
+            padding: 30px 20px;
             text-align: center;
-            border-right: 1px solid var(--border);
+            border-right: 1px solid var(--border-subtle);
         }
+
         .stat-item:last-child { border-right: none; }
+
         .stat-val {
-            font-size: 2.4rem;
-            font-weight: 900;
+            font-size: 2.2rem;
+            font-weight: 800;
             font-family: var(--font-mono);
-            color: var(--green);
+            color: #ffffff;
             line-height: 1;
             margin-bottom: 6px;
+            letter-spacing: -0.02em;
         }
-        .stat-label { font-size: 0.8rem; color: var(--muted2); font-weight: 500; }
 
-        /* FEATURES GRID */
-        .features {
-            padding: 100px 24px;
-            max-width: 1200px;
+        .stat-val span.accent {
+            color: var(--brand-primary);
+        }
+
+        .stat-label {
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        /* FEATURES SECTION */
+        section.features {
+            padding: 90px 24px;
+            max-width: 1240px;
             margin: 0 auto;
+            position: relative;
+            z-index: 1;
         }
 
-        .section-label {
+        .section-header-center {
+            text-align: center;
+            margin-bottom: 50px;
+        }
+
+        .section-tag {
             font-family: var(--font-mono);
             font-size: 0.72rem;
-            font-weight: 600;
-            color: var(--green);
-            letter-spacing: 0.15em;
+            font-weight: 700;
+            color: #a5b4fc;
+            background: rgba(99, 102, 241, 0.12);
+            border: 1px solid rgba(99, 102, 241, 0.25);
+            padding: 3px 10px;
+            border-radius: var(--radius-xs);
+            letter-spacing: 0.08em;
             text-transform: uppercase;
-            margin-bottom: 12px;
+            display: inline-block;
+            margin-bottom: 14px;
         }
+
         .section-title {
-            font-size: clamp(1.8rem, 3vw, 2.8rem);
+            font-size: clamp(1.8rem, 3.2vw, 2.6rem);
             font-weight: 800;
             letter-spacing: -0.03em;
-            margin-bottom: 16px;
+            margin-bottom: 14px;
+            color: #ffffff;
         }
+
         .section-sub {
-            color: var(--muted2);
-            font-size: 1rem;
-            max-width: 520px;
-            margin-bottom: 60px;
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            max-width: 560px;
+            margin: 0 auto;
+            line-height: 1.6;
         }
 
         .features-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-            gap: 1px;
-            background: var(--border);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            overflow: hidden;
+            gap: 14px;
         }
 
         .feature-card {
-            background: var(--bg);
-            padding: 32px;
-            transition: background 0.2s;
+            background: var(--surface-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            padding: 24px;
+            transition: var(--ease-out);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
         }
-        .feature-card:hover { background: var(--bg3); }
 
-        .feature-icon {
-            font-size: 1.6rem;
-            margin-bottom: 16px;
-            display: block;
+        .feature-card:hover {
+            border-color: var(--border-mid);
+            background: var(--surface-card-hover);
+            transform: translateY(-2px);
+        }
+
+        .feature-icon-box {
+            width: 38px;
+            height: 38px;
+            background: rgba(99, 102, 241, 0.12);
+            border: 1px solid rgba(99, 102, 241, 0.25);
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            color: #a5b4fc;
         }
 
         .feature-title {
-            font-size: 1rem;
+            font-size: 0.95rem;
             font-weight: 700;
-            margin-bottom: 8px;
-            color: var(--text);
+            color: var(--text-pure);
         }
 
         .feature-desc {
-            font-size: 0.85rem;
-            color: var(--muted2);
-            line-height: 1.65;
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            flex: 1;
         }
 
         .feature-tag {
-            display: inline-block;
-            margin-top: 14px;
+            align-self: flex-start;
             font-family: var(--font-mono);
             font-size: 0.68rem;
-            background: rgba(34,197,94,0.1);
-            color: var(--green);
-            padding: 3px 10px;
-            border-radius: 100px;
-            border: 1px solid rgba(34,197,94,0.2);
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text-muted);
+            padding: 2px 8px;
+            border-radius: var(--radius-xs);
+            border: 1px solid var(--border-subtle);
         }
 
-        /* COMPARISON */
-        .comparison {
-            padding: 100px 24px;
-            max-width: 900px;
+        /* COMPARISON TABLE */
+        section.comparison {
+            padding: 80px 24px;
+            max-width: 960px;
             margin: 0 auto;
+            position: relative;
+            z-index: 1;
+        }
+
+        .comparison-table-wrap {
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            overflow: hidden;
+            background: var(--surface-card);
+            box-shadow: var(--shadow-md);
         }
 
         .comparison-table {
             width: 100%;
             border-collapse: collapse;
-            background: var(--bg3);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            overflow: hidden;
+            font-size: 0.82rem;
+            text-align: left;
         }
 
         .comparison-table th {
-            padding: 16px 20px;
-            text-align: center;
-            font-size: 0.85rem;
+            padding: 14px 18px;
+            font-size: 0.78rem;
             font-weight: 700;
-            border-bottom: 1px solid var(--border);
-            background: var(--bg);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-muted);
+            background: rgba(0, 0, 0, 0.35);
+            border-bottom: 1px solid var(--border-subtle);
         }
-        .comparison-table th:first-child { text-align: left; }
+
         .comparison-table th.highlight {
-            background: rgba(34,197,94,0.08);
-            color: var(--green);
+            color: #a5b4fc;
+            background: rgba(99, 102, 241, 0.12);
         }
 
         .comparison-table td {
-            padding: 14px 20px;
-            font-size: 0.83rem;
-            border-bottom: 1px solid var(--border);
-            text-align: center;
-            color: var(--muted2);
+            padding: 12px 18px;
+            border-bottom: 1px solid var(--border-subtle);
+            color: var(--text-secondary);
+            vertical-align: middle;
         }
-        .comparison-table td:first-child { text-align: left; color: var(--text); font-weight: 500; }
-        .comparison-table tr:last-child td { border-bottom: none; }
-        .comparison-table td.highlight { background: rgba(34,197,94,0.04); }
-        .check { color: var(--green); font-size: 1rem; }
-        .cross { color: #ef4444; font-size: 1rem; }
-        .warn { color: var(--yellow); font-size: 0.8rem; }
 
-        /* SCREENSHOT GALLERY */
-        .gallery {
-            padding: 80px 24px;
-            max-width: 1100px;
-            margin: 0 auto;
+        .comparison-table td:first-child {
+            color: var(--text-primary);
+            font-weight: 600;
         }
-        .gallery-grid {
-            display: grid;
-            gap: 24px;
-        }
-        .gallery-item {
-            background: var(--bg3);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 16px 64px rgba(0,0,0,0.5);
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        .gallery-item:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 24px 80px rgba(0,0,0,0.6), 0 0 40px rgba(34,197,94,0.06);
-        }
-        .gallery-item img { width: 100%; display: block; }
 
-        /* DOWNLOAD */
-        .downloads {
-            padding: 100px 24px;
-            max-width: 800px;
+        .comparison-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .comparison-table td.highlight {
+            background: rgba(99, 102, 241, 0.06);
+            color: var(--text-pure);
+            font-weight: 600;
+        }
+
+        .check-icon { color: var(--status-online); font-weight: 700; }
+        .cross-icon { color: var(--status-offline); font-weight: 700; }
+        .warn-tag { color: var(--status-warning); font-size: 0.74rem; }
+
+        /* DOWNLOADS */
+        section.downloads {
+            padding: 90px 24px;
+            max-width: 900px;
             margin: 0 auto;
             text-align: center;
+            position: relative;
+            z-index: 1;
         }
 
         .dl-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
             gap: 12px;
-            margin-top: 40px;
+            margin-top: 36px;
             text-align: left;
         }
 
@@ -473,106 +754,127 @@
             display: flex;
             align-items: center;
             gap: 12px;
-            background: var(--bg3);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 16px 18px;
+            background: var(--surface-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm);
+            padding: 14px 16px;
             text-decoration: none;
-            color: var(--text);
-            transition: border-color 0.15s, background 0.15s, transform 0.1s;
+            color: var(--text-primary);
+            transition: var(--ease-out);
         }
+
         .dl-card:hover {
-            border-color: var(--green);
-            background: rgba(34,197,94,0.06);
+            border-color: var(--border-focus);
+            background: var(--surface-card-hover);
             transform: translateY(-2px);
         }
-        .dl-card .dl-icon { font-size: 1.5rem; }
-        .dl-card .dl-info { flex: 1; }
-        .dl-card .dl-os { font-size: 0.85rem; font-weight: 600; }
-        .dl-card .dl-arch { font-size: 0.72rem; color: var(--muted2); font-family: var(--font-mono); }
 
-        /* CTA */
-        .cta {
-            padding: 120px 24px;
+        .dl-card .dl-icon { font-size: 1.4rem; flex-shrink: 0; }
+        .dl-card .dl-info { flex: 1; min-width: 0; }
+        .dl-card .dl-os { font-size: 0.82rem; font-weight: 700; color: var(--text-pure); }
+        .dl-card .dl-arch { font-size: 0.70rem; color: var(--text-muted); font-family: var(--font-mono); }
+
+        /* CALL TO ACTION */
+        section.cta {
+            padding: 100px 24px;
             text-align: center;
             position: relative;
+            z-index: 1;
             overflow: hidden;
+            border-top: 1px solid var(--border-subtle);
+            background: radial-gradient(circle at center, rgba(99, 102, 241, 0.08) 0%, transparent 60%);
         }
-        .cta-glow {
-            position: absolute;
-            width: 600px; height: 400px;
-            background: radial-gradient(ellipse, rgba(34,197,94,0.1) 0%, transparent 70%);
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            pointer-events: none;
+
+        .cta-title {
+            font-size: clamp(2rem, 4vw, 3.2rem);
+            font-weight: 800;
+            letter-spacing: -0.035em;
+            margin-bottom: 16px;
+            color: #ffffff;
         }
-        .cta h2 {
-            font-size: clamp(2rem, 4vw, 3.5rem);
-            font-weight: 900;
-            letter-spacing: -0.04em;
-            margin-bottom: 20px;
+
+        .cta-desc {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            max-width: 480px;
+            margin: 0 auto 32px;
+            line-height: 1.6;
         }
-        .cta p { color: var(--muted2); font-size: 1rem; max-width: 500px; margin: 0 auto 40px; }
 
         /* FOOTER */
         footer {
-            border-top: 1px solid var(--border);
-            padding: 40px 32px;
+            border-top: 1px solid var(--border-subtle);
+            padding: 30px 24px;
+            background: var(--surface-canvas);
+            position: relative;
+            z-index: 1;
+        }
+
+        .footer-container {
+            max-width: 1280px;
+            margin: 0 auto;
             display: flex;
             align-items: center;
             justify-content: space-between;
             flex-wrap: wrap;
             gap: 16px;
         }
-        footer .footer-logo {
-            font-family: var(--font-mono);
+
+        .footer-brand {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: var(--font-sans);
             font-size: 0.85rem;
             font-weight: 700;
-            color: var(--muted2);
+            color: var(--text-pure);
         }
-        footer .footer-logo span { color: var(--green); }
-        footer p {
+
+        .footer-text {
             font-size: 0.78rem;
-            color: var(--muted);
+            color: var(--text-muted);
         }
-        footer a { color: var(--muted2); text-decoration: none; }
-        footer a:hover { color: var(--text); }
 
-        /* ANIMATIONS */
-        @keyframes fadeUp {
-            from { opacity: 0; transform: translateY(24px); }
-            to { opacity: 1; transform: translateY(0); }
+        .footer-text a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: var(--ease-out);
         }
-        .fade-up { animation: fadeUp 0.6s ease both; }
-        .delay-1 { animation-delay: 0.1s; }
-        .delay-2 { animation-delay: 0.2s; }
-        .delay-3 { animation-delay: 0.3s; }
-        .delay-4 { animation-delay: 0.4s; }
 
-        /* RESPONSIVE */
+        .footer-text a:hover {
+            color: var(--text-pure);
+        }
+
         @media (max-width: 768px) {
-            nav { padding: 0 20px; }
-            .nav-links a:not(.btn-nav) { display: none; }
-            .stat-item { min-width: 120px; }
-            footer { flex-direction: column; text-align: center; }
-            .comparison-table { font-size: 0.75rem; }
-            .comparison-table td, .comparison-table th { padding: 10px 12px; }
+            .nav-links a:not(.btn-nav-primary) { display: none; }
+            .stat-item { min-width: 140px; }
+            .footer-container { flex-direction: column; text-align: center; }
         }
     </style>
 </head>
 <body>
 
-<!-- NAV -->
-<nav>
-    <a href="#" class="nav-logo">
-        <span class="dot">⚡</span> tarhiata-ops
-    </a>
-    <div class="nav-links">
-        <a href="#features">Features</a>
-        <a href="#comparison">vs SaaS</a>
-        <a href="#downloads">Downloads</a>
-        <a href="https://github.com/Dall06/tarhiata-ops" target="_blank">GitHub</a>
-        <a href="https://github.com/Dall06/tarhiata-ops" target="_blank" class="btn-nav">Get Started →</a>
+<!-- Top Navigation Bar -->
+<nav class="studio-navbar">
+    <div class="nav-container">
+        <a href="#" class="studio-brand">
+            <div class="brand-gem">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                </svg>
+            </div>
+            <span class="brand-text-title">TARHIATA</span>
+        </a>
+        <div class="nav-links">
+            <a href="#features">Características</a>
+            <a href="#comparison">Comparativa</a>
+            <a href="#downloads">Descargas</a>
+            <a href="https://github.com/Dall06/tarhiata-ops" target="_blank">GitHub</a>
+            <a href="https://github.com/Dall06/tarhiata-ops" target="_blank" class="btn-nav-primary">
+                <span>Comenzar</span>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </a>
+        </div>
     </div>
 </nav>
 
@@ -580,56 +882,134 @@
 <section class="hero">
     <div class="hero-glow"></div>
 
-    <div class="hero-badge fade-up">
-        <span class="pulse"></span>
-        v1.0.0-beta · Now Available · Made in México 🇲🇽
+    <div class="hero-badge">
+        <span class="status-pulse"></span>
+        v4.1.0 · Web Studio &amp; Private PaaS · Hecho en México 🇲🇽
     </div>
 
-    <h1 class="fade-up delay-1">
-        Your own <span class="accent">PaaS</span>.<br>
-        Zero overhead.<br>
-        Full sovereignty.
+    <h1 class="hero-title">
+        Tu propio <span class="gradient-text">PaaS privado</span>.<br>
+        Cero sobrecarga. Soberanía total.
     </h1>
 
-    <p class="hero-sub fade-up delay-2">
-        Deploy, orchestrate, and observe containerized apps on your own VPS — with the speed and aesthetics of Vercel and Railway, but running 100% on your infrastructure. 0 MB RAM overhead. No SaaS fees. Ever.
+    <p class="hero-sub">
+        Despliega, orquesta y monitorea contenedores Docker en tu propio VPS con la estética de Linear y Vercel, pero corriendo 100% en tu servidor. 0 MB de consumo de RAM. Sin cuotas SaaS.
     </p>
 
-    <div class="hero-actions fade-up delay-3">
-        <a href="https://github.com/Dall06/tarhiata-ops" target="_blank" class="btn-primary">
-            ⚡ View on GitHub
+    <div class="hero-actions">
+        <a href="https://github.com/Dall06/tarhiata-ops" target="_blank" class="btn-action-primary">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+            <span>Ver en GitHub</span>
         </a>
-        <a href="#downloads" class="btn-secondary">
-            📥 Download Binary
+        <a href="#downloads" class="btn-action-secondary">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            <span>Descargar Binarios</span>
         </a>
     </div>
 
-    <div class="terminal-preview fade-up delay-4">
-        <div class="term-bar">
-            <span class="term-dot r"></span>
-            <span class="term-dot y"></span>
-            <span class="term-dot g"></span>
-            <span class="term-title">tarhiata-ops — control plane</span>
+    <!-- Live Studio Bento Preview Frame -->
+    <div class="studio-preview-frame">
+        <div class="preview-topbar">
+            <div class="preview-dots">
+                <span class="p-dot r"></span>
+                <span class="p-dot y"></span>
+                <span class="p-dot g"></span>
+            </div>
+            <div class="preview-title-chip">Tarhiata Studio — vps-produccion (157.230.12.8)</div>
+            <div class="preview-badge-status">
+                <span class="p-dot g" style="width:6px; height:6px;"></span>
+                <span>SWARM ACTIVO</span>
+            </div>
         </div>
-        <div class="term-body">
-            <div class="term-line">
-                <span class="term-prompt">$</span>
-                <span class="term-cmd">tarhiata init --host 157.230.12.8 --user root</span>
+        <div class="preview-body">
+            <!-- Columna Izquierda: Identidad y Métricas -->
+            <div class="mock-bento-tile mock-identity-tile">
+                <div class="mock-tile-header">
+                    <div class="mock-server-name">
+                        <span>vps-produccion</span>
+                        <span class="mock-host-chip">157.230.12.8</span>
+                    </div>
+                    <span class="mock-svc-tag">★ PRINCIPAL</span>
+                </div>
+                <div class="mock-gauges-grid">
+                    <div class="mock-gauge">
+                        <div class="mock-gauge-top">
+                            <span>CPU (4 cores)</span>
+                            <span class="mock-gauge-val">12.4%</span>
+                        </div>
+                        <div class="mock-progress-bar">
+                            <div class="mock-progress-fill green" style="width: 12%;"></div>
+                        </div>
+                    </div>
+                    <div class="mock-gauge">
+                        <div class="mock-gauge-top">
+                            <span>RAM (8 GB)</span>
+                            <span class="mock-gauge-val">2.8 GB (35%)</span>
+                        </div>
+                        <div class="mock-progress-bar">
+                            <div class="mock-progress-fill green" style="width: 35%;"></div>
+                        </div>
+                    </div>
+                    <div class="mock-gauge">
+                        <div class="mock-gauge-top">
+                            <span>DISCO SSD</span>
+                            <span class="mock-gauge-val">42%</span>
+                        </div>
+                        <div class="mock-progress-bar">
+                            <div class="mock-progress-fill amber" style="width: 42%;"></div>
+                        </div>
+                    </div>
+                    <div class="mock-gauge">
+                        <div class="mock-gauge-top">
+                            <span>LATENCIA SSH</span>
+                            <span class="mock-gauge-val">18 ms</span>
+                        </div>
+                        <div class="mock-progress-bar">
+                            <div class="mock-progress-fill green" style="width: 18%;"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div class="term-ok">✔ SSH connection established</div>
-            <div class="term-ok">✔ Docker Engine installed &amp; hardened</div>
-            <div class="term-ok">✔ Docker Swarm initialized (manager node)</div>
-            <div class="term-ok">✔ Traefik v3 deployed with Let's Encrypt SSL</div>
-            <div class="term-ok">✔ Fail2Ban + UFW firewall configured</div>
-            <div class="term-dim">&nbsp;</div>
-            <div class="term-line">
-                <span class="term-prompt">$</span>
-                <span class="term-cmd">tarhiata deploy --name api-backend --image node:18-alpine --port 3000 --domain api.myapp.com</span>
+
+            <!-- Columna Derecha: Servicios Activos -->
+            <div class="mock-bento-tile">
+                <div class="mock-tile-header">
+                    <span style="font-size:0.82rem; font-weight:700; color:var(--text-pure);">Servicios en Ejecución (Swarm)</span>
+                    <span style="font-size:0.70rem; color:var(--text-muted); font-family:var(--font-mono);">Traefik v3 SSL</span>
+                </div>
+                <div class="mock-services-list">
+                    <div class="mock-service-card">
+                        <div class="mock-svc-info">
+                            <div class="mock-svc-icon">🚀</div>
+                            <div>
+                                <div class="mock-svc-name">api-backend</div>
+                                <div class="mock-svc-domain">api.empresa.com</div>
+                            </div>
+                        </div>
+                        <span class="mock-svc-tag">1/1 RUNNING</span>
+                    </div>
+                    <div class="mock-service-card">
+                        <div class="mock-svc-info">
+                            <div class="mock-svc-icon">🗄️</div>
+                            <div>
+                                <div class="mock-svc-name">tarhiata-db-postgres</div>
+                                <div class="mock-svc-domain">postgres:5432 (interno)</div>
+                            </div>
+                        </div>
+                        <span class="mock-svc-tag">PERSISTENTE</span>
+                    </div>
+                    <div class="mock-service-card">
+                        <div class="mock-svc-info">
+                            <div class="mock-svc-icon">⚡</div>
+                            <div>
+                                <div class="mock-svc-name">web-frontend</div>
+                                <div class="mock-svc-domain">app.empresa.com</div>
+                            </div>
+                        </div>
+                        <span class="mock-svc-tag">2/2 REPLICAS</span>
+                    </div>
+                </div>
             </div>
-            <div class="term-ok">✔ Image pulled on cluster</div>
-            <div class="term-ok">✔ Service deployed (Swarm replicas: 1/1)</div>
-            <div class="term-ok">✔ SSL certificate issued for <span class="term-blue">api.myapp.com</span></div>
-            <div class="term-ok">✔ Traefik routing: <span class="term-purple">https://api.myapp.com</span> → <span class="term-blue">api-backend:3000</span></div>
         </div>
     </div>
 </section>
@@ -637,229 +1017,165 @@
 <!-- STATS BAND -->
 <div class="stats-band">
     <div class="stat-item">
-        <div class="stat-val">0 MB</div>
-        <div class="stat-label">RAM on your VPS</div>
+        <div class="stat-val">0 <span class="accent">MB</span></div>
+        <div class="stat-label">Sobrecarga en VPS</div>
     </div>
     <div class="stat-item">
         <div class="stat-val">$0</div>
-        <div class="stat-label">SaaS Fees / Month</div>
+        <div class="stat-label">Costo de Licencia / Mes</div>
     </div>
     <div class="stat-item">
         <div class="stat-val">5</div>
-        <div class="stat-label">Database Engines</div>
+        <div class="stat-label">Motores de Base de Datos</div>
     </div>
     <div class="stat-item">
-        <div class="stat-val">⌘K</div>
-        <div class="stat-label">Spotlight Command Palette</div>
+        <div class="stat-val">SSH</div>
+        <div class="stat-label">Túnel Criptográfico Nativo</div>
     </div>
     <div class="stat-item">
         <div class="stat-val">100%</div>
-        <div class="stat-label">Data Sovereignty</div>
+        <div class="stat-label">Soberanía de Datos</div>
     </div>
 </div>
 
 <!-- FEATURES -->
 <section class="features" id="features">
-    <div class="section-label">// FEATURES</div>
-    <h2 class="section-title">Everything you need.<br>Nothing you don't.</h2>
-    <p class="section-sub">A complete private PaaS stack built for engineers who want Vercel-grade UX without the vendor lock-in.</p>
+    <div class="section-header-center">
+        <div class="section-tag">// CARACTERÍSTICAS</div>
+        <h2 class="section-title">Todo lo que necesitas.<br>Sin sobreingeniería.</h2>
+        <p class="section-sub">Una suite completa de infraestructura diseñada para equipos que buscan control absoluto y la mejor experiencia de desarrollo.</p>
+    </div>
 
     <div class="features-grid">
         <div class="feature-card">
-            <span class="feature-icon">🌐</span>
-            <div class="feature-title">Web Control Plane</div>
+            <div class="feature-icon-box">🌐</div>
+            <div class="feature-title">Web Studio &amp; Telemetría en Tiempo Real</div>
             <div class="feature-desc">
-                Vercel/Railway-aesthetic dashboard at <code>localhost:8080</code>. Real-time SVG topology graph, cgroups telemetry, live container logs, and interactive SSH terminal — all in one place.
+                Panel de control rectilíneo en <code>localhost:8080</code>. Telemetría instantánea de cgroups, consumo de RAM, CPU, disco, logs en streaming y consola SSH interactiva.
             </div>
-            <span class="feature-tag">⌘K Spotlight Palette</span>
+            <span class="feature-tag">Linear / Vercel Industrial</span>
         </div>
 
         <div class="feature-card">
-            <span class="feature-icon">🗄️</span>
-            <div class="feature-title">1-Click Databases</div>
+            <div class="feature-icon-box">🗄️</div>
+            <div class="feature-title">Bases de Datos con 1-Click</div>
             <div class="feature-desc">
-                Instant provisioning for PostgreSQL, MongoDB, MySQL, Redis, and MinIO S3. Databases run strictly inside Swarm overlay networks — unreachable from the public internet.
+                Aprovisionamiento inmediato de PostgreSQL, MongoDB, MySQL, Redis y MinIO S3 con volúmenes persistentes y aislados en la red interna overlay de Swarm.
             </div>
-            <span class="feature-tag">Recovery Mode Included</span>
+            <span class="feature-tag">Copias de Seguridad y Restauración</span>
         </div>
 
         <div class="feature-card">
-            <span class="feature-icon">🚀</span>
-            <div class="feature-title">Zero-Downtime Deploys</div>
+            <div class="feature-icon-box">🚀</div>
+            <div class="feature-title">Despliegues Zero-Downtime &amp; SSL Automático</div>
             <div class="feature-desc">
-                Automated Traefik v3 HTTPS SSL via Let's Encrypt. Docker Swarm <code>start-first</code> rolling updates with automatic rollback on deployment failures.
+                Enrutamiento inteligente con Traefik v3 y certificados HTTPS gestionados automáticamente con Let's Encrypt. Actualizaciones rolling con rollback ante errores.
             </div>
-            <span class="feature-tag">Auto-rollback on failure</span>
+            <span class="feature-tag">Let's Encrypt Automático</span>
         </div>
 
         <div class="feature-card">
-            <span class="feature-icon">🔑</span>
-            <div class="feature-title">SSH Key Access Control</div>
+            <div class="feature-icon-box">🔑</div>
+            <div class="feature-title">Gestión de Variables de Entorno en Caliente</div>
             <div class="feature-desc">
-                Real-time team key management. Add and revoke developer SSH access instantly, with Vultr Master Account Protection to prevent accidental deletion of primary server credentials.
+                Editor interactivo y modo raw `.env` para actualizar variables de servicio en caliente, con máscaras de seguridad para contraseñas y tokens.
             </div>
-            <span class="feature-tag">Master Key Protected</span>
+            <span class="feature-tag">Editor .env en Caliente</span>
         </div>
 
         <div class="feature-card">
-            <span class="feature-icon">🏗️</span>
-            <div class="feature-title">Multi-Node Cluster Scaling</div>
+            <div class="feature-icon-box">🏗️</div>
+            <div class="feature-title">Escalabilidad de Clúster con OpenTofu</div>
             <div class="feature-desc">
-                Automated Terraform provisioning of dedicated worker nodes via Vultr API v2 across regions — defaulted to Mexico City (<code>mex</code>). Scale horizontally in minutes.
+                Aprovisionamiento declarativo automatizado de nodos worker dedicados a través de la API de Vultr. Escala horizontalmente tu clúster Swarm en segundos.
             </div>
-            <span class="feature-tag">Vultr API v2 · Terraform</span>
+            <span class="feature-tag">OpenTofu &amp; Terraform</span>
         </div>
 
         <div class="feature-card">
-            <span class="feature-icon">📦</span>
-            <div class="feature-title">Custom S3 Backup Exporter</div>
+            <div class="feature-icon-box">📦</div>
+            <div class="feature-title">Explorador de Volúmenes &amp; Archivos</div>
             <div class="feature-desc">
-                Stream backups directly to MinIO S3, Cloudflare R2, AWS S3, DigitalOcean Spaces, or Wasabi. Or keep them local at <code>/opt/tarhiata/backups</code>.
+                Inspecciona, descarga, edita y gestiona carpetas y archivos dentro de los volúmenes persistentes de tus aplicaciones sin salir del panel.
             </div>
-            <span class="feature-tag">Multi-provider S3</span>
-        </div>
-
-        <div class="feature-card">
-            <span class="feature-icon">📜</span>
-            <div class="feature-title">Immutable Audit Logger</div>
-            <div class="feature-desc">
-                NDJSON audit trail tracking every deployment, link, node provisioning, and configuration event. Full security and compliance history on your own disk.
-            </div>
-            <span class="feature-tag">NDJSON · Immutable</span>
-        </div>
-
-        <div class="feature-card">
-            <span class="feature-icon">🔗</span>
-            <div class="feature-title">Service Linking Engine</div>
-            <div class="feature-desc">
-                Connect two services and auto-inject the target connection URI into environment variables. Link a Node.js API to PostgreSQL with a single command — no manual DNS config.
-            </div>
-            <span class="feature-tag">Auto ENV injection</span>
-        </div>
-
-        <div class="feature-card">
-            <span class="feature-icon">🌍</span>
-            <div class="feature-title">Multi-PC State Sync</div>
-            <div class="feature-desc">
-                Infrastructure topology is exported as non-sensitive state references at <code>/opt/tarhiata/state.json</code>. Connecting from a new PC automatically imports the entire cluster state instantly.
-            </div>
-            <span class="feature-tag">Local-First · Stateless</span>
-        </div>
-    </div>
-</section>
-
-<!-- SCREENSHOTS -->
-<section class="gallery">
-    <div style="text-align:center; margin-bottom:48px;">
-        <div class="section-label" style="margin-bottom:12px;">// DASHBOARD PREVIEW</div>
-        <h2 class="section-title">See it in action</h2>
-        <p style="color:var(--muted2); font-size:1rem; max-width:480px; margin:0 auto;">
-            The exact UX you love from Vercel and Railway — running 100% on your own VPS.
-        </p>
-    </div>
-    <div class="gallery-grid">
-        <div class="gallery-item">
-            <img
-                src="https://github.com/user-attachments/assets/fae05291-157c-4f12-adac-1d6921457b7a"
-                alt="Tarhiata-Ops Web Dashboard — Services catalog, topology, and VPS metrics"
-                loading="lazy"
-            >
-        </div>
-        <div class="gallery-item">
-            <img
-                src="https://github.com/user-attachments/assets/4ef5732d-b679-446a-9559-769e08de9d14"
-                alt="Tarhiata-Ops — Vultr bootstrap and real-time provisioning logs"
-                loading="lazy"
-            >
+            <span class="feature-tag">File Explorer Integrado</span>
         </div>
     </div>
 </section>
 
 <!-- COMPARISON -->
 <section class="comparison" id="comparison">
-    <div style="text-align:center; margin-bottom:48px;">
-        <div class="section-label" style="margin-bottom:12px;">// WHY NOT SAAS</div>
-        <h2 class="section-title">Tarhiata-Ops vs the rest</h2>
-        <p style="color:var(--muted2); font-size:1rem; max-width:480px; margin:0 auto;">
-            The same DX. None of the lock-in, fees, or data exposure.
-        </p>
+    <div class="section-header-center">
+        <div class="section-tag">// COMPARATIVA</div>
+        <h2 class="section-title">Tarhiata Cloud frente al resto</h2>
+        <p class="section-sub">La misma velocidad y ergonomía. Cero costos mensuales, sin vendor lock-in ni exposición de datos.</p>
     </div>
 
-    <table class="comparison-table">
-        <thead>
-            <tr>
-                <th></th>
-                <th>Vercel / Railway</th>
-                <th>Coolify / Caprover</th>
-                <th class="highlight">Tarhiata-Ops</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td>Self-hosted on your VPS</td>
-                <td><span class="cross">✕</span></td>
-                <td><span class="check">✓</span></td>
-                <td class="highlight"><span class="check">✓</span></td>
-            </tr>
-            <tr>
-                <td>RAM usage on VPS</td>
-                <td>N/A (cloud)</td>
-                <td><span class="warn">500 MB–2 GB agent</span></td>
-                <td class="highlight"><span class="check">0 MB</span></td>
-            </tr>
-            <tr>
-                <td>Monthly SaaS fee</td>
-                <td><span class="cross">$20–$500+</span></td>
-                <td><span class="check">$0</span></td>
-                <td class="highlight"><span class="check">$0</span></td>
-            </tr>
-            <tr>
-                <td>Data on your servers</td>
-                <td><span class="cross">✕</span></td>
-                <td><span class="check">✓</span></td>
-                <td class="highlight"><span class="check">✓</span></td>
-            </tr>
-            <tr>
-                <td>Spotlight Command Palette</td>
-                <td><span class="check">✓</span></td>
-                <td><span class="cross">✕</span></td>
-                <td class="highlight"><span class="check">✓ ⌘K</span></td>
-            </tr>
-            <tr>
-                <td>CLI + Web UI</td>
-                <td><span class="check">✓</span></td>
-                <td><span class="warn">Web only</span></td>
-                <td class="highlight"><span class="check">✓ Both</span></td>
-            </tr>
-            <tr>
-                <td>Multi-node cluster scaling</td>
-                <td><span class="check">✓</span></td>
-                <td><span class="warn">Manual</span></td>
-                <td class="highlight"><span class="check">✓ Terraform auto</span></td>
-            </tr>
-            <tr>
-                <td>Immutable audit log</td>
-                <td><span class="cross">✕</span></td>
-                <td><span class="cross">✕</span></td>
-                <td class="highlight"><span class="check">✓ NDJSON</span></td>
-            </tr>
-            <tr>
-                <td>Service link ENV injection</td>
-                <td><span class="check">✓</span></td>
-                <td><span class="cross">✕</span></td>
-                <td class="highlight"><span class="check">✓ Auto</span></td>
-            </tr>
-        </tbody>
-    </table>
+    <div class="comparison-table-wrap">
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th>Característica</th>
+                    <th>Vercel / Railway</th>
+                    <th>Coolify / Caprover</th>
+                    <th class="highlight">Tarhiata Cloud</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Hospedado en tu propio VPS</td>
+                    <td><span class="cross-icon">✕</span></td>
+                    <td><span class="check-icon">✓</span></td>
+                    <td class="highlight"><span class="check-icon">✓ 100%</span></td>
+                </tr>
+                <tr>
+                    <td>Consumo de RAM en servidor</td>
+                    <td>N/A (SaaS)</td>
+                    <td><span class="warn-tag">500 MB – 2 GB</span></td>
+                    <td class="highlight"><span class="check-icon">0 MB (Zero-Overhead)</span></td>
+                </tr>
+                <tr>
+                    <td>Costo mensual de plataforma</td>
+                    <td><span class="cross-icon">$20 – $500+ USD</span></td>
+                    <td><span class="check-icon">$0</span></td>
+                    <td class="highlight"><span class="check-icon">$0</span></td>
+                </tr>
+                <tr>
+                    <td>Soberanía total de datos</td>
+                    <td><span class="cross-icon">✕</span></td>
+                    <td><span class="check-icon">✓</span></td>
+                    <td class="highlight"><span class="check-icon">✓</span></td>
+                </tr>
+                <tr>
+                    <td>CLI Nativa + Web Studio</td>
+                    <td><span class="check-icon">✓</span></td>
+                    <td><span class="warn-tag">Solo Web</span></td>
+                    <td class="highlight"><span class="check-icon">✓ Ambos</span></td>
+                </tr>
+                <tr>
+                    <td>Clúster Multi-Nodo Declarativo</td>
+                    <td><span class="check-icon">✓</span></td>
+                    <td><span class="warn-tag">Manual</span></td>
+                    <td class="highlight"><span class="check-icon">✓ OpenTofu Automático</span></td>
+                </tr>
+                <tr>
+                    <td>Logs de Auditoría Inmutables</td>
+                    <td><span class="cross-icon">✕</span></td>
+                    <td><span class="cross-icon">✕</span></td>
+                    <td class="highlight"><span class="check-icon">✓ NDJSON</span></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
 </section>
 
 <!-- DOWNLOADS -->
 <section class="downloads" id="downloads">
-    <div class="section-label" style="margin-bottom:12px;">// DOWNLOAD</div>
-    <h2 class="section-title">Pre-compiled binaries</h2>
-    <p style="color:var(--muted2); font-size:1rem; max-width:440px; margin:0 auto;">
-        No build step. Download and run directly.
-    </p>
+    <div class="section-header-center">
+        <div class="section-tag">// DESCARGAS</div>
+        <h2 class="section-title">Binarios Pre-compilados</h2>
+        <p class="section-sub">Sin dependencias ni entornos complejos. Descarga y ejecuta directamente.</p>
+    </div>
 
     <div class="dl-grid">
         <a class="dl-card" href="https://github.com/Dall06/tarhiata-ops/releases/latest/download/tarhiata-darwin-arm64">
@@ -900,35 +1216,42 @@
         <a class="dl-card" href="https://github.com/Dall06/tarhiata-ops" target="_blank">
             <span class="dl-icon">📦</span>
             <div class="dl-info">
-                <div class="dl-os">Build from Source</div>
-                <div class="dl-arch">go build · requires Go 1.25+</div>
+                <div class="dl-os">Compilar desde Código</div>
+                <div class="dl-arch">go build · Go 1.25+</div>
             </div>
         </a>
     </div>
 </section>
 
-<!-- CTA -->
+<!-- CALL TO ACTION -->
 <section class="cta">
-    <div class="cta-glow"></div>
-    <h2>Your infra.<br>Your rules.</h2>
-    <p>Stop paying SaaS fees for infrastructure you could own. Deploy in minutes on any VPS with SSH.</p>
+    <h2 class="cta-title">Tu infraestructura.<br>Tus propias reglas.</h2>
+    <p class="cta-desc">Elimina costos de suscripción SaaS por servidores que puedes poseer. Despliega en minutos sobre cualquier VPS vía SSH.</p>
     <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
-        <a href="https://github.com/Dall06/tarhiata-ops" target="_blank" class="btn-primary">
-            ⚡ Get Started on GitHub
+        <a href="https://github.com/Dall06/tarhiata-ops" target="_blank" class="btn-action-primary">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+            <span>Comenzar en GitHub</span>
         </a>
-        <a href="https://github.com/Dall06/tarhiata-ops/releases/latest" target="_blank" class="btn-secondary">
-            📥 Latest Release
+        <a href="https://github.com/Dall06/tarhiata-ops/releases/latest" target="_blank" class="btn-action-secondary">
+            <span>Última Versión (v4.1.0)</span>
         </a>
     </div>
 </section>
 
 <!-- FOOTER -->
 <footer>
-    <div class="footer-logo">
-        ⚡ tarhiata<span>-ops</span>
+    <div class="footer-container">
+        <div class="footer-brand">
+            <div class="brand-gem" style="width:22px; height:22px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                </svg>
+            </div>
+            <span>TARHIATA</span>
+        </div>
+        <p class="footer-text">Desarrollado con ❤️ en México 🇲🇽 · <a href="https://github.com/Dall06/tarhiata-ops" target="_blank">GitHub</a> · <a href="https://github.com/Dall06/tarhiata-ops/blob/main/docs/es/README.md" target="_blank">Documentación</a></p>
+        <p class="footer-text">Licencia MIT · v4.1.0</p>
     </div>
-    <p>Built with ❤️ in México 🇲🇽 · <a href="https://github.com/Dall06/tarhiata-ops" target="_blank">GitHub</a> · <a href="https://github.com/Dall06/tarhiata-ops/blob/main/docs/es/README.md" target="_blank">Docs ES</a></p>
-    <p style="color:var(--muted);">MIT License · v1.0.0-beta</p>
 </footer>
 
 </body>
