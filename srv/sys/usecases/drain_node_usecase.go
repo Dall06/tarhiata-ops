@@ -3,6 +3,7 @@ package usecases
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -43,6 +44,11 @@ func (uc *DrainNodeUseCase) Execute(nodeID, availability string, config domain.S
 	if err := uc.executor.Connect(config); err != nil {
 		return nil, fmt.Errorf("error conectando SSH: %w", err)
 	}
+	defer func() {
+		if clErr := uc.executor.Close(); clErr != nil {
+			slog.Warn("drain_node: error cerrando conexión SSH", "error", clErr)
+		}
+	}()
 
 	// 1. Actualizar disponibilidad del nodo
 	updateCmd := fmt.Sprintf("docker node update --availability %s %s", avail, nodeID)

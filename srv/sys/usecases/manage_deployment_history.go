@@ -3,6 +3,7 @@ package usecases
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -59,6 +60,11 @@ func (uc *ManageDeploymentHistoryUseCase) RollbackToVersion(serviceName string, 
 	if err := uc.executor.Connect(config); err != nil {
 		return nil, fmt.Errorf("error de conexión SSH: %w", err)
 	}
+	defer func() {
+		if clErr := uc.executor.Close(); clErr != nil {
+			slog.Warn("manage_deployment_history: error cerrando conexión SSH", "error", clErr)
+		}
+	}()
 
 	// 2. Ejecutar actualización en Swarm a la imagen histórica
 	cmd := fmt.Sprintf("docker service update --image %s %s || docker service update --image %s tarhiata-app-%s || docker service update --image %s %s_%s",

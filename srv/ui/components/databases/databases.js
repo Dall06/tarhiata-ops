@@ -88,14 +88,37 @@ export function renderDatabaseCards(databases, callbacks = {}) {
     document.querySelectorAll('.btn-logs-db').forEach(btn => {
         btn.addEventListener('click', () => {
             const name = btn.getAttribute('data-name');
-            if (name && callbacks.onOpenLogs) callbacks.onOpenLogs(name);
+            if (!name) return;
+            const { openLogsModal } = window;
+            if (openLogsModal) openLogsModal(name);
+            else if (callbacks.onOpenLogs) callbacks.onOpenLogs(name);
         });
     });
 
     document.querySelectorAll('.btn-restart-db').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
             const name = btn.getAttribute('data-name');
-            if (name && callbacks.onRestart) callbacks.onRestart(name, btn);
+            if (!name) {
+                return;
+            }
+            if (callbacks.onRestart) {
+                callbacks.onRestart(name, btn);
+                return;
+            }
+            btn.disabled = true;
+            btn.textContent = '⏳...';
+            showToast(`Reiniciando base de datos '${name}'...`, 'info');
+            try {
+                await apiFetch('/api/databases/restart', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name, server: state.selectedServerName || '' })
+                });
+                showToast(`Base de datos '${name}' reiniciada.`, 'success');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🔄';
+            }
         });
     });
 
@@ -110,7 +133,10 @@ export function renderDatabaseCards(databases, callbacks = {}) {
     document.querySelectorAll('.btn-vol-db').forEach(btn => {
         btn.addEventListener('click', () => {
             const name = btn.getAttribute('data-name');
-            if (name && callbacks.onOpenVolume) callbacks.onOpenVolume('/opt/data/db-storage');
+            if (!name) return;
+            const { openVolumeModal } = window;
+            if (openVolumeModal) openVolumeModal('/opt/data/db-storage');
+            else if (callbacks.onOpenVolume) callbacks.onOpenVolume('/opt/data/db-storage');
         });
     });
 

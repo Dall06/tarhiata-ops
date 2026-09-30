@@ -147,3 +147,20 @@ func TestTriggerWebhookDeployUseCase_TableDriven(t *testing.T) {
 		})
 	}
 }
+
+// TestTriggerWebhookDeployUseCase_ClosesSSHConnection valida el flujo completo: la
+// conexión SSH abierta en Execute debe cerrarse siempre (antes se quedaba abierta
+// indefinidamente en cada webhook de git, agotando conexiones bajo tráfico normal).
+func TestTriggerWebhookDeployUseCase_ClosesSSHConnection(t *testing.T) {
+	repo := mocks.NewMockConfigRepository()
+	repo.Services = []domain.SavedService{{Name: "app-api", Port: 3000}}
+	exec := &mockSecuritySSHExecutor{responses: map[string]string{"docker service update": "ok"}}
+	uc := NewTriggerWebhookDeployUseCase(repo, exec)
+
+	if _, err := uc.Execute("app-api", "myimage:v1", domain.ServerConfig{Host: "192.168.1.50"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exec.closeCalls != 1 {
+		t.Errorf("se esperaba 1 llamada a Close(), se registraron %d (fuga de conexión SSH)", exec.closeCalls)
+	}
+}

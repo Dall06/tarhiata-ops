@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Dall06/tarhiata-ops/pkg/validator"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 )
@@ -31,7 +32,7 @@ func (uc *defaultManageRegistryAuthUseCase) Save(cred domain.SavedRegistryCreden
 
 	// If SSH connection is available, perform docker login on the VPS
 	if uc.sshExec != nil && config.Host != "" {
-		loginCmd := fmt.Sprintf("docker login %s -u '%s' -p '%s'", cred.Server, cred.Username, cred.Password)
+		loginCmd := fmt.Sprintf("docker login %s -u %s -p %s", validator.ShellQuote(cred.Server), validator.ShellQuote(cred.Username), validator.ShellQuote(cred.Password))
 		res, err := uc.sshExec.RunCommand(loginCmd)
 		if err != nil || (res != nil && res.ExitCode != 0) {
 			output := ""
@@ -57,7 +58,7 @@ func (uc *defaultManageRegistryAuthUseCase) Delete(server string, config domain.
 	}
 
 	if uc.sshExec != nil && config.Host != "" {
-		logoutCmd := fmt.Sprintf("docker logout %s || true", server)
+		logoutCmd := fmt.Sprintf("docker logout %s || true", validator.ShellQuote(server))
 		uc.sshExec.RunCommand(logoutCmd)
 	}
 

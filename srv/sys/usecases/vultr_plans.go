@@ -1,60 +1,38 @@
 package usecases
 
 import (
-	"encoding/json"
-	"fmt"
-	"net/http"
 	"sort"
-	"time"
 
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
+	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
+	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
 )
 
 type ListVultrPlansUseCase struct {
-	client *http.Client
+	vultrClient ports.VultrClient
 }
 
 func NewListVultrPlansUseCase() *ListVultrPlansUseCase {
 	return &ListVultrPlansUseCase{
-		client: &http.Client{Timeout: 10 * time.Second},
+		vultrClient: repositories.NewVultrHTTPClient(),
 	}
 }
 
-type vultrPlansResponse struct {
-	Plans []domain.VultrPlan `json:"plans"`
-}
-
-type vultrRegionsResponse struct {
-	Regions []domain.VultrRegion `json:"regions"`
+// WithVultrClient permite inyectar un cliente Vultr falso para pruebas unitarias.
+func (uc *ListVultrPlansUseCase) WithVultrClient(c ports.VultrClient) *ListVultrPlansUseCase {
+	uc.vultrClient = c
+	return uc
 }
 
 // ExecutePlans obtiene los planes de Vultr filtrados y ordenados por costo mensual.
 func (uc *ListVultrPlansUseCase) ExecutePlans(apiKey string) ([]domain.VultrPlan, error) {
-	req, err := http.NewRequest(http.MethodGet, "https://api.vultr.com/v2/plans", nil)
+	plans, err := uc.vultrClient.GetPlans(apiKey)
 	if err != nil {
 		return nil, err
 	}
-	if apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	}
-
-	resp, err := uc.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error al conectar con Vultr API: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("vultr api devolvió status HTTP %d", resp.StatusCode)
-	}
-
-	var data vultrPlansResponse
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, fmt.Errorf("error al decodificar planes de Vultr: %w", err)
-	}
 
 	var filtered []domain.VultrPlan
-	for _, p := range data.Plans {
+	for _, p := range plans {
 		// Filtrar planes activos estándar (vc2, vhc, vdc, vc2g)
 		if p.MonthlyCost > 0 {
 			filtered = append(filtered, p)
@@ -74,28 +52,5 @@ func (uc *ListVultrPlansUseCase) ExecutePlans(apiKey string) ([]domain.VultrPlan
 
 // ExecuteRegions obtiene las regiones geográficas disponibles de Vultr.
 func (uc *ListVultrPlansUseCase) ExecuteRegions(apiKey string) ([]domain.VultrRegion, error) {
-	req, err := http.NewRequest(http.MethodGet, "https://api.vultr.com/v2/regions", nil)
-	if err != nil {
-		return nil, err
-	}
-	if apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	}
-
-	resp, err := uc.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error al conectar con Vultr API: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("vultr api devolvió status HTTP %d", resp.StatusCode)
-	}
-
-	var data vultrRegionsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, fmt.Errorf("error al decodificar regiones de Vultr: %w", err)
-	}
-
-	return data.Regions, nil
+	return uc.vultrClient.GetRegions(apiKey)
 }

@@ -123,3 +123,47 @@ func TestCryptoSSHExecutor_PooledExecution(t *testing.T) {
 		t.Errorf("unexpected error on exec2 Close: %v", err)
 	}
 }
+
+// TestCryptoSSHExecutor_RunCommand_PropagatesTransportError valida el flujo completo:
+// una caída real de transporte SSH (sesión no disponible) debe propagarse como el error
+// de Go de RunCommand, no quedar silenciada (antes SIEMPRE se devolvía nil ahí, dejando
+// mensajes de error vacíos en decenas de usecases ante una caída de conexión real).
+func TestCryptoSSHExecutor_RunCommand_PropagatesTransportError(t *testing.T) {
+	sshclient.GlobalPool.SetDialer(func(host, user, privateKeyPath string, port int) (*sshclient.Client, error) {
+		c := sshclient.New()
+		c.SetMockConnected(true) // conectado a nivel de pool, pero sin *ssh.Client real subyacente
+		return c, nil
+	})
+
+	exec := NewCryptoSSHExecutor()
+	if err := exec.Connect(domain.ServerConfig{Host: "192.168.1.200", User: "root", Port: 22}); err != nil {
+		t.Fatalf("unexpected error connecting: %v", err)
+	}
+	defer exec.Close()
+
+	res, err := exec.RunCommand("echo hi")
+	if err == nil {
+		t.Fatal("se esperaba un error de transporte real, se obtuvo nil")
+	}
+	if res == nil || res.ExitCode != -1 {
+		t.Errorf("se esperaba ExitCode -1 para un fallo de transporte, obtenido: %+v", res)
+	}
+}
+
+// TestCryptoSSHExecutor_LocalExecution_NonZeroExitDoesNotPropagateAsGoError confirma
+// que el comportamiento existente (exit code != 0 no es un error de Go) no se rompió.
+func TestCryptoSSHExecutor_LocalExecution_NonZeroExitDoesNotPropagateAsGoError(t *testing.T) {
+	exec := NewCryptoSSHExecutor()
+	if err := exec.Connect(domain.ServerConfig{Host: "localhost"}); err != nil {
+		t.Fatalf("unexpected error connecting to local: %v", err)
+	}
+	defer exec.Close()
+
+	res, err := exec.RunCommand("exit 7")
+	if err != nil {
+		t.Errorf("un exit code != 0 no debería propagarse como error de Go, obtenido: %v", err)
+	}
+	if res.ExitCode != 7 {
+		t.Errorf("expected exit code 7, got %d", res.ExitCode)
+	}
+}

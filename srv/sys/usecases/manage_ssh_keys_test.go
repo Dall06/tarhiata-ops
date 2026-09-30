@@ -52,3 +52,28 @@ func TestManageSSHKeysUseCase(t *testing.T) {
 		t.Fatalf("Se esperaba error al intentar eliminar la llave protegida de Vultr, pero se permitió")
 	}
 }
+
+// TestManageSSHKeysUseCase_ListKeys_MarksVultrRegisteredKeys valida el flujo completo con
+// el cliente Vultr inyectado (antes imposible de testear sin red real, al depender de un
+// *http.Client concreto): una llave que SÍ está registrada en la cuenta de Vultr debe
+// marcarse como IsVultrKey/Protected.
+func TestManageSSHKeysUseCase_ListKeys_MarksVultrRegisteredKeys(t *testing.T) {
+	mockSSH := mocks.NewMockSSHExecutor()
+	mockSSH.MockResponses["cat /root/.ssh/authorized_keys 2>/dev/null"] = &domain.CommandResult{
+		Output:   "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC3 dev-master@vultr\n",
+		ExitCode: 0,
+	}
+
+	fake := &fakeVultrClient{sshKeys: []domain.VultrSSHKey{
+		{ID: "1", Name: "master", SSHKey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC3"},
+	}}
+	uc := NewManageSSHKeysUseCase(mockSSH).WithVultrClient(fake)
+
+	keys, err := uc.ListKeys(domain.ServerConfig{Host: "1.2.3.4", VultrAPIToken: "test-token"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(keys) != 1 || !keys[0].IsVultrKey || !keys[0].Protected {
+		t.Errorf("se esperaba 1 llave marcada como registrada en Vultr, got %+v", keys)
+	}
+}

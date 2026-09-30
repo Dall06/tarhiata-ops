@@ -50,6 +50,13 @@ func IsSafeCommand(cmd string) bool {
 	return true
 }
 
+// ShellQuote envuelve s en comillas simples POSIX-seguras para interpolarlo en un
+// comando de shell remoto (SSH), neutralizando cualquier metacaracter ($, `, ;, |, &,
+// espacios) sin importar el contenido.
+func ShellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // NormalizeRegion normaliza alias de regiones comunes para proveedores de nube a su código canónico.
 func NormalizeRegion(provider, region string) (string, error) {
 	p := strings.ToLower(strings.TrimSpace(provider))

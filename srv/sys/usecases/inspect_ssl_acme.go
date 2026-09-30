@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -50,6 +51,11 @@ func (uc *InspectSSLAcmeUseCase) Execute(config domain.ServerConfig) ([]ACMECert
 	if err := uc.executor.Connect(config); err != nil {
 		return nil, fmt.Errorf("error conectando SSH: %w", err)
 	}
+	defer func() {
+		if clErr := uc.executor.Close(); clErr != nil {
+			slog.Warn("inspect_ssl_acme: error cerrando conexión SSH", "error", clErr)
+		}
+	}()
 
 	cmd := "cat /opt/tarhiata/traefik/acme.json 2>/dev/null || cat /opt/tarhiata/acme.json 2>/dev/null || echo '{}'"
 	cmdRes, err := uc.executor.RunCommand(cmd)

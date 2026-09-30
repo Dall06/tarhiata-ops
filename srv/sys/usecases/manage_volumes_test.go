@@ -3,6 +3,7 @@ package usecases
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
@@ -69,4 +70,90 @@ func TestManageVolumesUseCase_Operations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected delete error: %v", err)
 	}
+}
+
+// TestManageVolumesUseCase_ShellInjectionPrevention valida el flujo completo de cada
+// operación (no solo sanitizePath): un nombre de archivo con metacaracteres de shell
+// debe llegar SIEMPRE citado (comillas simples) al comando real enviado por SSH, para
+// que $(...) / backticks / ; no se ejecuten en el host remoto.
+func TestManageVolumesUseCase_ShellInjectionPrevention(t *testing.T) {
+	const maliciousPath = "/opt/data/$(whoami)"
+	const quoted = "'/opt/data/$(whoami)'"
+	config := domain.ServerConfig{Host: "127.0.0.1"}
+
+	lastCmd := func(m *mocks.MockSSHExecutor) string {
+		if len(m.CommandsExecuted) == 0 {
+			t.Fatal("no se ejecutó ningún comando SSH")
+		}
+		return m.CommandsExecuted[len(m.CommandsExecuted)-1]
+	}
+
+	t.Run("ReadFileContent cita el path", func(t *testing.T) {
+		mockSSH := mocks.NewMockSSHExecutor()
+		uc := NewManageVolumesUseCase(nil, mockSSH)
+		if _, err := uc.ReadFileContent(maliciousPath, config); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got := lastCmd(mockSSH); got != "head -c 200000 "+quoted {
+			t.Errorf("comando inseguro: %s", got)
+		}
+	})
+
+	t.Run("DeleteFile cita el path", func(t *testing.T) {
+		mockSSH := mocks.NewMockSSHExecutor()
+		uc := NewManageVolumesUseCase(nil, mockSSH)
+		if err := uc.DeleteFile(maliciousPath, config); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got := lastCmd(mockSSH); got != "rm -rf "+quoted {
+			t.Errorf("comando inseguro: %s", got)
+		}
+	})
+
+	t.Run("CreateDirectory cita el path", func(t *testing.T) {
+		mockSSH := mocks.NewMockSSHExecutor()
+		uc := NewManageVolumesUseCase(nil, mockSSH)
+		if err := uc.CreateDirectory(maliciousPath, config); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got := lastCmd(mockSSH); got != "mkdir -p "+quoted {
+			t.Errorf("comando inseguro: %s", got)
+		}
+	})
+
+	t.Run("DownloadFile cita el path", func(t *testing.T) {
+		mockSSH := mocks.NewMockSSHExecutor()
+		uc := NewManageVolumesUseCase(nil, mockSSH)
+		if _, err := uc.DownloadFile(maliciousPath, config); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := "base64 " + quoted + " 2>/dev/null || cat " + quoted
+		if got := lastCmd(mockSSH); got != want {
+			t.Errorf("comando inseguro: %s", got)
+		}
+	})
+
+	t.Run("WriteFileContent cita el path", func(t *testing.T) {
+		mockSSH := mocks.NewMockSSHExecutor()
+		uc := NewManageVolumesUseCase(nil, mockSSH)
+		if err := uc.WriteFileContent(maliciousPath, "hola", config); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		got := lastCmd(mockSSH)
+		if !strings.HasSuffix(got, "| xxd -r -p > "+quoted) {
+			t.Errorf("comando inseguro: %s", got)
+		}
+	})
+
+	t.Run("ListVolumeFiles cita el path", func(t *testing.T) {
+		mockSSH := mocks.NewMockSSHExecutor()
+		uc := NewManageVolumesUseCase(nil, mockSSH)
+		if _, err := uc.ListVolumeFiles(maliciousPath, config); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		got := lastCmd(mockSSH)
+		if !strings.Contains(got, "mkdir -p "+quoted) || !strings.Contains(got, "for f in "+quoted+"/*") {
+			t.Errorf("comando inseguro: %s", got)
+		}
+	})
 }

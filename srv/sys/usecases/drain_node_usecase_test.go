@@ -109,3 +109,20 @@ func TestDrainNodeUseCase_TableDriven(t *testing.T) {
 		})
 	}
 }
+
+// TestDrainNodeUseCase_ClosesSSHConnection valida que Execute cierre la conexión SSH
+// que abre, en vez de dejarla fugada tras cada operación de drenado/activación de nodo.
+func TestDrainNodeUseCase_ClosesSSHConnection(t *testing.T) {
+	exec := &mockSecuritySSHExecutor{responses: map[string]string{
+		"docker node update": "node-worker-1",
+		"docker node ps":     "0",
+	}}
+	uc := NewDrainNodeUseCase(exec)
+
+	if _, err := uc.Execute("node-worker-1", "drain", domain.ServerConfig{Host: "192.168.1.10"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exec.closeCalls != 1 {
+		t.Errorf("se esperaba 1 llamada a Close(), se registraron %d (fuga de conexión SSH)", exec.closeCalls)
+	}
+}

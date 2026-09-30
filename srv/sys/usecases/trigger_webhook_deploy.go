@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -69,6 +70,11 @@ func (uc *TriggerWebhookDeployUseCase) Execute(serviceName, imageTag string, con
 	if err := uc.executor.Connect(config); err != nil {
 		return nil, fmt.Errorf("error conectando SSH: %w", err)
 	}
+	defer func() {
+		if clErr := uc.executor.Close(); clErr != nil {
+			slog.Warn("trigger_webhook_deploy: error cerrando conexión SSH", "error", clErr)
+		}
+	}()
 
 	// 3. Ejecutar actualización del servicio en Swarm
 	updateCmd := fmt.Sprintf("docker service update --image %s --force %s || docker service update --image %s --force tarhiata-app-%s || docker service update --image %s --force %s_%s",

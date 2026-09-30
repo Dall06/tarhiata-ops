@@ -130,6 +130,14 @@ type VultrRegion struct {
 	Options   []string `json:"options,omitempty"`
 }
 
+// VultrSSHKey representa una llave SSH registrada en la cuenta de Vultr del usuario.
+type VultrSSHKey struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	SSHKey      string `json:"ssh_key"`
+	DateCreated string `json:"date_created"`
+}
+
 // SSHKeyInfo contiene los metadatos de una llave SSH autorizada en el VPS.
 type SSHKeyInfo struct {
 	Fingerprint string `json:"fingerprint"`
@@ -404,4 +412,11 @@ type SystemDiagnosticReport struct {
 	GeneratedBy string             `json:"generatedBy"`
 }
 
-
+// DNSCheckResult representa el resultado de verificar si un dominio resuelve a la IP del servidor.
+type DNSCheckResult struct {
+	Domain      string   `json:"domain"`
+	ServerIP    string   `json:"server_ip"`
+	ResolvedIPs []string `json:"resolved_ips"`
+	Matches     bool     `json:"matches"`
+	Status      string   `json:"status"` // "match", "mismatch" o "not_found"
+}

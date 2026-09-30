@@ -10,6 +10,7 @@ import (
 	"github.com/Dall06/tarhiata-ops/pkg/secutil"
 	"github.com/Dall06/tarhiata-ops/pkg/sshclient"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
+	"golang.org/x/crypto/ssh"
 )
 
 // CryptoSSHExecutor implementa la interfaz ports.SSHExecutor utilizando pkg/sshclient para hosts remotos y ejecución nativa para local.
@@ -69,7 +70,12 @@ func (e *CryptoSSHExecutor) Connect(config domain.ServerConfig) error {
 	return e.client.Connect(config.Host, config.User, config.PrivateKey, config.Port)
 }
 
-// RunCommand ejecuta un comando de forma síncrona y captura la salida.
+// RunCommand ejecuta un comando de forma síncrona y captura la salida. El error de Go
+// que devuelve solo representa un fallo real de transporte/ejecución (no se pudo lanzar
+// el comando, sesión SSH caída, timeout); un exit code distinto de cero del comando en sí
+// se reporta únicamente en CommandResult.ExitCode/Error, igual que antes, para no romper
+// a los ~130 llamadores que ya tratan un exit code != 0 como una falla esperada y no una
+// caída de transporte.
 func (e *CryptoSSHExecutor) RunCommand(cmd string) (*domain.CommandResult, error) {
 	if e.isLocal {
 		execCmd := exec.Command("sh", "-c", cmd)
@@ -87,6 +93,9 @@ func (e *CryptoSSHExecutor) RunCommand(cmd string) (*domain.CommandResult, error
 			ExitCode: exitCode,
 			Error:    err,
 		}
+		if _, isExitErr := err.(*exec.ExitError); err != nil && !isExitErr {
+			return result, err
+		}
 		return result, nil
 	}
 
@@ -95,7 +104,7 @@ func (e *CryptoSSHExecutor) RunCommand(cmd string) (*domain.CommandResult, error
 			Output:   "",
 			ExitCode: -1,
 			Error:    fmt.Errorf("cliente ssh no conectado"),
-		}, nil
+		}, fmt.Errorf("cliente ssh no conectado")
 	}
 
 	out, exitCode, err := e.client.RunCommand(cmd)
@@ -103,6 +112,9 @@ func (e *CryptoSSHExecutor) RunCommand(cmd string) (*domain.CommandResult, error
 		Output:   out,
 		ExitCode: exitCode,
 		Error:    err,
+	}
+	if _, isExitErr := err.(*ssh.ExitError); err != nil && !isExitErr {
+		return result, err
 	}
 	return result, nil
 }

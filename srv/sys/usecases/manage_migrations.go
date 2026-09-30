@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 
+	"github.com/Dall06/tarhiata-ops/pkg/validator"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 )
@@ -169,12 +170,13 @@ func (uc *ManageDBMigrationsUseCase) executeDirectSQL(sqlContent string, targetD
 }
 
 func buildMigrationCommand(engine, password, serviceName, b64Content string) string {
+	quotedService := validator.ShellQuote(serviceName)
 	switch engine {
 	case "postgres":
-		return fmt.Sprintf("echo '%s' | base64 -d | docker exec -i $(docker ps -q -f name=%s | head -n 1) psql -U admin -d db", b64Content, serviceName)
+		return fmt.Sprintf("echo '%s' | base64 -d | docker exec -i $(docker ps -q -f name=%s | head -n 1) psql -U admin -d db", b64Content, quotedService)
 	case "mongo", "mongodb":
-		return fmt.Sprintf("echo '%s' | base64 -d | docker exec -i $(docker ps -q -f name=%s | head -n 1) mongosh -u admin -p '%s' db", b64Content, serviceName, password)
+		return fmt.Sprintf("echo '%s' | base64 -d | docker exec -i $(docker ps -q -f name=%s | head -n 1) mongosh -u admin -p %s db", b64Content, quotedService, validator.ShellQuote(password))
 	default:
-		return fmt.Sprintf("echo '%s' | base64 -d | docker exec -i $(docker ps -q -f name=%s | head -n 1) mysql -u admin -p'%s' db", b64Content, serviceName, password)
+		return fmt.Sprintf("echo '%s' | base64 -d | docker exec -i $(docker ps -q -f name=%s | head -n 1) mysql -u admin -p%s db", b64Content, quotedService, validator.ShellQuote(password))
 	}
 }

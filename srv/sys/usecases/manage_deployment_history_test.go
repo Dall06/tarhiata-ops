@@ -134,3 +134,21 @@ func TestManageDeploymentHistoryUseCase_RecordAndGet(t *testing.T) {
 		t.Errorf("expected imageTag golang:1.24, got %s", history[0].ImageTag)
 	}
 }
+
+// TestManageDeploymentHistoryUseCase_RollbackClosesSSHConnection valida que
+// RollbackToVersion cierre la conexión SSH que abre, en vez de dejarla fugada.
+func TestManageDeploymentHistoryUseCase_RollbackClosesSSHConnection(t *testing.T) {
+	repo := mocks.NewMockConfigRepository()
+	repo.Deployments = []domain.DeploymentRecord{
+		{ID: 1, ServiceName: "app-prod", ImageTag: "nginx:1.24-alpine", DeployedAt: time.Now().Add(-24 * time.Hour), Status: "success"},
+	}
+	exec := &mockSecuritySSHExecutor{responses: map[string]string{"docker service update": "app-prod updated"}}
+	uc := NewManageDeploymentHistoryUseCase(repo, exec)
+
+	if _, err := uc.RollbackToVersion("app-prod", 1, domain.ServerConfig{Host: "192.168.1.50"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exec.closeCalls != 1 {
+		t.Errorf("se esperaba 1 llamada a Close(), se registraron %d (fuga de conexión SSH)", exec.closeCalls)
+	}
+}

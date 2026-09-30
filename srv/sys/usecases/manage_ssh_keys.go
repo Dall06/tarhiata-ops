@@ -4,12 +4,10 @@ import (
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
-	"time"
 
+	"github.com/Dall06/tarhiata-ops/pkg/validator"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 	"github.com/Dall06/tarhiata-ops/srv/sys/repositories"
@@ -17,23 +15,20 @@ import (
 
 type ManageSSHKeysUseCase struct {
 	sshExecutor ports.SSHExecutor
-	httpClient  *http.Client
+	vultrClient ports.VultrClient
 }
 
 func NewManageSSHKeysUseCase(ssh ports.SSHExecutor) *ManageSSHKeysUseCase {
 	return &ManageSSHKeysUseCase{
 		sshExecutor: ssh,
-		httpClient:  &http.Client{Timeout: 10 * time.Second},
+		vultrClient: repositories.NewVultrHTTPClient(),
 	}
 }
 
-type vultrSSHKeysResponse struct {
-	SSHKeys []struct {
-		ID          string `json:"id"`
-		Name        string `json:"name"`
-		SSHKey      string `json:"ssh_key"`
-		DateCreated string `json:"date_created"`
-	} `json:"ssh_keys"`
+// WithVultrClient permite inyectar un cliente Vultr falso para pruebas unitarias.
+func (uc *ManageSSHKeysUseCase) WithVultrClient(c ports.VultrClient) *ManageSSHKeysUseCase {
+	uc.vultrClient = c
+	return uc
 }
 
 // computeFingerprint calcula la huella MD5 (estándar ssh-keygen) de una llave SSH pública en formato base64.
@@ -75,32 +70,22 @@ func (uc *ManageSSHKeysUseCase) ListKeys(cfg domain.ServerConfig) ([]domain.SSHK
 	// 1. Obtener llaves registradas en la cuenta de Vultr vía Vultr API v2
 	vultrKeysMap := make(map[string]bool)
 	if cfg.VultrAPIToken != "" {
-		req, errReq := http.NewRequest(http.MethodGet, "https://api.vultr.com/v2/ssh-keys", nil)
-		if errReq != nil {
-			return nil, fmt.Errorf("error construyendo petición Vultr: %w", errReq)
-		}
-		req.Header.Set("Authorization", "Bearer "+cfg.VultrAPIToken)
-		resp, err := uc.httpClient.Do(req)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			var vResp vultrSSHKeysResponse
-			if err := json.NewDecoder(resp.Body).Decode(&vResp); err == nil {
-				for _, vk := range vResp.SSHKeys {
-					parts := strings.Fields(strings.TrimSpace(vk.SSHKey))
-					if len(parts) >= 2 {
-						fpMD5 := computeFingerprint(parts[1])
-						fpSHA := computeSHA256Fingerprint(parts[1])
-						if fpMD5 != "" {
-							vultrKeysMap[fpMD5] = true
-						}
-						if fpSHA != "" {
-							vultrKeysMap[fpSHA] = true
-						}
-						// También mapear por el contenido crudo de la llave
-						vultrKeysMap[parts[1]] = true
+		if vKeys, err := uc.vultrClient.GetSSHKeys(cfg.VultrAPIToken); err == nil {
+			for _, vk := range vKeys {
+				parts := strings.Fields(strings.TrimSpace(vk.SSHKey))
+				if len(parts) >= 2 {
+					fpMD5 := computeFingerprint(parts[1])
+					fpSHA := computeSHA256Fingerprint(parts[1])
+					if fpMD5 != "" {
+						vultrKeysMap[fpMD5] = true
 					}
+					if fpSHA != "" {
+						vultrKeysMap[fpSHA] = true
+					}
+					// También mapear por el contenido crudo de la llave
+					vultrKeysMap[parts[1]] = true
 				}
 			}
-			resp.Body.Close()
 		}
 	}
 
@@ -172,7 +157,7 @@ func (uc *ManageSSHKeysUseCase) AddKey(cfg domain.ServerConfig, publicKey string
 		return fmt.Errorf("la llave SSH ya se encuentra registrada en authorized_keys")
 	}
 
-	cmd := fmt.Sprintf("mkdir -p /root/.ssh && chmod 700 /root/.ssh && echo '%s' >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys", publicKey)
+	cmd := fmt.Sprintf("mkdir -p /root/.ssh && chmod 700 /root/.ssh && echo %s >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys", validator.ShellQuote(publicKey))
 	res, err := sshExec.RunCommand(cmd)
 	if err != nil || res == nil || res.ExitCode != 0 {
 		out := ""

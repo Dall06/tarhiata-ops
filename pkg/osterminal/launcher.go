@@ -5,21 +5,25 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"github.com/Dall06/tarhiata-ops/pkg/validator"
 )
 
 // BuildSSHCommand construye la línea de comando de SSH nativo para conectarse a un host.
+// Cada componente derivado de configuración de usuario se cita con ShellQuote para que
+// no pueda inyectar comandos adicionales al ejecutarse en una terminal real.
 func BuildSSHCommand(user, host string, port int, privateKey string) string {
 	if strings.TrimSpace(user) == "" {
 		user = "root"
 	}
 	parts := []string{"ssh", "-o", "StrictHostKeyChecking=accept-new"}
 	if strings.TrimSpace(privateKey) != "" {
-		parts = append(parts, "-i", strings.TrimSpace(privateKey))
+		parts = append(parts, "-i", validator.ShellQuote(strings.TrimSpace(privateKey)))
 	}
 	if port > 0 && port != 22 {
 		parts = append(parts, "-p", fmt.Sprintf("%d", port))
 	}
-	parts = append(parts, fmt.Sprintf("%s@%s", user, strings.TrimSpace(host)))
+	parts = append(parts, validator.ShellQuote(fmt.Sprintf("%s@%s", user, strings.TrimSpace(host))))
 	return strings.Join(parts, " ")
 }
 
@@ -92,4 +96,3 @@ func OpenBrowser(rawURL string) error {
 	}
 	return nil
 }
-

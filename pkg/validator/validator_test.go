@@ -98,3 +98,25 @@ func TestNormalizeRegion(t *testing.T) {
 		})
 	}
 }
+
+func TestShellQuote(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{name: "cadena simple", input: "hola", expected: "'hola'"},
+		{name: "comilla simple embebida", input: "it's", expected: `'it'\''s'`},
+		{name: "metacaracteres de shell no se expanden al usarse", input: "$(rm -rf /); echo `id`", expected: `'$(rm -rf /); echo ` + "`id`" + `'`},
+		{name: "cadena vacia", input: "", expected: "''"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ShellQuote(tc.input)
+			if got != tc.expected {
+				t.Errorf("ShellQuote(%q) = %q; want %q", tc.input, got, tc.expected)
+			}
+		})
+	}
+}

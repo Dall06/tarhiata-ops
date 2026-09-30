@@ -56,7 +56,7 @@ export function renderMasterServicesTable(services, databases, links, callbacks 
             image: `${db.engine || 'database'}:${db.version || 'latest'}`,
             type: 'db',
             engine: db.engine || 'postgres',
-            replicas: db.status === 'running' ? '1/1' : (db.status || '1/1'),
+            replicas: db.status === 'running' ? '1/1' : (db.status ? '0/1' : '1/1'),
             port: port,
             domain: db.externalUrl || '',
             expose: false,
@@ -140,6 +140,7 @@ export function renderMasterServicesTable(services, databases, links, callbacks 
 
         let actionsHtml = '';
         const n = escapeHtml(it.name);
+        const isTraefik = it.name.includes('traefik') || it.image.includes('traefik');
         if (it.type === 'framework') {
             actionsHtml = `
                 <div class="row-actions-wrap">
@@ -148,6 +149,7 @@ export function renderMasterServicesTable(services, databases, links, callbacks 
                     <div class="row-actions-dropdown" id="dd-${n}-fw">
                         <button type="button" class="dd-item btn-metrics-svc" data-name="${n}">📊 Métricas</button>
                         <button type="button" class="dd-item btn-restart-svc" data-name="${n}">🔄 Reiniciar</button>
+                        ${isTraefik ? `<button type="button" class="dd-item btn-repair-traefik" data-name="${n}">🔧 Reparar Traefik</button>` : ''}
                         <button type="button" class="dd-item btn-vol-svc" data-name="${n}">📁 Archivos</button>
                     </div>
                 </div>
@@ -267,6 +269,29 @@ export function wireMasterTableActions(callbacks = {}) {
         btn.onclick = () => {
             const name = btn.getAttribute('data-name');
             if (name) restartServiceOrContainer(name, btn);
+        };
+    });
+
+    document.querySelectorAll('.btn-repair-traefik').forEach(btn => {
+        btn.onclick = async () => {
+            const acmeEmail = prompt('¿Reparar Traefik? Ingresa el email ACME para SSL/HTTPS (déjalo vacío para omitir HTTPS):', '');
+            if (acmeEmail === null) return;
+            btn.disabled = true;
+            btn.textContent = '⏳...';
+            showToast('Reparando Traefik...', 'info');
+            try {
+                const res = await apiFetch('/api/tools/repair-traefik', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ acmeEmail: acmeEmail.trim() })
+                });
+                if (res.ok) {
+                    showToast('Traefik reparado y redesplegado.', 'success');
+                }
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🔧 Reparar Traefik';
+            }
         };
     });
 
@@ -1021,9 +1046,9 @@ async function loadMetrics(serviceName, range) {
 
         const charts = [
             { label: 'CPU', unit: '%',   vals: cpuVals,  last: lastCpu,  color: '#818cf8' },
-            { label: 'Memoria', unit: '%', vals: memVals, last: lastMem,  color: '#34d399' },
+            { label: 'Memoria', unit: 'MB', vals: memVals, last: lastMem,  color: '#34d399' },
             { label: 'Red',     unit: 'KB/s', vals: netVals, last: lastNet, color: '#fbbf24' },
-            { label: 'Disco',   unit: '%', vals: diskVals, last: lastDisk, color: '#f87171' },
+            { label: 'Disco',   unit: 'MB', vals: diskVals, last: lastDisk, color: '#f87171' },
         ];
 
         body.innerHTML = charts.map(c => `

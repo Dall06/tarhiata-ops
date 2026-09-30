@@ -146,4 +146,7 @@ func TestInspectSSLAcmeUseCase_Execute(t *testing.T) {
 	if len(certs) != 0 {
 		t.Fatalf("expected 0 certs from empty storage, got %d", len(certs))
 	}
+	if exec.closeCalls != 1 {
+		t.Errorf("se esperaba 1 llamada a Close(), se registraron %d (fuga de conexión SSH)", exec.closeCalls)
+	}
 }

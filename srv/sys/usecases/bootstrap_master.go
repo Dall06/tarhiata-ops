@@ -1,13 +1,26 @@
 package usecases
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"strings"
 
+	"github.com/Dall06/tarhiata-ops/pkg/validator"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 )
+
+// generateDBPassword crea una contraseña aleatoria de 32 caracteres hexadecimales,
+// única por despliegue (a diferencia de un valor estático compartido entre clientes).
+func generateDBPassword() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("error generando contraseña de base de datos: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
 
 type bootstrapMasterServiceUseCase struct {
 	repo     ports.ConfigRepository
@@ -44,6 +57,9 @@ func (uc *bootstrapMasterServiceUseCase) Execute(input ports.BootstrapMasterInpu
 	if strings.TrimSpace(input.AppName) == "" {
 		return &result, fmt.Errorf("el nombre del servicio (AppName) es requerido")
 	}
+	if !validator.IsIdentifier(strings.TrimSpace(input.AppName)) {
+		return &result, fmt.Errorf("el nombre del servicio (AppName) solo puede contener letras, números, puntos, guiones y guiones bajos")
+	}
 
 	if strings.TrimSpace(input.Image) == "" {
 		input.Image = "node:18-alpine"
@@ -76,10 +92,14 @@ func (uc *bootstrapMasterServiceUseCase) Execute(input ports.BootstrapMasterInpu
 	var createdDB *domain.SavedDatabase
 	if strings.ToLower(input.DBEngine) != "none" && strings.TrimSpace(input.DBEngine) != "" {
 		dbName := fmt.Sprintf("%s-%s", strings.ToLower(input.DBEngine), input.AppName)
+		dbPassword, errPwd := generateDBPassword()
+		if errPwd != nil {
+			return &result, errPwd
+		}
 		db := domain.SavedDatabase{
 			Name:         dbName,
 			Engine:       strings.ToLower(input.DBEngine),
-			Password:     "secretpass123",
+			Password:     dbPassword,
 			InternalPort: 5432,
 			DeployType:   "manager",
 		}

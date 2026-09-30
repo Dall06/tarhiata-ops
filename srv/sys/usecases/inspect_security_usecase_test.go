@@ -9,12 +9,13 @@ import (
 )
 
 type mockSecuritySSHExecutor struct {
-	responses map[string]string
-	err       error
+	responses  map[string]string
+	err        error
+	closeCalls int
 }
 
 func (m *mockSecuritySSHExecutor) Connect(cfg domain.ServerConfig) error { return m.err }
-func (m *mockSecuritySSHExecutor) Close() error                           { return nil }
+func (m *mockSecuritySSHExecutor) Close() error                          { m.closeCalls++; return nil }
 func (m *mockSecuritySSHExecutor) RunCommand(cmd string) (*domain.CommandResult, error) {
 	if m.err != nil {
 		return nil, m.err
@@ -26,21 +27,21 @@ func (m *mockSecuritySSHExecutor) RunCommand(cmd string) (*domain.CommandResult,
 	}
 	return &domain.CommandResult{Output: "", ExitCode: 0}, nil
 }
-func (m *mockSecuritySSHExecutor) InteractiveShell() error               { return nil }
-func (m *mockSecuritySSHExecutor) InteractiveCommand(cmd string) error   { return nil }
-func (m *mockSecuritySSHExecutor) WriteRemoteFile(r, c string) error     { return nil }
-func (m *mockSecuritySSHExecutor) CheckConnection() bool                 { return true }
+func (m *mockSecuritySSHExecutor) InteractiveShell() error             { return nil }
+func (m *mockSecuritySSHExecutor) InteractiveCommand(cmd string) error { return nil }
+func (m *mockSecuritySSHExecutor) WriteRemoteFile(r, c string) error   { return nil }
+func (m *mockSecuritySSHExecutor) CheckConnection() bool               { return true }
 
 func TestInspectSecurityUseCase_TableDriven(t *testing.T) {
 	tests := []struct {
-		name         string
-		ufwOutput    string
-		f2bOutput    string
-		execErr      error
+		name          string
+		ufwOutput     string
+		f2bOutput     string
+		execErr       error
 		wantUFWActive bool
-		wantRulesLen int
+		wantRulesLen  int
 		wantF2BActive bool
-		wantJailsLen int
+		wantJailsLen  int
 		wantBannedLen int
 	}{
 		{

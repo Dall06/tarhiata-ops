@@ -2254,6 +2254,63 @@ func TestWebServer_HandleRegistriesSuite(t *testing.T) {
 	}
 }
 
+// TestWebServer_HandleSystemReport valida el flujo completo del endpoint: cada usecase
+// (Host, Security, Swarm) obtiene su propia conexión SSH independiente y debe completar
+// exitosamente sin errores, incluso encadenados uno tras otro en la misma petición
+// (antes, la conexión compartida se cerraba tras el primer usecase, dejando el reporte
+// de seguridad vacío en silencio).
+func TestWebServer_HandleSystemReport(t *testing.T) {
+	repo := &mockRepo{}
+	cfg := &domain.ServerConfig{
+		Name:          "local",
+		Host:          "localhost",
+		CloudProvider: "local",
+	}
+	ws := NewWebServer(repo, cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/system/report", nil)
+	rr := httptest.NewRecorder()
+	ws.handleSystemReport(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var res domain.SystemDiagnosticReport
+	if err := json.NewDecoder(rr.Body).Decode(&res); err != nil {
+		t.Fatalf("failed to decode SystemDiagnosticReport: %v", err)
+	}
+	if res.ServerName != "local" {
+		t.Errorf("expected serverName 'local', got '%s'", res.ServerName)
+	}
+	if res.Telemetry.ServerName != "local" {
+		t.Errorf("expected Telemetry.ServerName 'local' (InspectHostUseCase debió correr con su propia conexión), got '%s'", res.Telemetry.ServerName)
+	}
+}
+
+// TestWebServer_VolumeReadRoutes_RequireAuthWhenExposed valida el flujo completo a
+// través del enrutador real (ws.Echo()), no solo llamando al handler directo: en modo
+// expuesto y sin API key, listar/leer/descargar archivos de /opt/data debía funcionar
+// sin autenticación (fuga de confidencialidad); ahora deben bloquearse igual que
+// escribir/borrar, que ya estaban protegidos.
+func TestWebServer_VolumeReadRoutes_RequireAuthWhenExposed(t *testing.T) {
+	ws := NewWebServer(&mockRepo{}, &domain.ServerConfig{Name: "srv"})
+	ws.SetExposed(true)
+	ws.SetAPIKey("")
+	handler := ws.Echo()
+
+	for _, route := range []string{"/api/volumes/files", "/api/volumes/read", "/api/volumes/download"} {
+		t.Run(route, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, route+"?path=/opt/data", nil)
+			req.RemoteAddr = "203.0.113.7:45678"
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+			if rr.Code != http.StatusForbidden {
+				t.Errorf("expected 403 Forbidden para %s sin autenticación, got %d: %s", route, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
 
 
 

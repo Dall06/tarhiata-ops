@@ -22,6 +22,14 @@ func TestGetJSContent(t *testing.T) {
 			name:     "contains openDeployDBModal",
 			contains: "export function openDeployDBModal",
 		},
+		{
+			name:     "btn-restart-db no depende únicamente de un callback que nunca se pasa",
+			contains: "/api/databases/restart",
+		},
+		{
+			name:     "btn-logs-db usa window.openLogsModal en vez de solo callbacks.onOpenLogs",
+			contains: "const { openLogsModal } = window;",
+		},
 	}
 
 	for _, tt := range tests {

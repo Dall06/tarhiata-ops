@@ -67,3 +67,41 @@ func TestManageDBMigrationsUseCase_SaveAndExecute(t *testing.T) {
 		t.Fatalf("se esperaba 1 migración revertida (status=reverted), resultado: %+v", executedDown)
 	}
 }
+
+// TestBuildMigrationCommand_ShellInjectionPrevention valida que un password o
+// serviceName con metacaracteres de shell llegue citado al comando docker exec real.
+func TestBuildMigrationCommand_ShellInjectionPrevention(t *testing.T) {
+	const evilPassword = `pass' ; rm -rf / #`
+	const evilService = `svc' ; rm -rf / #`
+
+	tests := []struct {
+		name   string
+		engine string
+		want   string
+	}{
+		{
+			name:   "postgres no usa password pero cita el serviceName",
+			engine: "postgres",
+			want:   `echo 'Y29udGVudA==' | base64 -d | docker exec -i $(docker ps -q -f name='svc'\'' ; rm -rf / #' | head -n 1) psql -U admin -d db`,
+		},
+		{
+			name:   "mongo cita password y serviceName",
+			engine: "mongo",
+			want:   `echo 'Y29udGVudA==' | base64 -d | docker exec -i $(docker ps -q -f name='svc'\'' ; rm -rf / #' | head -n 1) mongosh -u admin -p 'pass'\'' ; rm -rf / #' db`,
+		},
+		{
+			name:   "mysql (default) cita password y serviceName",
+			engine: "mysql",
+			want:   `echo 'Y29udGVudA==' | base64 -d | docker exec -i $(docker ps -q -f name='svc'\'' ; rm -rf / #' | head -n 1) mysql -u admin -p'pass'\'' ; rm -rf / #' db`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := buildMigrationCommand(tc.engine, evilPassword, evilService, "Y29udGVudA==")
+			if got != tc.want {
+				t.Errorf("comando inseguro:\n got:  %s\n want: %s", got, tc.want)
+			}
+		})
+	}
+}

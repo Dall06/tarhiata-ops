@@ -99,6 +99,11 @@ func (uc *ListDevicesUseCase) Execute(config domain.ServerConfig) (*domain.HostD
 	if err := uc.executor.Connect(config); err != nil {
 		return nil, fmt.Errorf("falló conexión SSH con servidor '%s': %w", serverName, err)
 	}
+	defer func() {
+		if clErr := uc.executor.Close(); clErr != nil {
+			slog.Warn("list_devices: error cerrando conexión SSH", "error", clErr)
+		}
+	}()
 
 	cmdRes, err := uc.executor.RunCommand(hostDevicesCommand)
 	if err != nil {

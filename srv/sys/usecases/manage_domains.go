@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Dall06/tarhiata-ops/pkg/validator"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 )
@@ -159,10 +160,12 @@ func (uc *ManageDomainsUseCase) syncTraefikDomains(svc domain.SavedService, rule
 	}
 
 	ruleStr := strings.Join(hosts, " || ")
+	labelRule := validator.ShellQuote(fmt.Sprintf("traefik.http.routers.%s.rule=%s", svc.Name, ruleStr))
+	labelRuleTLS := validator.ShellQuote(fmt.Sprintf("traefik.http.routers.%s-tls.rule=%s", svc.Name, ruleStr))
 	cmd := fmt.Sprintf(`docker service update \
-		--label-add "traefik.http.routers.%s.rule=%s" \
-		--label-add "traefik.http.routers.%s-tls.rule=%s" \
-		%s`, svc.Name, ruleStr, svc.Name, ruleStr, containerName)
+		--label-add %s \
+		--label-add %s \
+		%s`, labelRule, labelRuleTLS, validator.ShellQuote(containerName))
 
 	res, err := uc.ssh.RunCommand(cmd)
 	if err != nil || res == nil || res.ExitCode != 0 {

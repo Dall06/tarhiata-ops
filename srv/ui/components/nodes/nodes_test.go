@@ -18,6 +18,10 @@ func TestGetJSContent(t *testing.T) {
 			name:     "contains openWorkerModal",
 			contains: "export function openWorkerModal",
 		},
+		{
+			name:     "el reload de disponibilidad/expulsión de nodo tiene fallback a window.loadSwarmStatus",
+			contains: "callbacks.onReloadStatus || window.loadSwarmStatus",
+		},
 	}
 
 	for _, tt := range tests {

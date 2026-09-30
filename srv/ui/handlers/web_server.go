@@ -392,10 +392,10 @@ func (w *WebServer) Echo() *echo.Echo {
 	e.Any("/api/env", echo.WrapHandler(http.HandlerFunc(w.handleEnvVars)))
 	e.Any("/api/env/export", echo.WrapHandler(http.HandlerFunc(w.handleExportEnvVars)))
 	e.Any("/api/volumes", echo.WrapHandler(http.HandlerFunc(w.handleVolumes)))
-	e.Any("/api/volumes/files", echo.WrapHandler(http.HandlerFunc(w.handleVolumeFiles)))
-	e.Any("/api/volumes/read", echo.WrapHandler(http.HandlerFunc(w.handleVolumeRead)))
+	e.Any("/api/volumes/files", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleVolumeFiles))))
+	e.Any("/api/volumes/read", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleVolumeRead))))
 	e.Any("/api/volumes/write", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleVolumeWrite))))
-	e.Any("/api/volumes/download", echo.WrapHandler(http.HandlerFunc(w.handleVolumeDownload)))
+	e.Any("/api/volumes/download", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleVolumeDownload))))
 	e.Any("/api/volumes/upload", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleVolumeUpload))))
 	e.Any("/api/volumes/delete", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleVolumeDelete))))
 	e.Any("/api/volumes/mkdir", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleVolumeMkdir))))
@@ -407,6 +407,7 @@ func (w *WebServer) Echo() *echo.Echo {
 	e.Any("/api/prune", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handlePrune))))
 	e.Any("/api/tools/prune", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handlePrune))))
 	e.Any("/api/tools/restart-traefik", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleRestartTraefik))))
+	e.Any("/api/tools/repair-traefik", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleRepairTraefik))))
 	e.Any("/api/topology", echo.WrapHandler(http.HandlerFunc(w.handleTopology)))
 	e.Any("/api/links", echo.WrapHandler(http.HandlerFunc(w.handleLinks)))
 	e.Any("/api/nodes", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleNodes))))
@@ -1112,29 +1113,41 @@ func (w *WebServer) handleSystemReport(rw http.ResponseWriter, req *http.Request
 		return
 	}
 
-	sshExec := repositories.NewCryptoSSHExecutor()
-	defer func() {
-		if clErr := sshExec.Close(); clErr != nil {
-			slog.Warn("web_server: error cerrando sshExec en system report", "error", clErr)
-		}
-	}()
-
-	if err := sshExec.Connect(*cfg); err != nil {
+	// Sondeo temprano: preserva el 500 inmediato si el host no es alcanzable, antes de
+	// que cada usecase abra su propia conexión (gracias al pool no implica un dial extra).
+	probeExec := repositories.NewCryptoSSHExecutor()
+	if err := probeExec.Connect(*cfg); err != nil {
 		http.Error(rw, fmt.Sprintf("Error conectando SSH: %v", err), http.StatusInternalServerError)
 		return
 	}
+	if clErr := probeExec.Close(); clErr != nil {
+		slog.Warn("web_server: error cerrando sondeo ssh en system report", "error", clErr)
+	}
 
-	inspectUC := usecases.NewInspectHostUseCase(sshExec)
+	// Cada usecase administra su propia conexión SSH (Connect/Close), así que se les da un
+	// ejecutor independiente en vez de compartir uno: InspectHostUseCase y
+	// GetSwarmStatusUseCase cierran su conexión al terminar, lo que dejaba a
+	// InspectSecurityUseCase (que no reconecta) operando sobre una conexión ya cerrada.
+	inspectUC := usecases.NewInspectHostUseCase(repositories.NewCryptoSSHExecutor())
 	telemetry, _ := inspectUC.Execute(*cfg)
 	var tel domain.HostInspection
 	if telemetry != nil {
 		tel = *telemetry
 	}
 
-	secUC := usecases.NewInspectSecurityUseCase(sshExec)
-	secReport, _ := secUC.Execute()
+	var secReport domain.SecurityReport
+	secExec := repositories.NewCryptoSSHExecutor()
+	if err := secExec.Connect(*cfg); err != nil {
+		slog.Warn("web_server: error conectando ssh para reporte de seguridad", "error", err)
+	} else {
+		secUC := usecases.NewInspectSecurityUseCase(secExec)
+		secReport, _ = secUC.Execute()
+		if clErr := secExec.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando ssh de reporte de seguridad", "error", clErr)
+		}
+	}
 
-	swarmUC := usecases.NewGetSwarmStatusUseCase(sshExec)
+	swarmUC := usecases.NewGetSwarmStatusUseCase(repositories.NewCryptoSSHExecutor())
 	swarmStatus, _ := swarmUC.Execute(*cfg)
 	var swSt domain.SwarmStatus
 	if swarmStatus != nil {
@@ -2743,6 +2756,49 @@ func (w *WebServer) handleRestartTraefik(rw http.ResponseWriter, req *http.Reque
 	})
 }
 
+func (w *WebServer) handleRepairTraefik(rw http.ResponseWriter, req *http.Request) {
+	var reqData struct {
+		AcmeEmail string `json:"acmeEmail"`
+	}
+	if req.Body != nil {
+		if err := json.NewDecoder(req.Body).Decode(&reqData); err != nil && err != io.EOF {
+			slog.Warn("cuerpo de solicitud repair-traefik no es JSON válido", "error", err)
+		}
+	}
+
+	cfg := w.getConfig()
+	if cfg == nil || cfg.Host == "" {
+		if loaded, err := w.repo.GetServerConfig(); err == nil && loaded != nil && loaded.Host != "" {
+			w.setConfig(loaded)
+			cfg = loaded
+		}
+	}
+
+	if cfg == nil || cfg.Host == "" {
+		http.Error(rw, "Error: VPS Master no configurado.", http.StatusBadRequest)
+		return
+	}
+
+	sshExec := repositories.NewCryptoSSHExecutor()
+	if err := sshExec.Connect(*cfg); err != nil {
+		http.Error(rw, fmt.Sprintf("Error de conexión SSH con host %s: %v", cfg.Host, err), http.StatusInternalServerError)
+		return
+	}
+	defer sshExec.Close()
+
+	uc := usecases.NewRepairTraefikUseCase(sshExec)
+	output, err := uc.Execute(reqData.AcmeEmail)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(rw, map[string]string{
+		"status": "ok",
+		"output": output,
+	})
+}
+
 func (w *WebServer) handleTopology(rw http.ResponseWriter, req *http.Request) {
 	services, errSvc := w.repo.GetServices()
 	if errSvc != nil {
@@ -3310,6 +3366,10 @@ func (w *WebServer) handleTerminalExec(rw http.ResponseWriter, req *http.Request
 
 	if payload.Container != "" {
 		sanitizedContainer := strings.TrimSpace(payload.Container)
+		if !validator.IsIdentifier(sanitizedContainer) {
+			jsonError(rw, "Nombre de contenedor inválido", http.StatusBadRequest)
+			return
+		}
 		cmdStr = fmt.Sprintf("docker exec %s sh -c %q 2>&1 || docker exec %s %s", sanitizedContainer, cmdStr, sanitizedContainer, cmdStr)
 	}
 
@@ -4250,22 +4310,6 @@ func (w *WebServer) handleDNSCheck(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	cleanDomain := strings.TrimPrefix(rawDomain, "https://")
-	cleanDomain = strings.TrimPrefix(cleanDomain, "http://")
-	if idx := strings.Index(cleanDomain, "/"); idx != -1 {
-		cleanDomain = cleanDomain[:idx]
-	}
-	if idx := strings.Index(cleanDomain, ":"); idx != -1 {
-		cleanDomain = cleanDomain[:idx]
-	}
-	cleanDomain = strings.ToLower(strings.TrimSpace(cleanDomain))
-
-	validDomainRegex := regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`)
-	if !validDomainRegex.MatchString(cleanDomain) {
-		jsonError(rw, "Formato de dominio inválido", http.StatusBadRequest)
-		return
-	}
-
 	serverIP := ""
 	cfg := w.getConfig()
 	if cfg == nil || cfg.Host == "" {
@@ -4278,38 +4322,14 @@ func (w *WebServer) handleDNSCheck(rw http.ResponseWriter, req *http.Request) {
 		serverIP = cfg.Host
 	}
 
-	ips, err := net.LookupHost(cleanDomain)
-	if err != nil || len(ips) == 0 {
-		jsonResponse(rw, map[string]interface{}{
-			"domain":       cleanDomain,
-			"server_ip":    serverIP,
-			"resolved_ips": []string{},
-			"matches":      false,
-			"status":       "not_found",
-		})
+	uc := usecases.NewCheckDomainDNSUseCase(repositories.NewNetDNSResolver())
+	result, err := uc.Execute(rawDomain, serverIP)
+	if err != nil {
+		jsonError(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	isMatch := false
-	for _, ip := range ips {
-		if ip == serverIP {
-			isMatch = true
-			break
-		}
-	}
-
-	status := "mismatch"
-	if isMatch {
-		status = "match"
-	}
-
-	jsonResponse(rw, map[string]interface{}{
-		"domain":       cleanDomain,
-		"server_ip":    serverIP,
-		"resolved_ips": ips,
-		"matches":      isMatch,
-		"status":       status,
-	})
+	jsonResponse(rw, result)
 }
 
 // --- Audit Logs Handler ---
@@ -4351,57 +4371,10 @@ func (w *WebServer) handleContainerStats(rw http.ResponseWriter, req *http.Reque
 		}
 	}
 
-	sshExec := repositories.NewCryptoSSHExecutor()
-	if err := sshExec.Connect(*cfg); err != nil {
-		jsonError(rw, fmt.Sprintf("Error SSH: %v", err), http.StatusInternalServerError)
-		return
-	}
-	defer sshExec.Close()
-
-	cleanName := strings.TrimPrefix(name, "tarhiata-db-")
-	cleanName = strings.TrimPrefix(cleanName, "tarhiata-")
-
-	cmdInspect := fmt.Sprintf("docker ps -q -f name=%s || docker ps -q -f name=%s || docker ps -q", name, cleanName)
-	resInspect, errInspect := sshExec.RunCommand(cmdInspect)
-	if errInspect != nil {
-		slog.Debug("web_server: error buscando contenedor para stats", "name", name, "error", errInspect)
-	}
-	containerID := ""
-	if resInspect != nil {
-		containerID = strings.TrimSpace(resInspect.Output)
-		if containerID != "" {
-			lines := strings.Split(containerID, "\n")
-			containerID = lines[0]
-		}
-	}
-
-	if containerID == "" {
-		containerID = name
-	}
-
-	fallbackStats := domain.ContainerStats{
-		Container: name,
-		CPUPerc:   "0.12%",
-		MemUsage:  "34.2MiB / 2GiB",
-		MemPerc:   "1.67%",
-		NetIO:     "1.2kB / 842B",
-		BlockIO:   "0B / 4.1kB",
-	}
-
-	cmdStats := fmt.Sprintf("docker stats --no-stream --format '{\"container\":\"{{.Container}}\",\"cpu\":\"{{.CPUPerc}}\",\"memUsage\":\"{{.MemUsage}}\",\"memPerc\":\"{{.MemPerc}}\",\"netIo\":\"{{.NetIO}}\",\"blockIo\":\"{{.BlockIO}}\"}' %s", containerID)
-	resStats, err := sshExec.RunCommand(cmdStats)
-	if err != nil || resStats == nil || resStats.ExitCode != 0 || strings.TrimSpace(resStats.Output) == "" {
-		w.setCache(cacheKey, fallbackStats, 5*time.Second)
-		jsonResponse(rw, fallbackStats)
-		return
-	}
-
-	var stats domain.ContainerStats
-	if err := json.Unmarshal([]byte(strings.TrimSpace(resStats.Output)), &stats); err != nil {
-		fallbackStats.CPUPerc = "0.05%"
-		fallbackStats.MemUsage = "28MiB / 2GiB"
-		w.setCache(cacheKey, fallbackStats, 5*time.Second)
-		jsonResponse(rw, fallbackStats)
+	uc := usecases.NewGetContainerStatsUseCase(repositories.NewCryptoSSHExecutor())
+	stats, err := uc.Execute(name, *cfg)
+	if err != nil {
+		jsonError(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -4434,88 +4407,11 @@ func (w *WebServer) handleDBHealth(rw http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	sshExec := repositories.NewCryptoSSHExecutor()
-	if err := sshExec.Connect(*cfg); err != nil {
-		jsonError(rw, fmt.Sprintf("Error SSH: %v", err), http.StatusInternalServerError)
+	uc := usecases.NewGetDBHealthUseCase(w.repo, repositories.NewCryptoSSHExecutor())
+	health, err := uc.Execute(name, *cfg)
+	if err != nil {
+		jsonError(rw, err.Error(), http.StatusInternalServerError)
 		return
-	}
-	defer func() {
-		if clErr := sshExec.Close(); clErr != nil {
-			slog.Warn("web_server: error cerrando sshExec en handleDBHealth", "error", clErr)
-		}
-	}()
-
-	db, errDB := w.repo.GetDatabase(cleanName)
-	if errDB != nil {
-		slog.Warn("web_server: error obteniendo base de datos en handleDBHealth", "name", cleanName, "error", errDB)
-	}
-	engine := "postgres"
-	dbPass := "admin_pass"
-	dbUser := "admin"
-	if db != nil {
-		if db.Engine != "" {
-			engine = strings.ToLower(db.Engine)
-		}
-		if db.Password != "" {
-			dbPass = db.Password
-		}
-	}
-
-	health := domain.DBHealthStats{
-		Engine:            engine,
-		ActiveConnections: 1,
-		MaxConnections:    100,
-		UptimeSeconds:     86400,
-		QPS:               14.2,
-		Status:            "Healthy",
-		Details:           "Motor de base de datos operando dentro de los parámetros normales.",
-	}
-
-	switch engine {
-	case "postgres":
-		cmd := fmt.Sprintf("docker exec $(docker ps -q -f name=tarhiata-db-%s | head -n 1) psql -U %s -d db -t -c 'SELECT count(*) FROM pg_stat_activity;' 2>/dev/null", cleanName, dbUser)
-		res, errCmd := sshExec.RunCommand(cmd)
-		if errCmd != nil {
-			slog.Debug("web_server: error en query postgres health", "error", errCmd)
-		}
-		if res != nil && strings.TrimSpace(res.Output) != "" {
-			if count, err := strconv.Atoi(strings.TrimSpace(res.Output)); err == nil {
-				health.ActiveConnections = count
-			}
-		}
-	case "mysql":
-		cmd := fmt.Sprintf("docker exec $(docker ps -q -f name=tarhiata-db-%s | head -n 1) mysql -u %s -p%q -e \"SHOW STATUS LIKE 'Threads_connected';\" 2>/dev/null | tail -n 1 | awk '{print $2}'", cleanName, dbUser, dbPass)
-		res, errCmd := sshExec.RunCommand(cmd)
-		if errCmd != nil {
-			slog.Debug("web_server: error en query mysql health", "error", errCmd)
-		}
-		if res != nil && strings.TrimSpace(res.Output) != "" {
-			if count, err := strconv.Atoi(strings.TrimSpace(res.Output)); err == nil {
-				health.ActiveConnections = count
-			}
-		}
-	case "mongodb", "mongo":
-		cmd := fmt.Sprintf("docker exec $(docker ps -q -f name=tarhiata-db-%s | head -n 1) mongosh --eval 'db.serverStatus().connections.current' --quiet 2>/dev/null", cleanName)
-		res, errCmd := sshExec.RunCommand(cmd)
-		if errCmd != nil {
-			slog.Debug("web_server: error en query mongo health", "error", errCmd)
-		}
-		if res != nil && strings.TrimSpace(res.Output) != "" {
-			if count, err := strconv.Atoi(strings.TrimSpace(res.Output)); err == nil {
-				health.ActiveConnections = count
-			}
-		}
-	case "redis":
-		cmd := fmt.Sprintf("docker exec $(docker ps -q -f name=tarhiata-db-%s | head -n 1) redis-cli info clients 2>/dev/null | grep connected_clients | cut -d: -f2", cleanName)
-		res, errCmd := sshExec.RunCommand(cmd)
-		if errCmd != nil {
-			slog.Debug("web_server: error en query redis health", "error", errCmd)
-		}
-		if res != nil && strings.TrimSpace(res.Output) != "" {
-			if count, err := strconv.Atoi(strings.TrimSpace(res.Output)); err == nil {
-				health.ActiveConnections = count
-			}
-		}
 	}
 
 	w.setCache(cacheKey, health, 5*time.Second)

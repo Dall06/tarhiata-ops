@@ -111,3 +111,17 @@ type Provisioner interface {
 	// DestroyNode destruye la infraestructura de un nodo por su nombre
 	DestroyNode(token string, nodeName string) error
 }
+
+// DNSResolver resuelve un nombre de dominio a sus direcciones IP. Existe para desacoplar
+// CheckDomainDNSUseCase de la resolución de red real y poder testearlo con datos falsos.
+type DNSResolver interface {
+	LookupHost(host string) ([]string, error)
+}
+
+// VultrClient consulta la API pública de Vultr (planes, regiones, llaves SSH). Existe
+// para desacoplar los usecases de un *http.Client concreto y poder testearlos sin red real.
+type VultrClient interface {
+	GetPlans(apiKey string) ([]domain.VultrPlan, error)
+	GetRegions(apiKey string) ([]domain.VultrRegion, error)
+	GetSSHKeys(apiKey string) ([]domain.VultrSSHKey, error)
+}

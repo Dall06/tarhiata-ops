@@ -84,8 +84,9 @@ export function renderNodesTable(nodes, callbacks = {}) {
                 });
                 if (res.ok) {
                     showToast(`Disponibilidad de nodo actualizada a '${targetAvail}'`, 'success');
-                    if (callbacks.onReloadStatus && state.selectedServerName) {
-                        callbacks.onReloadStatus(state.selectedServerName);
+                    const reload = callbacks.onReloadStatus || window.loadSwarmStatus;
+                    if (reload && state.selectedServerName) {
+                        reload(state.selectedServerName);
                     }
                 }
             } finally {
@@ -107,8 +108,9 @@ export function renderNodesTable(nodes, callbacks = {}) {
                 });
                 if (res.ok) {
                     showToast(`Nodo '${hostname}' expulsado exitosamente del clúster`, 'success');
-                    if (callbacks.onReloadStatus && state.selectedServerName) {
-                        callbacks.onReloadStatus(state.selectedServerName);
+                    const reload = callbacks.onReloadStatus || window.loadSwarmStatus;
+                    if (reload && state.selectedServerName) {
+                        reload(state.selectedServerName);
                     }
                 }
             } finally {

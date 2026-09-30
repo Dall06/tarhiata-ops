@@ -16,6 +16,21 @@ type MockSSHExecutor struct {
 
 	// Error global simulado si falla la conexión
 	ConnectError error
+
+	// RunCommandErr, si no es nil, se devuelve como error de Go real en RunCommand
+	// (independiente del ExitCode simulado en MockResponses), para probar caídas de
+	// transporte SSH en vez de solo fallas de exit code.
+	RunCommandErr error
+
+	// WriteRemoteFileErr, si no es nil, se devuelve como error real de WriteRemoteFile.
+	WriteRemoteFileErr error
+
+	// WriteRemoteFileCapture, si es true, guarda el último contenido escrito en LastWrittenContent.
+	WriteRemoteFileCapture bool
+	LastWrittenContent     string
+
+	// CloseCalls cuenta cuántas veces se llamó Close(), para detectar fugas de conexión.
+	CloseCalls int
 }
 
 func NewMockSSHExecutor() *MockSSHExecutor {
@@ -32,6 +47,10 @@ func (m *MockSSHExecutor) Connect(config domain.ServerConfig) error {
 func (m *MockSSHExecutor) RunCommand(cmd string) (*domain.CommandResult, error) {
 	m.CommandsExecuted = append(m.CommandsExecuted, cmd)
 
+	if m.RunCommandErr != nil {
+		return &domain.CommandResult{Output: "", ExitCode: -1, Error: m.RunCommandErr}, m.RunCommandErr
+	}
+
 	for key, res := range m.MockResponses {
 		if strings.Contains(cmd, key) {
 			return res, nil
@@ -43,6 +62,7 @@ func (m *MockSSHExecutor) RunCommand(cmd string) (*domain.CommandResult, error) 
 }
 
 func (m *MockSSHExecutor) Close() error {
+	m.CloseCalls++
 	return nil
 }
 
@@ -60,5 +80,8 @@ func (m *MockSSHExecutor) InteractiveCommand(cmd string) error {
 
 func (m *MockSSHExecutor) WriteRemoteFile(remotePath, content string) error {
 	m.CommandsExecuted = append(m.CommandsExecuted, "WRITE "+remotePath)
-	return nil
+	if m.WriteRemoteFileCapture {
+		m.LastWrittenContent = content
+	}
+	return m.WriteRemoteFileErr
 }
