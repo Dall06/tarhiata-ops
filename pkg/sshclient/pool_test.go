@@ -102,7 +102,7 @@ func TestPool_ReleaseAndIdleCleanup(t *testing.T) {
 	}
 
 	key := PoolKey("10.0.0.1", "ubuntu", "k", 22)
-	pool.Release(key)
+	pool.Release(key, client)
 
 	// Wait 120ms to allow idle timeout (50ms) and cleaner (20ms) to trigger
 	time.Sleep(120 * time.Millisecond)
@@ -122,7 +122,7 @@ func TestPool_InUsePreventsCleanup(t *testing.T) {
 		return c, nil
 	})
 
-	_, err := pool.Get("10.0.0.2", "admin", "k", 22)
+	client, err := pool.Get("10.0.0.2", "admin", "k", 22)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestPool_InUsePreventsCleanup(t *testing.T) {
 	}
 
 	key := PoolKey("10.0.0.2", "admin", "k", 22)
-	pool.Release(key)
+	pool.Release(key, client)
 
 	time.Sleep(100 * time.Millisecond)
 	if count := pool.Count(); count != 0 {
@@ -153,18 +153,76 @@ func TestPool_Invalidate(t *testing.T) {
 		return c, nil
 	})
 
-	_, err := pool.Get("10.0.0.3", "deploy", "k", 22)
+	client, err := pool.Get("10.0.0.3", "deploy", "k", 22)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	key := PoolKey("10.0.0.3", "deploy", "k", 22)
-	if err := pool.Invalidate(key); err != nil {
+	if err := pool.Invalidate(key, client); err != nil {
 		t.Errorf("unexpected error on invalidate: %v", err)
 	}
 
 	if count := pool.Count(); count != 0 {
 		t.Errorf("expected 0 connections after invalidate, got %d", count)
+	}
+}
+
+// TestPool_ReleaseIgnoresOrphanedInstance valida el flujo completo del fix de la
+// condición de carrera: Release/Invalidate ahora verifican identidad de instancia, no
+// solo la key. Si una conexión se cree "muerta" mientras otro goroutine todavía la tiene
+// en uso (inUse>0), el pool ya no la cierra ahí mismo (eso cortaría la sesión activa);
+// la reemplaza para futuros Get(), y cuando el holder original finalmente llama
+// Release/Invalidate con esa instancia huérfana, el pool detecta que ya no es la
+// registrada y NO toca por error el contador de la entrada actual (viva).
+func TestPool_ReleaseIgnoresOrphanedInstance(t *testing.T) {
+	pool := NewPool(30*time.Millisecond, 10*time.Millisecond)
+	defer pool.Stop()
+
+	dialCount := 0
+	pool.SetDialer(func(host, user, privateKeyPath string, port int) (*Client, error) {
+		dialCount++
+		c := New()
+		c.mockConnected = true
+		return c, nil
+	})
+
+	c1, err := pool.Get("10.0.0.5", "root", "k", 22)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	key := PoolKey("10.0.0.5", "root", "k", 22)
+
+	// Simula que la conexión de c1 murió (ej. TCP caído) mientras su holder original
+	// todavía la tiene checked out (nunca llamó Release).
+	c1.mockConnected = false
+
+	c2, err := pool.Get("10.0.0.5", "root", "k", 22)
+	if err != nil {
+		t.Fatalf("unexpected error on second get: %v", err)
+	}
+	if dialCount != 2 {
+		t.Fatalf("se esperaban 2 dials (c1 muerto forzó redial), hubo %d", dialCount)
+	}
+	if c2 == c1 {
+		t.Fatal("se esperaba una instancia nueva distinta de c1")
+	}
+
+	// Release tardío del holder original de c1 (instancia huérfana, ya no registrada).
+	pool.Release(key, c1)
+
+	// Si el Release huérfano hubiera decrementado por error el inUse de c2 (la entrada
+	// viva), c2 quedaría con inUse<=0 y el cleaner la purgaría aunque nadie la liberó.
+	time.Sleep(80 * time.Millisecond)
+	if count := pool.Count(); count != 1 {
+		t.Fatalf("c2 no debió purgarse por un Release huérfano de c1, count=%d", count)
+	}
+
+	// El release correcto de c2 sí debe permitir que el cleaner la purgue.
+	pool.Release(key, c2)
+	time.Sleep(80 * time.Millisecond)
+	if count := pool.Count(); count != 0 {
+		t.Fatalf("se esperaba que c2 se purgara tras su propio Release, count=%d", count)
 	}
 }
 
@@ -189,7 +247,7 @@ func TestPool_Concurrency(t *testing.T) {
 				return
 			}
 			key := PoolKey("10.0.0.4", "root", "k", 22)
-			pool.Release(key)
+			pool.Release(key, client)
 			if client == nil {
 				t.Errorf("goroutine %d got nil client", id)
 			}

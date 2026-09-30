@@ -82,13 +82,25 @@ func GetMasterKey() ([]byte, error) {
 	}
 
 	keyPath := filepath.Join(keyDir, ".key")
-	if data, err := os.ReadFile(keyPath); err == nil && len(data) == keyFileSize {
-		cachedKey = data
-		keyCopy := make([]byte, 32)
-		copy(keyCopy, cachedKey)
-		return keyCopy, nil
+	if data, err := os.ReadFile(keyPath); err == nil {
+		if len(data) == keyFileSize {
+			cachedKey = data
+			keyCopy := make([]byte, 32)
+			copy(keyCopy, cachedKey)
+			return keyCopy, nil
+		}
+		// El archivo existe pero con un tamaño inesperado (corrupción, escritura parcial
+		// tras un crash, etc.). NO generar una clave nueva en silencio: sobrescribir aquí
+		// volvería indescifrables para siempre todos los secretos ya cifrados con la clave
+		// original. Falla fuerte para que el operador investigue/restaure el archivo.
+		return nil, fmt.Errorf("el archivo de clave maestra %s existe pero tiene un tamaño inválido (%d bytes, se esperaban %d); posible corrupción — no se genera una clave nueva automáticamente para no volver indescifrables los secretos ya cifrados", keyPath, len(data), keyFileSize)
+	} else if !os.IsNotExist(err) {
+		// Error de lectura distinto de "no existe" (permisos, IO, etc.): también fallar
+		// fuerte en vez de asumir que no hay clave y generar una nueva silenciosamente.
+		return nil, fmt.Errorf("error leyendo archivo de clave maestra %s: %w", keyPath, err)
 	}
 
+	// Solo llegamos aquí si el archivo genuinamente no existe (primera ejecución).
 	// Generar nueva clave criptográfica aleatoria de 32 bytes
 	newKey := make([]byte, keyFileSize)
 	if _, err := io.ReadFull(rand.Reader, newKey); err != nil {
@@ -214,4 +226,3 @@ func IsLocalHost(host, cloudProvider string) bool {
 	}
 	return false
 }
-

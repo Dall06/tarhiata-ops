@@ -93,16 +93,22 @@ func (p *Pool) Get(host, user, privateKeyPath string, port int) (*Client, error)
 		p.mu.Unlock()
 	}
 
-	// Si el candidato murió o no existe, limpiar del mapa
+	// Si el candidato murió o no existe, limpiar del mapa. Si otro llamador todavía lo
+	// tiene en uso (inUse > 0), se desregistra igual (para que futuros Get() no lo
+	// reutilicen) pero NO se cierra aquí: cerrarlo ahora cortaría una sesión SSH activa
+	// de otro goroutine. Ese caller huérfano lo cerrará él mismo al llamar Release/
+	// Invalidate, que detectan que su instancia ya no es la registrada en el pool.
 	if candidate != nil {
 		p.mu.Lock()
 		if current, ok := p.clients[key]; ok && current != nil && current.client == candidate {
 			delete(p.clients, key)
-			go func(c *Client) {
-				if err := c.Close(); err != nil {
-					slog.Debug("falló cierre de cliente ssh inactivo en pool", "error", err)
-				}
-			}(candidate)
+			if current.inUse <= 0 {
+				go func(c *Client) {
+					if err := c.Close(); err != nil {
+						slog.Debug("falló cierre de cliente ssh inactivo en pool", "error", err)
+					}
+				}(candidate)
+			}
 		}
 		p.mu.Unlock()
 	}
@@ -123,35 +129,46 @@ func (p *Pool) Get(host, user, privateKeyPath string, port int) (*Client, error)
 	return client, nil
 }
 
-// Release marca una conexión como liberada por su llamador, actualizando el timestamp de último uso.
-func (p *Pool) Release(key string) {
+// Release marca una conexión como liberada por su llamador, actualizando el timestamp de
+// último uso. Verifica que "client" sea la instancia que el pool tiene registrada para esa
+// key antes de tocar su contador: si ya fue reemplazada (porque otro Get() la desalojó
+// mientras estaba en uso), client es una instancia huérfana y se cierra aquí directamente
+// en vez de decrementar por error el contador de la entrada actual.
+func (p *Pool) Release(key string, client *Client) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	entry, exists := p.clients[key]
-	if !exists {
+	if !exists || client == nil || entry.client != client {
+		p.mu.Unlock()
+		if client != nil {
+			if err := client.Close(); err != nil {
+				slog.Debug("falló cierre de cliente ssh huérfano en Release", "error", err)
+			}
+		}
 		return
 	}
 	if entry.inUse > 0 {
 		entry.inUse--
 	}
 	entry.lastUsed = time.Now()
+	p.mu.Unlock()
 }
 
-// Invalidate cierra e invalida de forma inmediata una conexión del pool (por ejemplo tras un error de red).
-func (p *Pool) Invalidate(key string) error {
+// Invalidate cierra e invalida de forma inmediata una conexión del pool (por ejemplo tras
+// un error de red). Igual que Release, solo actúa sobre la entrada si "client" sigue
+// siendo la instancia registrada; de lo contrario cierra directamente la instancia huérfana.
+func (p *Pool) Invalidate(key string, client *Client) error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	entry, exists := p.clients[key]
-	if !exists {
+	if !exists || client == nil || entry.client != client {
+		p.mu.Unlock()
+		if client != nil {
+			return client.Close()
+		}
 		return nil
 	}
 	delete(p.clients, key)
-	if entry.client != nil {
-		return entry.client.Close()
-	}
-	return nil
+	p.mu.Unlock()
+	return entry.client.Close()
 }
 
 // Count retorna el total de conexiones registradas actualmente en el pool.

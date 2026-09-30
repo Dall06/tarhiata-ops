@@ -3,11 +3,17 @@ package usecases
 import (
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 
+	"github.com/Dall06/tarhiata-ops/pkg/validator"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 )
+
+// envVarNameRegex exige un nombre de variable de entorno POSIX válido, rechazando
+// espacios/`;`/etc. que permitirían escapar de la posición de nombre en el comando remoto.
+var envVarNameRegex = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type ManageEnvVarsUseCase struct {
 	repo ports.ConfigRepository
@@ -94,9 +100,11 @@ func (uc *ManageEnvVarsUseCase) UpdateEnvVars(serviceName string, rawEnvContent 
 			if len(envMap) > 0 {
 				var envFlags []string
 				for k, v := range envMap {
-					// Escapar comillas para la terminal bash
-					escapedVal := strings.ReplaceAll(v, `"`, `\"`)
-					envFlags = append(envFlags, fmt.Sprintf("--env-add %s=\"%s\"", k, escapedVal))
+					if !envVarNameRegex.MatchString(k) {
+						slog.Warn("manage_envs: nombre de variable de entorno inválido, se omite", "key", k)
+						continue
+					}
+					envFlags = append(envFlags, "--env-add "+validator.ShellQuote(k+"="+v))
 				}
 				flagsStr := strings.Join(envFlags, " ")
 				cmd := fmt.Sprintf("docker service update %s %s 2>/dev/null || docker service update %s %s_%s 2>/dev/null || docker service update %s tarhiata-app-%s 2>/dev/null || true",

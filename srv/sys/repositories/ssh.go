@@ -52,7 +52,7 @@ func (e *CryptoSSHExecutor) Connect(config domain.ServerConfig) error {
 	e.isLocal = false
 	if e.pooled {
 		if e.poolKey != "" {
-			sshclient.GlobalPool.Release(e.poolKey)
+			sshclient.GlobalPool.Release(e.poolKey, e.client)
 			e.poolKey = ""
 		}
 		key := sshclient.PoolKey(config.Host, config.User, config.PrivateKey, config.Port)
@@ -174,7 +174,7 @@ func (e *CryptoSSHExecutor) Close() error {
 		return nil
 	}
 	if e.pooled && e.poolKey != "" {
-		sshclient.GlobalPool.Release(e.poolKey)
+		sshclient.GlobalPool.Release(e.poolKey, e.client)
 		e.client = nil
 		e.poolKey = ""
 		return nil

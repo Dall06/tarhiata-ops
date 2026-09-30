@@ -7,6 +7,7 @@ import (
 )
 
 var identifierRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`)
+var whitespaceRegex = regexp.MustCompile(`\s+`)
 
 // IsIdentifier valida si una cadena es un identificador alfanumérico seguro (para nombres de servicio, BD o contenedores).
 func IsIdentifier(s string) bool {
@@ -29,18 +30,38 @@ func IsNodeID(id string) bool {
 	return true
 }
 
-// IsSafeCommand evalúa si un comando ingresado no contiene secuencias destructivas de alto riesgo en terminales expuestas.
+// IsSafeCommand evalúa si un comando ingresado no contiene secuencias destructivas de alto
+// riesgo en terminales expuestas. Es una red de seguridad contra que un administrador ya
+// autenticado se autodestruya el servidor por accidente (fat-finger), NO un límite de
+// seguridad contra un atacante: quien llega a este endpoint ya está autenticado con el
+// mismo nivel de acceso que el resto del panel y, por diseño, puede ejecutar cualquier
+// comando a propósito.
+// ponytail: blocklist de patrones conocidos, no un parser de shell — variantes
+// suficientemente creativas (variables, sustitución, encoding) pueden evadirla. Endurecerla
+// de verdad requeriría un allowlist o deshabilitar la terminal libre, que es una decisión de
+// producto, no un fix de este alcance.
 func IsSafeCommand(cmd string) bool {
-	c := strings.TrimSpace(strings.ToLower(cmd))
+	c := strings.ToLower(strings.TrimSpace(cmd))
+	c = whitespaceRegex.ReplaceAllString(c, " ")
 	blocked := []string{
 		"rm -rf /",
 		"rm -rf /*",
+		"rm -fr /",
+		"rm --recursive --force /",
 		"mkfs",
 		"dd if=",
+		"dd of=/dev/",
+		"> /dev/sd",
+		"> /dev/nvme",
 		"reboot",
 		"shutdown",
+		"poweroff",
+		"halt",
 		"init 0",
+		"init 6",
 		":(){ :|:& };:",
+		"chmod -r 000 /",
+		"chown -r nobody /",
 	}
 	for _, b := range blocked {
 		if strings.Contains(c, b) {

@@ -60,6 +60,16 @@ func TestIsSafeCommand(t *testing.T) {
 		{name: "destructive rm root", input: "rm -rf /", expected: false},
 		{name: "destructive reboot", input: "sudo reboot now", expected: false},
 		{name: "destructive fork bomb", input: ":(){ :|:& };:", expected: false},
+		// Evasiones que antes pasaban la blocklist y ahora deben bloquearse.
+		{name: "rm con espacios extra evade el match exacto anterior", input: "rm   -rf    /", expected: false},
+		{name: "rm con tabs/newlines internos", input: "rm -rf\t/", expected: false},
+		{name: "rm -fr (orden de flags invertido)", input: "rm -fr /", expected: false},
+		{name: "rm con flags largos", input: "rm --recursive --force /", expected: false},
+		{name: "poweroff", input: "poweroff", expected: false},
+		{name: "halt", input: "halt", expected: false},
+		{name: "init 6", input: "init 6", expected: false},
+		{name: "dd of=/dev/sda", input: "dd of=/dev/sda", expected: false},
+		{name: "redirección directa a un disco", input: "echo x > /dev/sda1", expected: false},
 	}
 
 	for _, tc := range tests {

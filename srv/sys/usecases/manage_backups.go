@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dall06/tarhiata-ops/pkg/validator"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 )
@@ -83,7 +84,7 @@ func (uc *ManageBackupsUseCase) buildDumpCommand(req domain.BackupRequest, ts st
 	if req.TargetType != "database" {
 		filename := fmt.Sprintf("backup_vol_%s_%s.tar.gz", req.TargetName, ts)
 		remotePath := fmt.Sprintf("/opt/tarhiata/backups/%s", filename)
-		dumpCmd := fmt.Sprintf("tar -czf %s -C /opt/data %s 2>/dev/null || true", remotePath, req.TargetName)
+		dumpCmd := fmt.Sprintf("tar -czf %s -C /opt/data %s 2>/dev/null || true", validator.ShellQuote(remotePath), validator.ShellQuote(req.TargetName))
 		return dumpCmd, filename, remotePath, "volume"
 	}
 
@@ -99,37 +100,39 @@ func (uc *ManageBackupsUseCase) buildDumpCommand(req domain.BackupRequest, ts st
 		}
 	}
 
-	containerTarget := fmt.Sprintf("$(CID=$(docker ps -q -f name=tarhiata-db-%s | head -n 1); if [ -z \"$CID\" ]; then CID=$(docker ps -q -f name=%s | head -n 1); fi; echo $CID)", db.Name, db.Name)
+	quotedDBName := validator.ShellQuote(db.Name)
+	containerTarget := fmt.Sprintf("$(CID=$(docker ps -q -f name=tarhiata-db-%s | head -n 1); if [ -z \"$CID\" ]; then CID=$(docker ps -q -f name=%s | head -n 1); fi; echo $CID)", quotedDBName, quotedDBName)
 	filename := fmt.Sprintf("backup_%s_%s.sql.gz", db.Name, ts)
 	remotePath := fmt.Sprintf("/opt/tarhiata/backups/%s", filename)
 
 	var dumpCmd string
 	switch strings.ToLower(db.Engine) {
 	case "postgres":
-		dumpCmd = fmt.Sprintf("docker exec %s pg_dumpall -U postgres | gzip > %s", containerTarget, remotePath)
+		dumpCmd = fmt.Sprintf("docker exec %s pg_dumpall -U postgres | gzip > %s", containerTarget, validator.ShellQuote(remotePath))
 	case "mongo", "mongodb":
 		filename = fmt.Sprintf("backup_%s_%s.archive.gz", db.Name, ts)
 		remotePath = fmt.Sprintf("/opt/tarhiata/backups/%s", filename)
-		dumpCmd = fmt.Sprintf("docker exec %s mongodump --archive --gzip > %s", containerTarget, remotePath)
+		dumpCmd = fmt.Sprintf("docker exec %s mongodump --archive --gzip > %s", containerTarget, validator.ShellQuote(remotePath))
 	case "mysql", "mariadb":
 		pass := db.Password
 		if pass == "" {
 			pass = "root"
 		}
-		dumpCmd = fmt.Sprintf("docker exec %s mysqldump --all-databases -u root -p'%s' | gzip > %s", containerTarget, pass, remotePath)
+		dumpCmd = fmt.Sprintf("docker exec %s mysqldump --all-databases -u root -p%s | gzip > %s", containerTarget, validator.ShellQuote(pass), validator.ShellQuote(remotePath))
 	case "redis":
 		filename = fmt.Sprintf("backup_%s_%s.rdb.gz", db.Name, ts)
 		remotePath = fmt.Sprintf("/opt/tarhiata/backups/%s", filename)
-		dumpCmd = fmt.Sprintf("docker exec %s redis-cli SAVE && cat /data/dump.rdb | gzip > %s", containerTarget, remotePath)
+		dumpCmd = fmt.Sprintf("docker exec %s redis-cli SAVE && cat /data/dump.rdb | gzip > %s", containerTarget, validator.ShellQuote(remotePath))
 	default:
-		dumpCmd = fmt.Sprintf("docker exec %s pg_dumpall -U postgres | gzip > %s", containerTarget, remotePath)
+		dumpCmd = fmt.Sprintf("docker exec %s pg_dumpall -U postgres | gzip > %s", containerTarget, validator.ShellQuote(remotePath))
 	}
 
 	return dumpCmd, filename, remotePath, db.Engine
 }
 
 func (uc *ManageBackupsUseCase) getRemoteFileSize(remotePath string) int64 {
-	sizeRes, errSize := uc.ssh.RunCommand(fmt.Sprintf("stat -c%%s %s 2>/dev/null || wc -c < %s", remotePath, remotePath))
+	quotedPath := validator.ShellQuote(remotePath)
+	sizeRes, errSize := uc.ssh.RunCommand(fmt.Sprintf("stat -c%%s %s 2>/dev/null || wc -c < %s", quotedPath, quotedPath))
 	if errSize == nil && sizeRes != nil {
 		if parsed, errParse := strconv.ParseInt(strings.TrimSpace(sizeRes.Output), 10, 64); errParse == nil {
 			return parsed
@@ -145,8 +148,14 @@ func (uc *ManageBackupsUseCase) uploadToS3(req domain.BackupRequest, remotePath,
 			bucket = "backups"
 		}
 		s3Location := fmt.Sprintf("%s/%s/%s", req.CustomS3URL, bucket, filename)
-		uploadCmd := fmt.Sprintf("docker run --rm -v /opt/tarhiata/backups:/backups minio/mc:latest sh -c \"mc alias set target '%s' '%s' '%s' 2>/dev/null && mc mb target/%s 2>/dev/null; mc cp /backups/%s target/%s/\"",
-			req.CustomS3URL, req.AccessKey, req.SecretKey, bucket, filename, bucket)
+		// Cita cada valor para el shell interno del contenedor y luego envuelve todo el
+		// comando interno como un único literal para el shell remoto que lanza "docker run",
+		// para que $()/backticks/comillas en la URL o credenciales no se ejecuten en ninguna
+		// de las dos capas.
+		innerCmd := fmt.Sprintf("mc alias set target %s %s %s 2>/dev/null && mc mb target/%s 2>/dev/null; mc cp /backups/%s target/%s/",
+			validator.ShellQuote(req.CustomS3URL), validator.ShellQuote(req.AccessKey), validator.ShellQuote(req.SecretKey),
+			validator.ShellQuote(bucket), validator.ShellQuote(filename), validator.ShellQuote(bucket))
+		uploadCmd := "docker run --rm -v /opt/tarhiata/backups:/backups minio/mc:latest sh -c " + validator.ShellQuote(innerCmd)
 		resUpload, errUpload := uc.ssh.RunCommand(uploadCmd)
 		if errUpload != nil || (resUpload != nil && resUpload.ExitCode != 0) {
 			slog.Warn("Fallo en subida S3 externo", "error", errUpload)
@@ -168,11 +177,15 @@ func (uc *ManageBackupsUseCase) uploadToS3(req domain.BackupRequest, remotePath,
 		}
 		cleanMinIO = strings.TrimPrefix(cleanMinIO, "tarhiata-db-")
 
-		minioContainer := fmt.Sprintf("$(docker ps -q -f name=tarhiata-db-%s | head -n 1)", cleanMinIO)
+		quotedMinIOName := validator.ShellQuote(cleanMinIO)
+		minioContainer := fmt.Sprintf("$(docker ps -q -f name=tarhiata-db-%s | head -n 1)", quotedMinIOName)
 		s3Location := fmt.Sprintf("s3://%s/%s/%s", cleanMinIO, bucket, filename)
 
+		quotedBucket := validator.ShellQuote(bucket)
+		quotedRemotePath := validator.ShellQuote(remotePath)
+		quotedFilename := validator.ShellQuote(filename)
 		uploadCmd := fmt.Sprintf("docker exec %s mc alias set local http://localhost:9000 admin admin_pass 2>/dev/null; docker exec %s mc mb local/%s 2>/dev/null; docker cp %s $(docker ps -q -f name=tarhiata-db-%s | head -n 1):/tmp/%s 2>/dev/null && docker exec %s mc cp /tmp/%s local/%s/ 2>/dev/null",
-			minioContainer, minioContainer, bucket, remotePath, cleanMinIO, filename, minioContainer, filename, bucket)
+			minioContainer, minioContainer, quotedBucket, quotedRemotePath, quotedMinIOName, quotedFilename, minioContainer, quotedFilename, quotedBucket)
 		resUpload, errUpload := uc.ssh.RunCommand(uploadCmd)
 		if errUpload != nil || (resUpload != nil && resUpload.ExitCode != 0) {
 			slog.Warn("Fallo en subida MinIO S3", "error", errUpload)
@@ -202,7 +215,7 @@ func (uc *ManageBackupsUseCase) RestoreSnapshot(backupID int, config domain.Serv
 	}()
 
 	if backup.TargetType != "database" {
-		restoreCmd := fmt.Sprintf("tar -xzf %s -C /opt/data/", backup.FilePath)
+		restoreCmd := fmt.Sprintf("tar -xzf %s -C /opt/data/", validator.ShellQuote(backup.FilePath))
 		res, err := uc.ssh.RunCommand(restoreCmd)
 		if err != nil || res == nil || res.ExitCode != 0 {
 			out := ""
@@ -228,22 +241,24 @@ func (uc *ManageBackupsUseCase) RestoreSnapshot(backupID int, config domain.Serv
 			Engine: engineName,
 		}
 	}
-	containerTarget := fmt.Sprintf("$(CID=$(docker ps -q -f name=tarhiata-db-%s | head -n 1); if [ -z \"$CID\" ]; then CID=$(docker ps -q -f name=%s | head -n 1); fi; echo $CID)", db.Name, db.Name)
+	quotedDBName := validator.ShellQuote(db.Name)
+	containerTarget := fmt.Sprintf("$(CID=$(docker ps -q -f name=tarhiata-db-%s | head -n 1); if [ -z \"$CID\" ]; then CID=$(docker ps -q -f name=%s | head -n 1); fi; echo $CID)", quotedDBName, quotedDBName)
+	quotedFilePath := validator.ShellQuote(backup.FilePath)
 	var restoreCmd string
 
 	switch strings.ToLower(db.Engine) {
 	case "postgres":
-		restoreCmd = fmt.Sprintf("gunzip -c %s | docker exec -i %s psql -U postgres", backup.FilePath, containerTarget)
+		restoreCmd = fmt.Sprintf("gunzip -c %s | docker exec -i %s psql -U postgres", quotedFilePath, containerTarget)
 	case "mongo", "mongodb":
-		restoreCmd = fmt.Sprintf("cat %s | docker exec -i %s mongorestore --archive --gzip", backup.FilePath, containerTarget)
+		restoreCmd = fmt.Sprintf("cat %s | docker exec -i %s mongorestore --archive --gzip", quotedFilePath, containerTarget)
 	case "mysql", "mariadb":
 		pass := db.Password
 		if pass == "" {
 			pass = "root"
 		}
-		restoreCmd = fmt.Sprintf("gunzip -c %s | docker exec -i %s mysql -u root -p'%s'", backup.FilePath, containerTarget, pass)
+		restoreCmd = fmt.Sprintf("gunzip -c %s | docker exec -i %s mysql -u root -p%s", quotedFilePath, containerTarget, validator.ShellQuote(pass))
 	default:
-		restoreCmd = fmt.Sprintf("gunzip -c %s | docker exec -i %s psql -U postgres", backup.FilePath, containerTarget)
+		restoreCmd = fmt.Sprintf("gunzip -c %s | docker exec -i %s psql -U postgres", quotedFilePath, containerTarget)
 	}
 
 	res, err := uc.ssh.RunCommand(restoreCmd)
@@ -275,7 +290,7 @@ func (uc *ManageBackupsUseCase) DownloadSnapshot(backupID int, config domain.Ser
 		}
 	}()
 
-	res, err := uc.ssh.RunCommand(fmt.Sprintf("base64 -w 0 %s", backup.FilePath))
+	res, err := uc.ssh.RunCommand(fmt.Sprintf("base64 -w 0 %s", validator.ShellQuote(backup.FilePath)))
 	if err != nil || res == nil || res.ExitCode != 0 {
 		out := ""
 		if res != nil {

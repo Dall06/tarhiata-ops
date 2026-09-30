@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -415,13 +416,13 @@ func (r *SQLiteRepository) GetServerConfig() (*domain.ServerConfig, error) {
 	var config domain.ServerConfig
 	err := row.Scan(&config.ID, &config.Name, &config.Host, &config.Port, &config.User, &config.PrivateKey, &config.VultrAPIToken, &config.DOAPIToken, &config.CloudProvider, &config.IsActive)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			// Fallback a tabla legacy server_config si aún no se ha poblado server_configs
 			legacyQuery := `SELECT host, port, user, private_key, vultr_api_token, do_api_token, cloud_provider FROM server_config WHERE id = 1;`
 			legRow := r.db.QueryRow(legacyQuery)
 			errLeg := legRow.Scan(&config.Host, &config.Port, &config.User, &config.PrivateKey, &config.VultrAPIToken, &config.DOAPIToken, &config.CloudProvider)
 			if errLeg != nil {
-				if errLeg == sql.ErrNoRows {
+				if errors.Is(errLeg, sql.ErrNoRows) {
 					return nil, nil
 				}
 				return nil, errLeg
@@ -475,7 +476,7 @@ func (r *SQLiteRepository) GetServerConfigByName(name string) (*domain.ServerCon
 	var config domain.ServerConfig
 	err := row.Scan(&config.ID, &config.Name, &config.Host, &config.Port, &config.User, &config.PrivateKey, &config.VultrAPIToken, &config.DOAPIToken, &config.CloudProvider, &config.IsActive)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
@@ -592,7 +593,7 @@ func (r *SQLiteRepository) GetService(name string) (*domain.SavedService, error)
 	var s domain.SavedService
 	err := row.Scan(&s.ID, &s.Name, &s.ImageSource, &s.IsURL, &s.Port, &s.Domain, &s.Expose, &s.EnvFilePath, &s.EnableSSL, &s.HealthcheckCmd, &s.MountsJSON, &s.EnvVars, &s.TargetNode, &s.PreDeployHook, &s.CustomDomains)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil // No encontrado
 		}
 		return nil, err
@@ -664,7 +665,7 @@ func (r *SQLiteRepository) GetDatabase(name string) (*domain.SavedDatabase, erro
 	var d domain.SavedDatabase
 	err := row.Scan(&d.ID, &d.Name, &d.Engine, &d.DeployType, &d.ExternalURL, &d.InternalPort, &d.VolumeHostPath, &d.NodeIP, &d.Password, &d.TargetNode)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil // No encontrado
 		}
 		return nil, err
@@ -713,7 +714,7 @@ func (r *SQLiteRepository) GetObservability() (*domain.SavedObservability, error
 	var config domain.SavedObservability
 	err := r.db.QueryRow(query).Scan(&config.ID, &config.DeployType, &config.ExternalURL, &config.NodeIP, &config.GrafanaPassword)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil // No hay error, no hay configuración aún
 		}
 		return nil, err
@@ -808,7 +809,7 @@ func (r *SQLiteRepository) GetPreviewEnv(name string) (*domain.SavedPreviewEnv, 
 	var e domain.SavedPreviewEnv
 	err := row.Scan(&e.ID, &e.Name, &e.ImageSource, &e.Port, &e.Domain, &e.LinkDBName, &e.Status, &e.CreatedAt, &e.TargetNode)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
@@ -862,7 +863,7 @@ func (r *SQLiteRepository) GetRegistryCredential(server string) (*domain.SavedRe
 
 	var c domain.SavedRegistryCredential
 	if err := row.Scan(&c.ID, &c.Server, &c.Username, &c.Password, &c.CreatedAt); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
@@ -1044,7 +1045,7 @@ func (r *SQLiteRepository) GetAlertSettings() (*domain.AlertSettings, error) {
 		&enabledInt,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return &domain.AlertSettings{Enabled: false}, nil
 		}
 		return nil, err
@@ -1142,7 +1143,7 @@ func (r *SQLiteRepository) GetDeploymentRecordByID(id int) (*domain.DeploymentRe
 		&rec.Status,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err

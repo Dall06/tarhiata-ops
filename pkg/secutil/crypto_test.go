@@ -3,6 +3,7 @@ package secutil
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -157,6 +158,66 @@ func TestGetMasterKey_EnvironmentVariable(t *testing.T) {
 	}
 }
 
+// TestGetMasterKey_CorruptedFileFailsLoudly valida el flujo completo: si el archivo de
+// clave maestra existe pero tiene un tamaño inválido (corrupción, escritura parcial tras
+// un crash), GetMasterKey debe fallar con un error en vez de sobrescribirlo en silencio
+// con una clave nueva, lo que volvería indescifrables todos los secretos ya cifrados.
+func TestGetMasterKey_CorruptedFileFailsLoudly(t *testing.T) {
+	ResetMasterKeyForTesting()
+	defer ResetMasterKeyForTesting()
+	os.Unsetenv("TARHIATA_SECRET_KEY")
+
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	keyDir := filepath.Join(tmpHome, ".config", "tarhiata")
+	if err := os.MkdirAll(keyDir, 0700); err != nil {
+		t.Fatalf("failed to create key dir: %v", err)
+	}
+	keyPath := filepath.Join(keyDir, ".key")
+	corrupted := []byte("esto-no-mide-32-bytes")
+	if err := os.WriteFile(keyPath, corrupted, 0600); err != nil {
+		t.Fatalf("failed to write corrupted key file: %v", err)
+	}
+
+	if _, err := GetMasterKey(); err == nil {
+		t.Fatal("se esperaba un error por archivo de clave corrupto, no se generó ninguno")
+	}
+
+	// El archivo corrupto NO debió sobrescribirse con una clave nueva.
+	after, err := os.ReadFile(keyPath)
+	if err != nil {
+		t.Fatalf("unexpected error re-reading key file: %v", err)
+	}
+	if !bytes.Equal(after, corrupted) {
+		t.Errorf("el archivo de clave se sobrescribió en silencio; se esperaba que quedara intacto para investigación manual")
+	}
+}
+
+// TestGetMasterKey_MissingFileGeneratesNewKey confirma que el caso legítimo (primera
+// ejecución, sin archivo de clave) sigue generando una clave nueva normalmente.
+func TestGetMasterKey_MissingFileGeneratesNewKey(t *testing.T) {
+	ResetMasterKeyForTesting()
+	defer ResetMasterKeyForTesting()
+	os.Unsetenv("TARHIATA_SECRET_KEY")
+
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	key, err := GetMasterKey()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(key) != 32 {
+		t.Errorf("expected 32-byte key, got %d", len(key))
+	}
+
+	keyPath := filepath.Join(tmpHome, ".config", "tarhiata", ".key")
+	if _, err := os.Stat(keyPath); err != nil {
+		t.Errorf("se esperaba que el archivo de clave quedara persistido: %v", err)
+	}
+}
+
 func TestIsLocalHost(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -217,4 +278,3 @@ func TestIsLocalHost(t *testing.T) {
 		})
 	}
 }
-
