@@ -56,13 +56,13 @@ func (m *mockRepo) GetRegistryCredential(server string) (*domain.SavedRegistryCr
 }
 func (m *mockRepo) DeleteRegistryCredential(server string) error                             { return nil }
 func (m *mockRepo) SaveMigrationFile(file domain.MigrationFile) error                        { return nil }
-func (m *mockRepo) GetMigrationFiles(dbName string) ([]domain.MigrationFile, error)          { return nil, nil }
-func (m *mockRepo) DeleteMigrationFile(dbName, filename string) error                        { return nil }
-func (m *mockRepo) RecordMigrationExecution(dbName, filename, status, logs string) error    { return nil }
+func (m *mockRepo) GetMigrationFiles(dbName, serverName string) ([]domain.MigrationFile, error) { return nil, nil }
+func (m *mockRepo) DeleteMigrationFile(dbName, filename, serverName string) error            { return nil }
+func (m *mockRepo) RecordMigrationExecution(dbName, filename, serverName, status, logs string) error { return nil }
 func (m *mockRepo) SaveBackup(backup domain.SavedBackup) error                                { return nil }
-func (m *mockRepo) GetBackups() ([]domain.SavedBackup, error)                                { return nil, nil }
-func (m *mockRepo) GetBackupByID(id int) (*domain.SavedBackup, error)                        { return nil, nil }
-func (m *mockRepo) DeleteBackup(id int) error                                                { return nil }
+func (m *mockRepo) GetBackups(serverName string) ([]domain.SavedBackup, error)               { return nil, nil }
+func (m *mockRepo) GetBackupByID(id int, serverName string) (*domain.SavedBackup, error)     { return nil, nil }
+func (m *mockRepo) DeleteBackup(id int, serverName string) error                             { return nil }
 func (m *mockRepo) SaveAuditLog(log domain.AuditLog) error                                     { return nil }
 func (m *mockRepo) GetAuditLogs(limit int) ([]domain.AuditLog, error)                          { return nil, nil }
 func (m *mockRepo) SaveAlertSettings(settings domain.AlertSettings) error                       { return nil }
@@ -2460,6 +2460,51 @@ func TestWebServer_HandleServiceRebuild_RejectsNonGitService(t *testing.T) {
 	ws.handleServiceRebuild(rr, req)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 para un servicio que no es git, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestWebServer_HandleLogs_NoFakeLogsWhenNoServerConfigured regresión: cuando no hay
+// servidor con Host configurado, el handler fabricaba logs simulados ("Healthcheck
+// status: PASSED") indistinguibles de reales con 200 OK -- un operador podía creer que
+// el servicio estaba sano cuando el panel ni siquiera pudo conectarse. Ahora debe
+// responder con error, nunca con logs inventados.
+func TestWebServer_HandleLogs_NoFakeLogsWhenNoServerConfigured(t *testing.T) {
+	repo := mocks.NewMockConfigRepository()
+	ws := NewWebServer(repo, &domain.ServerConfig{Name: "local", Host: "", CloudProvider: "local"})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/logs?service=api-backend", nil)
+	rr := httptest.NewRecorder()
+	ws.handleLogs(rr, req)
+
+	if rr.Code == http.StatusOK {
+		t.Fatalf("no debería responder 200 sin servidor configurado, got body: %s", rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "Healthcheck status: PASSED") {
+		t.Fatal("el handler sigue fabricando logs simulados que aparentan ser reales")
+	}
+}
+
+// TestWebServer_HandleDatabaseItem_GetRedactsPassword regresión: handleDatabaseItem GET
+// no redactaba la contraseña (a diferencia de handleDatabases GET, que sí la limpia
+// antes de responder) -- inconsistencia de redacción para el mismo recurso.
+func TestWebServer_HandleDatabaseItem_GetRedactsPassword(t *testing.T) {
+	repo := mocks.NewMockConfigRepository()
+	repo.Databases = []domain.SavedDatabase{{Name: "pg", Engine: "postgres", Password: "supersecret", ServerName: "local"}}
+	ws := NewWebServer(repo, &domain.ServerConfig{Name: "local", Host: "localhost", CloudProvider: "local"})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/databases/pg", nil)
+	rr := httptest.NewRecorder()
+	ws.handleDatabaseItem(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var got domain.SavedDatabase
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if got.Password != "" {
+		t.Errorf("expected password redacted (empty), got %q", got.Password)
 	}
 }
 

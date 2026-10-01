@@ -509,7 +509,7 @@ func TestSQLiteMigrations(t *testing.T) {
 	defer repo.Close()
 
 	// Initial empty list
-	files, err := repo.GetMigrationFiles("db-test")
+	files, err := repo.GetMigrationFiles("db-test", "")
 	if err != nil {
 		t.Fatalf("unexpected error getting migration files: %v", err)
 	}
@@ -531,11 +531,11 @@ func TestSQLiteMigrations(t *testing.T) {
 	}
 
 	// Record execution
-	if err := repo.RecordMigrationExecution("db-test", "001_init.sql", "applied", "success"); err != nil {
+	if err := repo.RecordMigrationExecution("db-test", "001_init.sql", "", "applied", "success"); err != nil {
 		t.Fatalf("failed to record execution: %v", err)
 	}
 
-	filesAfter, err := repo.GetMigrationFiles("db-test")
+	filesAfter, err := repo.GetMigrationFiles("db-test", "")
 	if err != nil {
 		t.Fatalf("failed to get migration files: %v", err)
 	}
@@ -544,7 +544,7 @@ func TestSQLiteMigrations(t *testing.T) {
 	}
 
 	// Delete
-	if err := repo.DeleteMigrationFile("db-test", "001_init.sql"); err != nil {
+	if err := repo.DeleteMigrationFile("db-test", "001_init.sql", ""); err != nil {
 		t.Fatalf("failed to delete migration file: %v", err)
 	}
 }
@@ -658,7 +658,7 @@ func TestSQLiteBackups(t *testing.T) {
 		t.Fatalf("failed to save backup: %v", err)
 	}
 
-	backups, err := repo.GetBackups()
+	backups, err := repo.GetBackups("")
 	if err != nil {
 		t.Fatalf("failed to get backups: %v", err)
 	}
@@ -666,11 +666,11 @@ func TestSQLiteBackups(t *testing.T) {
 		t.Errorf("expected backup 'db-production', got: %+v", backups)
 	}
 
-	if err := repo.DeleteBackup(backups[0].ID); err != nil {
+	if err := repo.DeleteBackup(backups[0].ID, ""); err != nil {
 		t.Fatalf("failed to delete backup: %v", err)
 	}
 
-	backupsAfter, err := repo.GetBackups()
+	backupsAfter, err := repo.GetBackups("")
 	if err != nil {
 		t.Fatalf("failed to get backups after delete: %v", err)
 	}
@@ -905,6 +905,72 @@ func TestSQLiteServerScopedIsolation(t *testing.T) {
 	vpsSvcsAfter, err := repo.GetServices("vps-prod")
 	if err != nil || len(vpsSvcsAfter) != 1 {
 		t.Errorf("expected 'vps-prod' service to survive the 'local' delete, got: %+v", vpsSvcsAfter)
+	}
+}
+
+// TestSQLiteMigrationFilesAndBackupsScopedIsolation regresión: migration_files y backups
+// también deben aislarse por servidor (antes de la migración-002, dos servidores con una
+// BD o backup homónimos compartían el mismo registro de migraciones/backups).
+func TestSQLiteMigrationFilesAndBackupsScopedIsolation(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "migrations_backups_isolation.db")
+	repo, err := NewSQLiteRepository(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create repo: %v", err)
+	}
+	defer repo.Close()
+
+	for _, server := range []string{"local", "vps-prod"} {
+		if err := repo.SaveMigrationFile(domain.MigrationFile{
+			DBName: "pg", Filename: "001_init.sql", Content: "CREATE TABLE t (id int);", ServerName: server,
+		}); err != nil {
+			t.Fatalf("error saving migration file for %s: %v", server, err)
+		}
+		if err := repo.SaveBackup(domain.SavedBackup{
+			TargetName: "pg", TargetType: "database", Engine: "postgres", Filename: "backup.sql.gz", ServerName: server,
+		}); err != nil {
+			t.Fatalf("error saving backup for %s: %v", server, err)
+		}
+	}
+
+	localFiles, err := repo.GetMigrationFiles("pg", "local")
+	if err != nil || len(localFiles) != 1 {
+		t.Fatalf("expected exactly 1 migration file scoped to 'local', got: %+v (err=%v)", localFiles, err)
+	}
+	vpsFiles, err := repo.GetMigrationFiles("pg", "vps-prod")
+	if err != nil || len(vpsFiles) != 1 {
+		t.Fatalf("expected exactly 1 migration file scoped to 'vps-prod', got: %+v (err=%v)", vpsFiles, err)
+	}
+
+	localBackups, err := repo.GetBackups("local")
+	if err != nil || len(localBackups) != 1 {
+		t.Fatalf("expected exactly 1 backup scoped to 'local', got: %+v (err=%v)", localBackups, err)
+	}
+	vpsBackups, err := repo.GetBackups("vps-prod")
+	if err != nil || len(vpsBackups) != 1 {
+		t.Fatalf("expected exactly 1 backup scoped to 'vps-prod', got: %+v (err=%v)", vpsBackups, err)
+	}
+
+	// Un GetBackupByID con el servidor equivocado no debe encontrar el backup del otro.
+	if _, err := repo.GetBackupByID(vpsBackups[0].ID, "local"); err == nil {
+		t.Error("expected GetBackupByID to fail when the server doesn't match, got no error")
+	}
+
+	// Borrar en 'local' no debe afectar a 'vps-prod'.
+	if err := repo.DeleteMigrationFile("pg", "001_init.sql", "local"); err != nil {
+		t.Fatalf("DeleteMigrationFile(local) error: %v", err)
+	}
+	if err := repo.DeleteBackup(localBackups[0].ID, "local"); err != nil {
+		t.Fatalf("DeleteBackup(local) error: %v", err)
+	}
+
+	vpsFilesAfter, err := repo.GetMigrationFiles("pg", "vps-prod")
+	if err != nil || len(vpsFilesAfter) != 1 {
+		t.Errorf("expected 'vps-prod' migration file to survive the 'local' delete, got: %+v", vpsFilesAfter)
+	}
+	vpsBackupsAfter, err := repo.GetBackups("vps-prod")
+	if err != nil || len(vpsBackupsAfter) != 1 {
+		t.Errorf("expected 'vps-prod' backup to survive the 'local' delete, got: %+v", vpsBackupsAfter)
 	}
 }
 

@@ -54,15 +54,15 @@ type ConfigRepository interface {
 
 	// --- Gestor de Migraciones de BD ---
 	SaveMigrationFile(file domain.MigrationFile) error
-	GetMigrationFiles(dbName string) ([]domain.MigrationFile, error)
-	DeleteMigrationFile(dbName, filename string) error
-	RecordMigrationExecution(dbName, filename, status, logs string) error
+	GetMigrationFiles(dbName, serverName string) ([]domain.MigrationFile, error)
+	DeleteMigrationFile(dbName, filename, serverName string) error
+	RecordMigrationExecution(dbName, filename, serverName, status, logs string) error
 
 	// --- Backups & Snapshots ---
 	SaveBackup(backup domain.SavedBackup) error
-	GetBackups() ([]domain.SavedBackup, error)
-	GetBackupByID(id int) (*domain.SavedBackup, error)
-	DeleteBackup(id int) error
+	GetBackups(serverName string) ([]domain.SavedBackup, error)
+	GetBackupByID(id int, serverName string) (*domain.SavedBackup, error)
+	DeleteBackup(id int, serverName string) error
 
 	// --- Logs de Auditoría Inmutables ---
 	SaveAuditLog(log domain.AuditLog) error

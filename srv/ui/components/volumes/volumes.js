@@ -2,6 +2,7 @@ import { state } from '/pkg/store/state.js';
 import { showToast } from '/pkg/toast/toast.js';
 import { apiFetch } from '/pkg/apiclient/api.js';
 import { escapeHtml, formatFileSize, getFileIcon } from '/pkg/jsutil/utils.js';
+import { openModal, closeModal } from '/pkg/modal/modal.js';
 
 let currentVolumePath = '/opt/data';
 let currentVolumeFiles = [];
@@ -114,13 +115,12 @@ export function openVolumeModal(initialPath) {
     if (volumeSearchInput) volumeSearchInput.value = '';
     if (volumeFilesView) volumeFilesView.style.display = 'block';
     if (volumeEditorView) volumeEditorView.style.display = 'none';
-    volumeModal.style.display = 'flex';
+    openModal('volumeModal');
     fetchAndRenderVolumeFiles(currentVolumePath);
 }
 
 export function closeVolumeModal() {
-    const volumeModal = document.getElementById('volumeModal');
-    if (volumeModal) volumeModal.style.display = 'none';
+    closeModal('volumeModal');
     currentEditingFilePath = '';
 }
 
@@ -488,9 +488,4 @@ export function setupVolumeListeners() {
 
     if (btnCloseVolumeModal) btnCloseVolumeModal.addEventListener('click', closeVolumeModal);
     if (btnCloseVolumeModalBottom) btnCloseVolumeModalBottom.addEventListener('click', closeVolumeModal);
-    if (volumeModal) {
-        volumeModal.addEventListener('click', (e) => {
-            if (e.target === volumeModal) closeVolumeModal();
-        });
-    }
 }

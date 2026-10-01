@@ -145,12 +145,12 @@ export function renderMasterServicesTable(services, databases, links, callbacks 
             actionsHtml = `
                 <div class="row-actions-wrap">
                     <button type="button" class="row-action-primary btn-logs-svc" data-name="${n}">📜 Logs</button>
-                    <button type="button" class="row-action-chevron" data-dropdown="${n}-fw" title="Más acciones">▾</button>
-                    <div class="row-actions-dropdown" id="dd-${n}-fw">
-                        <button type="button" class="dd-item btn-metrics-svc" data-name="${n}">📊 Métricas</button>
-                        <button type="button" class="dd-item btn-restart-svc" data-name="${n}">🔄 Reiniciar</button>
-                        ${isTraefik ? `<button type="button" class="dd-item btn-repair-traefik" data-name="${n}">🔧 Reparar Traefik</button>` : ''}
-                        <button type="button" class="dd-item btn-vol-svc" data-name="${n}">📁 Archivos</button>
+                    <button type="button" class="row-action-chevron" data-dropdown="${n}-fw" title="Más acciones" aria-haspopup="menu" aria-expanded="false" aria-controls="dd-${n}-fw">▾</button>
+                    <div class="row-actions-dropdown" id="dd-${n}-fw" role="menu">
+                        <button type="button" class="dd-item btn-metrics-svc" data-name="${n}" role="menuitem">📊 Métricas</button>
+                        <button type="button" class="dd-item btn-restart-svc" data-name="${n}" role="menuitem">🔄 Reiniciar</button>
+                        ${isTraefik ? `<button type="button" class="dd-item btn-repair-traefik" data-name="${n}" role="menuitem">🔧 Reparar Traefik</button>` : ''}
+                        <button type="button" class="dd-item btn-vol-svc" data-name="${n}" role="menuitem">📁 Archivos</button>
                     </div>
                 </div>
             `;
@@ -158,14 +158,14 @@ export function renderMasterServicesTable(services, databases, links, callbacks 
             actionsHtml = `
                 <div class="row-actions-wrap">
                     <button type="button" class="row-action-primary btn-logs-db" data-name="${n}">📜 Logs</button>
-                    <button type="button" class="row-action-chevron" data-dropdown="${n}-db" title="Más acciones">▾</button>
-                    <div class="row-actions-dropdown" id="dd-${n}-db">
-                        <button type="button" class="dd-item btn-metrics-svc" data-name="${n}">📊 Métricas</button>
-                        <button type="button" class="dd-item btn-restart-db" data-name="${n}">🔄 Reiniciar</button>
-                        <button type="button" class="dd-item btn-backup-db" data-name="${n}" data-engine="${escapeHtml(it.engine || 'postgres')}">💾 Backup</button>
-                        <button type="button" class="dd-item btn-vol-db" data-name="${n}">📁 Archivos</button>
+                    <button type="button" class="row-action-chevron" data-dropdown="${n}-db" title="Más acciones" aria-haspopup="menu" aria-expanded="false" aria-controls="dd-${n}-db">▾</button>
+                    <div class="row-actions-dropdown" id="dd-${n}-db" role="menu">
+                        <button type="button" class="dd-item btn-metrics-svc" data-name="${n}" role="menuitem">📊 Métricas</button>
+                        <button type="button" class="dd-item btn-restart-db" data-name="${n}" role="menuitem">🔄 Reiniciar</button>
+                        <button type="button" class="dd-item btn-backup-db" data-name="${n}" data-engine="${escapeHtml(it.engine || 'postgres')}" role="menuitem">💾 Backup</button>
+                        <button type="button" class="dd-item btn-vol-db" data-name="${n}" role="menuitem">📁 Archivos</button>
                         <div class="dd-sep"></div>
-                        <button type="button" class="dd-item dd-danger btn-delete-db" data-name="${n}">✕ Eliminar BD</button>
+                        <button type="button" class="dd-item dd-danger btn-delete-db" data-name="${n}" role="menuitem">✕ Eliminar BD</button>
                     </div>
                 </div>
             `;
@@ -173,17 +173,17 @@ export function renderMasterServicesTable(services, databases, links, callbacks 
             actionsHtml = `
                 <div class="row-actions-wrap">
                     <button type="button" class="row-action-primary btn-logs-svc" data-name="${n}">📜 Logs</button>
-                    <button type="button" class="row-action-chevron" data-dropdown="${n}-app" title="Más acciones">▾</button>
-                    <div class="row-actions-dropdown" id="dd-${n}-app">
-                        <button type="button" class="dd-item btn-metrics-svc" data-name="${n}">📊 Métricas</button>
-                        <button type="button" class="dd-item btn-env-svc" data-name="${n}">🔑 Variables Env</button>
-                        <button type="button" class="dd-item btn-restart-svc" data-name="${n}">🔄 Reiniciar</button>
-                        <button type="button" class="dd-item btn-history-svc" data-name="${n}">⏳ Versiones</button>
-                        <button type="button" class="dd-item btn-vol-svc" data-name="${n}">📁 Archivos</button>
-                        <button type="button" class="dd-item btn-rebuild-svc" data-name="${n}">🔧 Rebuild &amp; Deploy</button>
-                        <button type="button" class="dd-item btn-edit-svc" data-name="${n}" data-expose="${it.expose}" data-domain="${escapeHtml(it.domain)}">⚙️ Configurar</button>
+                    <button type="button" class="row-action-chevron" data-dropdown="${n}-app" title="Más acciones" aria-haspopup="menu" aria-expanded="false" aria-controls="dd-${n}-app">▾</button>
+                    <div class="row-actions-dropdown" id="dd-${n}-app" role="menu">
+                        <button type="button" class="dd-item btn-metrics-svc" data-name="${n}" role="menuitem">📊 Métricas</button>
+                        <button type="button" class="dd-item btn-env-svc" data-name="${n}" role="menuitem">🔑 Variables Env</button>
+                        <button type="button" class="dd-item btn-restart-svc" data-name="${n}" role="menuitem">🔄 Reiniciar</button>
+                        <button type="button" class="dd-item btn-history-svc" data-name="${n}" role="menuitem">⏳ Versiones</button>
+                        <button type="button" class="dd-item btn-vol-svc" data-name="${n}" role="menuitem">📁 Archivos</button>
+                        <button type="button" class="dd-item btn-rebuild-svc" data-name="${n}" role="menuitem">🔧 Rebuild &amp; Deploy</button>
+                        <button type="button" class="dd-item btn-edit-svc" data-name="${n}" data-expose="${it.expose}" data-domain="${escapeHtml(it.domain)}" role="menuitem">⚙️ Configurar</button>
                         <div class="dd-sep"></div>
-                        <button type="button" class="dd-item dd-danger btn-del-svc" data-name="${n}">✕ Eliminar</button>
+                        <button type="button" class="dd-item dd-danger btn-del-svc" data-name="${n}" role="menuitem">✕ Eliminar</button>
                     </div>
                 </div>
             `;
@@ -225,6 +225,14 @@ export function renderMasterServicesTable(services, databases, links, callbacks 
 
 export function wireMasterTableActions(callbacks = {}) {
     // ─── Dropdown chevron toggle ───────────────────────────────────────────
+    const closeAllRowDropdowns = () => {
+        document.querySelectorAll('.row-actions-dropdown.open').forEach(el => el.classList.remove('open'));
+        document.querySelectorAll('.row-action-chevron.open').forEach(el => {
+            el.classList.remove('open');
+            el.setAttribute('aria-expanded', 'false');
+        });
+    };
+
     document.querySelectorAll('.row-action-chevron').forEach(chevron => {
         chevron.onclick = (e) => {
             e.stopPropagation();
@@ -233,21 +241,21 @@ export function wireMasterTableActions(callbacks = {}) {
             if (!dd) return;
             const isOpen = dd.classList.contains('open');
             // Cerrar todos los dropdowns abiertos primero
-            document.querySelectorAll('.row-actions-dropdown.open').forEach(el => el.classList.remove('open'));
-            document.querySelectorAll('.row-action-chevron.open').forEach(el => el.classList.remove('open'));
+            closeAllRowDropdowns();
             if (!isOpen) {
                 dd.classList.add('open');
                 chevron.classList.add('open');
+                chevron.setAttribute('aria-expanded', 'true');
             }
         };
     });
 
-    // Cerrar dropdowns al hacer click fuera
+    // Cerrar dropdowns al hacer click afuera o con Escape
     if (!document._rowActionsClickOutside) {
         document._rowActionsClickOutside = true;
-        document.addEventListener('click', () => {
-            document.querySelectorAll('.row-actions-dropdown.open').forEach(el => el.classList.remove('open'));
-            document.querySelectorAll('.row-action-chevron.open').forEach(el => el.classList.remove('open'));
+        document.addEventListener('click', closeAllRowDropdowns);
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeAllRowDropdowns();
         });
     }
 

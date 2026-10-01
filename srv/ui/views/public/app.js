@@ -130,7 +130,6 @@ function initApp() {
     const btnDownloadReport = document.getElementById('btnDownloadReport');
     const btnTopAudit = document.getElementById('btnTopAudit');
     const btnTopAlerts = document.getElementById('btnTopAlerts');
-    const btnTopSSL = document.getElementById('btnTopSSL');
     const btnNavTools = document.getElementById('btnNavTools');
     const navToolsWrap = document.getElementById('navToolsWrap');
     const navToolsDropdown = document.getElementById('navToolsDropdown');
@@ -145,26 +144,36 @@ function initApp() {
     if (btnDownloadReport) btnDownloadReport.addEventListener('click', () => downloadSystemReport());
     if (btnTopAudit) btnTopAudit.addEventListener('click', () => openAuditModal());
     if (btnTopAlerts) btnTopAlerts.addEventListener('click', () => openAlertsModal());
-    if (btnTopSSL) btnTopSSL.addEventListener('click', () => openSSLModal());
+    // btnTopSSL se liga desde ssl.js::setupSSLListeners() (ya invocado arriba); ligarlo
+    // también acá duplicaba el listener y disparaba doble fetch/doble render al click.
 
     if (btnNavTools && navToolsDropdown) {
-        btnNavTools.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const isOpen = navToolsDropdown.classList.contains('open');
-            navToolsDropdown.classList.toggle('open', !isOpen);
-            btnNavTools.classList.toggle('open', !isOpen);
+        const setNavToolsOpen = (open) => {
+            navToolsDropdown.classList.toggle('open', open);
+            btnNavTools.classList.toggle('open', open);
+            btnNavTools.setAttribute('aria-expanded', String(open));
+        };
+        btnNavTools.addEventListener('click', () => {
+            // No stopPropagation: el click debe seguir burbujeando hasta el listener
+            // de "cerrar al click afuera" de otros dropdowns globales (ej. el server
+            // popover de fleet.js) para que se cierren entre sí. El check
+            // `!navToolsWrap.contains(e.target)` de abajo ya evita que este mismo
+            // listener se autocierre al abrirse.
+            setNavToolsOpen(!navToolsDropdown.classList.contains('open'));
         });
-        navToolsDropdown.addEventListener('click', () => {
-            navToolsDropdown.classList.remove('open');
-            btnNavTools.classList.remove('open');
+        navToolsDropdown.addEventListener('click', () => setNavToolsOpen(false));
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && navToolsDropdown.classList.contains('open')) {
+                setNavToolsOpen(false);
+                btnNavTools.focus();
+            }
+        });
+        document.addEventListener('click', (e) => {
+            if (navToolsWrap && !navToolsWrap.contains(e.target)) {
+                setNavToolsOpen(false);
+            }
         });
     }
-    document.addEventListener('click', (e) => {
-        if (navToolsWrap && navToolsDropdown && !navToolsWrap.contains(e.target)) {
-            navToolsDropdown.classList.remove('open');
-            if (btnNavTools) btnNavTools.classList.remove('open');
-        }
-    });
 
     // 4. Initial Load
     const initialHash = (location.hash || '#services').replace('#', '');

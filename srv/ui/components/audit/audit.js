@@ -5,6 +5,7 @@
 import { apiFetch } from '/pkg/apiclient/api.js';
 import { showToast } from '/pkg/toast/toast.js';
 import { escapeHtml } from '/pkg/jsutil/utils.js';
+import { openModal, closeModal } from '/pkg/modal/modal.js';
 
 let auditLogsCache = [];
 
@@ -102,14 +103,13 @@ export async function openAuditModal() {
     ensureAuditModalMounted();
     const modal = document.getElementById('auditModal');
     if (modal) {
-        modal.style.display = 'flex';
+        openModal('auditModal');
         await loadAuditLogs();
     }
 }
 
 export function closeAuditModal() {
-    const modal = document.getElementById('auditModal');
-    if (modal) modal.style.display = 'none';
+    closeModal('auditModal');
 }
 
 export async function loadAuditLogs(force = false) {

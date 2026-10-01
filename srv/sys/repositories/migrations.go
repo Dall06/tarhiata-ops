@@ -185,12 +185,22 @@ func applyMigrationFile(db *sql.DB, name string) error {
 	return tx.Commit()
 }
 
-// splitSQLStatements separa un archivo .sql en statements individuales por ';'.
-// Suficiente para las migraciones DDL/DML simples de este repo (sin ';' dentro de
-// strings ni procedimientos almacenados); el driver sqlite usado no soporta
-// múltiples statements en un solo Exec.
+// splitSQLStatements separa un archivo .sql en statements individuales por ';', tras
+// quitar los comentarios de línea ('-- ...') para que un ';' dentro de un comentario no
+// corte el statement a la mitad. Suficiente para las migraciones DDL/DML simples de
+// este repo (sin ';' dentro de strings ni procedimientos almacenados); el driver sqlite
+// usado no soporta múltiples statements en un solo Exec.
 func splitSQLStatements(content string) []string {
-	raw := strings.Split(content, ";")
+	var withoutComments strings.Builder
+	for _, line := range strings.Split(content, "\n") {
+		if idx := strings.Index(line, "--"); idx >= 0 {
+			line = line[:idx]
+		}
+		withoutComments.WriteString(line)
+		withoutComments.WriteByte('\n')
+	}
+
+	raw := strings.Split(withoutComments.String(), ";")
 	var stmts []string
 	for _, s := range raw {
 		trimmed := strings.TrimSpace(s)

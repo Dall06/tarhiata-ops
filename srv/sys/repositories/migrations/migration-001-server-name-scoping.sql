@@ -33,8 +33,14 @@ INSERT INTO services (id, name, image_source, is_url, port, domain, expose, env_
 SELECT id, name, image_source, is_url, port, domain, expose, env_file_path, enable_ssl, healthcheck_cmd, mounts_json, env_vars, target_node, pre_deploy_hook, custom_domains, webhook_secret, source_type, git_repo_url, git_branch, git_access_token, dockerfile_path, ''
 FROM services_old_001;
 
-UPDATE services SET server_name = (SELECT name FROM server_configs WHERE is_active = 1 LIMIT 1)
-WHERE server_name = '' AND (SELECT COUNT(*) FROM server_configs WHERE is_active = 1) > 0;
+-- Prioriza el servidor activo. Si no hay ninguno marcado is_active=1 (fleet sin
+-- servidor activo al momento de migrar), cae al primero existente en vez de dejar
+-- la fila huérfana para siempre con server_name='' (ningún GetServices/GetService
+-- filtra jamás por ''). Si no hay NINGÚN server_configs, no hay nada que backfillear:
+-- tampoco podría existir un servicio sin servidor configurado.
+UPDATE services SET server_name = (
+	SELECT name FROM server_configs ORDER BY is_active DESC, id ASC LIMIT 1
+) WHERE server_name = '' AND EXISTS (SELECT 1 FROM server_configs);
 
 DROP TABLE services_old_001;
 
@@ -59,8 +65,9 @@ INSERT INTO databases (id, name, engine, deploy_type, external_url, internal_por
 SELECT id, name, engine, deploy_type, external_url, internal_port, volume_host_path, node_ip, password, target_node, ''
 FROM databases_old_001;
 
-UPDATE databases SET server_name = (SELECT name FROM server_configs WHERE is_active = 1 LIMIT 1)
-WHERE server_name = '' AND (SELECT COUNT(*) FROM server_configs WHERE is_active = 1) > 0;
+UPDATE databases SET server_name = (
+	SELECT name FROM server_configs ORDER BY is_active DESC, id ASC LIMIT 1
+) WHERE server_name = '' AND EXISTS (SELECT 1 FROM server_configs);
 
 DROP TABLE databases_old_001;
 
@@ -80,7 +87,8 @@ INSERT INTO service_links (id, source_svc, target_svc, env_var_name, target_url,
 SELECT id, source_svc, target_svc, env_var_name, target_url, ''
 FROM service_links_old_001;
 
-UPDATE service_links SET server_name = (SELECT name FROM server_configs WHERE is_active = 1 LIMIT 1)
-WHERE server_name = '' AND (SELECT COUNT(*) FROM server_configs WHERE is_active = 1) > 0;
+UPDATE service_links SET server_name = (
+	SELECT name FROM server_configs ORDER BY is_active DESC, id ASC LIMIT 1
+) WHERE server_name = '' AND EXISTS (SELECT 1 FROM server_configs);
 
 DROP TABLE service_links_old_001;

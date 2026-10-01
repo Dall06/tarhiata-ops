@@ -76,9 +76,9 @@ type ManageRegistryAuthUseCase interface {
 }
 
 type ManageDBMigrationsUseCase interface {
-	GetFiles(dbName string) ([]domain.MigrationFile, error)
-	SaveFile(dbName, filename, content, downContent string) error
-	DeleteFile(dbName, filename string) error
+	GetFiles(dbName, serverName string) ([]domain.MigrationFile, error)
+	SaveFile(dbName, filename, content, downContent, serverName string) error
+	DeleteFile(dbName, filename, serverName string) error
 	Execute(req domain.DatabaseMigrationRequest, config domain.ServerConfig) ([]domain.MigrationFile, error)
 }
 

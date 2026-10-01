@@ -945,18 +945,18 @@ func (r *SQLiteRepository) DeleteRegistryCredential(server string) error {
 
 func (r *SQLiteRepository) SaveMigrationFile(file domain.MigrationFile) error {
 	query := `
-	INSERT INTO migration_files (db_name, filename, content, down_content, status)
-	VALUES (?, ?, ?, ?, COALESCE(NULLIF(?, ''), 'pending'))
-	ON CONFLICT(db_name, filename) DO UPDATE SET
+	INSERT INTO migration_files (db_name, filename, content, down_content, status, server_name)
+	VALUES (?, ?, ?, ?, COALESCE(NULLIF(?, ''), 'pending'), ?)
+	ON CONFLICT(db_name, filename, server_name) DO UPDATE SET
 		content=excluded.content,
 		down_content=excluded.down_content;`
-	_, err := r.db.Exec(query, file.DBName, file.Filename, file.Content, file.DownContent, file.Status)
+	_, err := r.db.Exec(query, file.DBName, file.Filename, file.Content, file.DownContent, file.Status, file.ServerName)
 	return err
 }
 
-func (r *SQLiteRepository) GetMigrationFiles(dbName string) ([]domain.MigrationFile, error) {
-	query := `SELECT id, db_name, filename, content, down_content, status, executed_at, log_output FROM migration_files WHERE db_name = ? ORDER BY filename ASC;`
-	rows, err := r.db.Query(query, dbName)
+func (r *SQLiteRepository) GetMigrationFiles(dbName, serverName string) ([]domain.MigrationFile, error) {
+	query := `SELECT id, db_name, filename, content, down_content, status, executed_at, log_output, server_name FROM migration_files WHERE db_name = ? AND server_name = ? ORDER BY filename ASC;`
+	rows, err := r.db.Query(query, dbName, serverName)
 	if err != nil {
 		return nil, err
 	}
@@ -965,26 +965,29 @@ func (r *SQLiteRepository) GetMigrationFiles(dbName string) ([]domain.MigrationF
 	var files []domain.MigrationFile
 	for rows.Next() {
 		var f domain.MigrationFile
-		if err := rows.Scan(&f.ID, &f.DBName, &f.Filename, &f.Content, &f.DownContent, &f.Status, &f.ExecutedAt, &f.LogOutput); err != nil {
+		if err := rows.Scan(&f.ID, &f.DBName, &f.Filename, &f.Content, &f.DownContent, &f.Status, &f.ExecutedAt, &f.LogOutput, &f.ServerName); err != nil {
 			return nil, err
 		}
 		files = append(files, f)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return files, nil
 }
 
-func (r *SQLiteRepository) DeleteMigrationFile(dbName, filename string) error {
-	query := `DELETE FROM migration_files WHERE db_name = ? AND filename = ?;`
-	_, err := r.db.Exec(query, dbName, filename)
+func (r *SQLiteRepository) DeleteMigrationFile(dbName, filename, serverName string) error {
+	query := `DELETE FROM migration_files WHERE db_name = ? AND filename = ? AND server_name = ?;`
+	_, err := r.db.Exec(query, dbName, filename, serverName)
 	return err
 }
 
-func (r *SQLiteRepository) RecordMigrationExecution(dbName, filename, status, logs string) error {
+func (r *SQLiteRepository) RecordMigrationExecution(dbName, filename, serverName, status, logs string) error {
 	query := `
-	UPDATE migration_files 
+	UPDATE migration_files
 	SET status = ?, executed_at = CURRENT_TIMESTAMP, log_output = ?
-	WHERE db_name = ? AND filename = ?;`
-	_, err := r.db.Exec(query, status, logs, dbName, filename)
+	WHERE db_name = ? AND filename = ? AND server_name = ?;`
+	_, err := r.db.Exec(query, status, logs, dbName, filename, serverName)
 	return err
 }
 
@@ -994,16 +997,16 @@ func (r *SQLiteRepository) SaveBackup(b domain.SavedBackup) error {
 		createdAt = time.Now().Format("2006-01-02 15:04:05")
 	}
 	query := `
-	INSERT INTO backups (target_name, target_type, engine, filename, file_path, size_bytes, status, created_at)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	INSERT INTO backups (target_name, target_type, engine, filename, file_path, size_bytes, status, created_at, server_name)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
-	_, err := r.db.Exec(query, b.TargetName, b.TargetType, b.Engine, b.Filename, b.FilePath, b.SizeBytes, b.Status, createdAt)
+	_, err := r.db.Exec(query, b.TargetName, b.TargetType, b.Engine, b.Filename, b.FilePath, b.SizeBytes, b.Status, createdAt, b.ServerName)
 	return err
 }
 
-func (r *SQLiteRepository) GetBackups() ([]domain.SavedBackup, error) {
-	query := `SELECT id, target_name, target_type, engine, filename, file_path, size_bytes, status, created_at FROM backups ORDER BY id DESC`
-	rows, err := r.db.Query(query)
+func (r *SQLiteRepository) GetBackups(serverName string) ([]domain.SavedBackup, error) {
+	query := `SELECT id, target_name, target_type, engine, filename, file_path, size_bytes, status, created_at, server_name FROM backups WHERE server_name = ? ORDER BY id DESC`
+	rows, err := r.db.Query(query, serverName)
 	if err != nil {
 		return nil, err
 	}
@@ -1012,26 +1015,29 @@ func (r *SQLiteRepository) GetBackups() ([]domain.SavedBackup, error) {
 	var list []domain.SavedBackup
 	for rows.Next() {
 		var b domain.SavedBackup
-		if err := rows.Scan(&b.ID, &b.TargetName, &b.TargetType, &b.Engine, &b.Filename, &b.FilePath, &b.SizeBytes, &b.Status, &b.CreatedAt); err != nil {
+		if err := rows.Scan(&b.ID, &b.TargetName, &b.TargetType, &b.Engine, &b.Filename, &b.FilePath, &b.SizeBytes, &b.Status, &b.CreatedAt, &b.ServerName); err != nil {
 			return nil, err
 		}
 		list = append(list, b)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return list, nil
 }
 
-func (r *SQLiteRepository) GetBackupByID(id int) (*domain.SavedBackup, error) {
-	query := `SELECT id, target_name, target_type, engine, filename, file_path, size_bytes, status, created_at FROM backups WHERE id = ?`
-	row := r.db.QueryRow(query, id)
+func (r *SQLiteRepository) GetBackupByID(id int, serverName string) (*domain.SavedBackup, error) {
+	query := `SELECT id, target_name, target_type, engine, filename, file_path, size_bytes, status, created_at, server_name FROM backups WHERE id = ? AND server_name = ?`
+	row := r.db.QueryRow(query, id, serverName)
 	var b domain.SavedBackup
-	if err := row.Scan(&b.ID, &b.TargetName, &b.TargetType, &b.Engine, &b.Filename, &b.FilePath, &b.SizeBytes, &b.Status, &b.CreatedAt); err != nil {
+	if err := row.Scan(&b.ID, &b.TargetName, &b.TargetType, &b.Engine, &b.Filename, &b.FilePath, &b.SizeBytes, &b.Status, &b.CreatedAt, &b.ServerName); err != nil {
 		return nil, err
 	}
 	return &b, nil
 }
 
-func (r *SQLiteRepository) DeleteBackup(id int) error {
-	_, err := r.db.Exec(`DELETE FROM backups WHERE id = ?`, id)
+func (r *SQLiteRepository) DeleteBackup(id int, serverName string) error {
+	_, err := r.db.Exec(`DELETE FROM backups WHERE id = ? AND server_name = ?`, id, serverName)
 	return err
 }
 

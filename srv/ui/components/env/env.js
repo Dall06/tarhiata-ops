@@ -2,6 +2,7 @@ import { state } from '/pkg/store/state.js';
 import { showToast } from '/pkg/toast/toast.js';
 import { apiFetch } from '/pkg/apiclient/api.js';
 import { escapeHtml, copyToClipboard, isSensitiveKey } from '/pkg/jsutil/utils.js';
+import { openModal, closeModal } from '/pkg/modal/modal.js';
 
 let currentEnvServiceName = '';
 let currentEnvMode = 'table';
@@ -119,13 +120,12 @@ export function openEnvModal(serviceName) {
     }
     if (envRawTextarea) envRawTextarea.value = '';
 
-    envModal.style.display = 'flex';
+    openModal('envModal');
     fetchAndRenderEnvVars(serviceName);
 }
 
 export function closeEnvModal() {
-    const envModal = document.getElementById('envModal');
-    if (envModal) envModal.style.display = 'none';
+    closeModal('envModal');
     currentEnvServiceName = '';
 }
 
@@ -475,9 +475,4 @@ export function setupEnvListeners(onEnvSavedCallback) {
 
     if (btnCloseEnvModal) btnCloseEnvModal.addEventListener('click', closeEnvModal);
     if (btnCancelEnv) btnCancelEnv.addEventListener('click', closeEnvModal);
-    if (envModal) {
-        envModal.addEventListener('click', (e) => {
-            if (e.target === envModal) closeEnvModal();
-        });
-    }
 }

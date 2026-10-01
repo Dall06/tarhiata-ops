@@ -258,20 +258,20 @@ func (m *MockConfigRepository) SaveMigrationFile(file domain.MigrationFile) erro
 	return nil
 }
 
-func (m *MockConfigRepository) GetMigrationFiles(dbName string) ([]domain.MigrationFile, error) {
+func (m *MockConfigRepository) GetMigrationFiles(dbName, serverName string) ([]domain.MigrationFile, error) {
 	var res []domain.MigrationFile
 	for _, f := range m.Migrations {
-		if f.DBName == dbName {
+		if f.DBName == dbName && f.ServerName == serverName {
 			res = append(res, f)
 		}
 	}
 	return res, nil
 }
 
-func (m *MockConfigRepository) DeleteMigrationFile(dbName, filename string) error {
+func (m *MockConfigRepository) DeleteMigrationFile(dbName, filename, serverName string) error {
 	var filtered []domain.MigrationFile
 	for _, f := range m.Migrations {
-		if !(f.DBName == dbName && f.Filename == filename) {
+		if !(f.DBName == dbName && f.Filename == filename && f.ServerName == serverName) {
 			filtered = append(filtered, f)
 		}
 	}
@@ -279,9 +279,9 @@ func (m *MockConfigRepository) DeleteMigrationFile(dbName, filename string) erro
 	return nil
 }
 
-func (m *MockConfigRepository) RecordMigrationExecution(dbName, filename, status, logs string) error {
+func (m *MockConfigRepository) RecordMigrationExecution(dbName, filename, serverName, status, logs string) error {
 	for i := range m.Migrations {
-		if m.Migrations[i].DBName == dbName && m.Migrations[i].Filename == filename {
+		if m.Migrations[i].DBName == dbName && m.Migrations[i].Filename == filename && m.Migrations[i].ServerName == serverName {
 			m.Migrations[i].Status = status
 			m.Migrations[i].LogOutput = logs
 		}
@@ -294,23 +294,29 @@ func (m *MockConfigRepository) SaveBackup(backup domain.SavedBackup) error {
 	return nil
 }
 
-func (m *MockConfigRepository) GetBackups() ([]domain.SavedBackup, error) {
-	return m.Backups, nil
+func (m *MockConfigRepository) GetBackups(serverName string) ([]domain.SavedBackup, error) {
+	var res []domain.SavedBackup
+	for _, b := range m.Backups {
+		if b.ServerName == serverName {
+			res = append(res, b)
+		}
+	}
+	return res, nil
 }
 
-func (m *MockConfigRepository) GetBackupByID(id int) (*domain.SavedBackup, error) {
+func (m *MockConfigRepository) GetBackupByID(id int, serverName string) (*domain.SavedBackup, error) {
 	for _, b := range m.Backups {
-		if b.ID == id {
+		if b.ID == id && b.ServerName == serverName {
 			return &b, nil
 		}
 	}
 	return nil, nil
 }
 
-func (m *MockConfigRepository) DeleteBackup(id int) error {
+func (m *MockConfigRepository) DeleteBackup(id int, serverName string) error {
 	var filtered []domain.SavedBackup
 	for _, b := range m.Backups {
-		if b.ID != id {
+		if !(b.ID == id && b.ServerName == serverName) {
 			filtered = append(filtered, b)
 		}
 	}

@@ -72,6 +72,29 @@ func openLegacyDB(t *testing.T) *sql.DB {
 			target_url TEXT NOT NULL,
 			UNIQUE(source_svc, env_var_name)
 		);`,
+		`CREATE TABLE migration_files (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			db_name TEXT NOT NULL,
+			filename TEXT NOT NULL,
+			content TEXT NOT NULL,
+			down_content TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'pending',
+			executed_at TEXT NOT NULL DEFAULT '',
+			log_output TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(db_name, filename)
+		);`,
+		`CREATE TABLE backups (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			target_name TEXT NOT NULL,
+			target_type TEXT NOT NULL,
+			engine TEXT NOT NULL,
+			filename TEXT NOT NULL,
+			file_path TEXT NOT NULL,
+			size_bytes INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT 'completed',
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);`,
 	}
 	for _, stmt := range ddl {
 		if _, err := db.Exec(stmt); err != nil {
@@ -79,6 +102,28 @@ func openLegacyDB(t *testing.T) *sql.DB {
 		}
 	}
 	return db
+}
+
+// TestSplitSQLStatements_IgnoresSemicolonInsideComments regresión: un ';' dentro de un
+// comentario de línea ('-- ...') no debe cortar el statement a la mitad. Se reprodujo
+// en la práctica al agregar un comentario con ';' en migration-001.
+func TestSplitSQLStatements_IgnoresSemicolonInsideComments(t *testing.T) {
+	content := `-- Un comentario con un punto y coma; que no debería cortar nada
+CREATE TABLE t (id INTEGER);
+
+-- Otro comentario; con otro punto y coma
+INSERT INTO t (id) VALUES (1);`
+
+	stmts := splitSQLStatements(content)
+	if len(stmts) != 2 {
+		t.Fatalf("esperaba 2 statements, obtuve %d: %#v", len(stmts), stmts)
+	}
+	if stmts[0] != "CREATE TABLE t (id INTEGER)" {
+		t.Errorf("statement 0 inesperado: %q", stmts[0])
+	}
+	if stmts[1] != "INSERT INTO t (id) VALUES (1)" {
+		t.Errorf("statement 1 inesperado: %q", stmts[1])
+	}
 }
 
 func TestApplyPendingMigrationsBackfillsActiveServer(t *testing.T) {
@@ -114,6 +159,85 @@ func TestApplyPendingMigrationsBackfillsActiveServer(t *testing.T) {
 
 	if svcServer != "local" || dbServer != "local" || linkServer != "local" {
 		t.Fatalf("backfill esperado a 'local', obtuve services=%q databases=%q service_links=%q", svcServer, dbServer, linkServer)
+	}
+}
+
+// TestApplyPendingMigrationsBackfillsFirstServerWhenNoneActive regresión: si al migrar
+// no hay ningún server_configs con is_active=1 (ej. el admin borró el activo antes de
+// actualizar el binario), el backfill no debe dejar las filas con server_name=''
+// huérfanas para siempre -- debe caer al primer servidor existente, igual que
+// GetAllServerConfigs ordena (is_active DESC, id ASC).
+func TestApplyPendingMigrationsBackfillsFirstServerWhenNoneActive(t *testing.T) {
+	db := openLegacyDB(t)
+
+	if _, err := db.Exec(`INSERT INTO server_configs (name, host, port, user, is_active) VALUES ('vps-prod', '1.2.3.4', 22, 'root', 0)`); err != nil {
+		t.Fatalf("seed server_configs sin activo: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO services (name, image_source, is_url, port, domain, expose, env_file_path) VALUES ('api', 'node:18', 0, 80, 'api.test', 1, '')`); err != nil {
+		t.Fatalf("seed services: %v", err)
+	}
+
+	if err := ApplyPendingMigrations(db); err != nil {
+		t.Fatalf("ApplyPendingMigrations: %v", err)
+	}
+
+	var svcServer string
+	if err := db.QueryRow(`SELECT server_name FROM services WHERE name = 'api'`).Scan(&svcServer); err != nil {
+		t.Fatalf("leer server_name de services: %v", err)
+	}
+	if svcServer != "vps-prod" {
+		t.Fatalf("esperaba backfill a 'vps-prod' (único servidor existente) sin servidor activo, obtuve %q", svcServer)
+	}
+}
+
+// TestApplyPendingMigrationsBackfillsMigrationFilesAndBackups regresión: migration_files
+// y backups también ganan server_name (migration-002). migration_files hereda el
+// server_name de la BD que referencia por db_name; un archivo de migración huérfano
+// (sin BD coincidente en el catálogo) cae al mismo fallback que migration-001 (servidor
+// activo, o el primero si no hay ninguno activo).
+func TestApplyPendingMigrationsBackfillsMigrationFilesAndBackups(t *testing.T) {
+	db := openLegacyDB(t)
+
+	if _, err := db.Exec(`INSERT INTO server_configs (name, host, port, user, is_active) VALUES ('local', '127.0.0.1', 22, 'root', 1)`); err != nil {
+		t.Fatalf("seed server_configs: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO databases (name, engine, deploy_type, external_url, internal_port, volume_host_path, node_ip) VALUES ('pg', 'postgres', 'single-node', '', 5432, '/data', '')`); err != nil {
+		t.Fatalf("seed databases: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO migration_files (db_name, filename, content) VALUES ('pg', '001_init.sql', 'CREATE TABLE t (id int);')`); err != nil {
+		t.Fatalf("seed migration_files (ligado a una BD real): %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO migration_files (db_name, filename, content) VALUES ('ya-borrada', '001_init.sql', 'CREATE TABLE t (id int);')`); err != nil {
+		t.Fatalf("seed migration_files huérfano (sin BD coincidente): %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO backups (target_name, target_type, engine, filename, file_path) VALUES ('pg', 'database', 'postgres', 'b.sql.gz', '/opt/tarhiata/backups/b.sql.gz')`); err != nil {
+		t.Fatalf("seed backups: %v", err)
+	}
+
+	if err := ApplyPendingMigrations(db); err != nil {
+		t.Fatalf("ApplyPendingMigrations: %v", err)
+	}
+
+	var linkedServer, orphanServer, backupServer string
+	if err := db.QueryRow(`SELECT server_name FROM migration_files WHERE db_name = 'pg'`).Scan(&linkedServer); err != nil {
+		t.Fatalf("leer server_name de migration_files ligado: %v", err)
+	}
+	if linkedServer != "local" {
+		t.Errorf("esperaba que el archivo de migración ligado a 'pg' herede server_name='local' de la BD, obtuve %q", linkedServer)
+	}
+
+	if err := db.QueryRow(`SELECT server_name FROM migration_files WHERE db_name = 'ya-borrada'`).Scan(&orphanServer); err != nil {
+		t.Fatalf("leer server_name de migration_files huérfano: %v", err)
+	}
+	if orphanServer != "local" {
+		t.Errorf("esperaba que el archivo huérfano caiga al fallback 'local' (servidor activo), obtuve %q", orphanServer)
+	}
+
+	if err := db.QueryRow(`SELECT server_name FROM backups WHERE target_name = 'pg'`).Scan(&backupServer); err != nil {
+		t.Fatalf("leer server_name de backups: %v", err)
+	}
+	if backupServer != "local" {
+		t.Errorf("esperaba backup con server_name='local', obtuve %q", backupServer)
 	}
 }
 

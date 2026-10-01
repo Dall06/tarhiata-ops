@@ -5,6 +5,7 @@
 import { apiFetch } from '/pkg/apiclient/api.js';
 import { showToast } from '/pkg/toast/toast.js';
 import { escapeHtml } from '/pkg/jsutil/utils.js';
+import { openModal, closeModal } from '/pkg/modal/modal.js';
 
 export function ensureAlertsModalMounted() {
     if (document.getElementById('alertsModal')) return;
@@ -165,13 +166,12 @@ export async function openAlertsModal() {
     ensureAlertsModalMounted();
     const modal = document.getElementById('alertsModal');
     if (!modal) return;
-    modal.style.display = 'flex';
+    openModal('alertsModal');
     await loadAlertsSettings();
 }
 
 export function closeAlertsModal() {
-    const modal = document.getElementById('alertsModal');
-    if (modal) modal.style.display = 'none';
+    closeModal('alertsModal');
 }
 
 export async function loadAlertsSettings() {

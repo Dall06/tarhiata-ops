@@ -410,6 +410,11 @@ export function openAddModal() {
         serverPopover.classList.remove('active');
         serverPopover.style.display = 'none';
     }
+    const serverSwitcherBtn = document.getElementById('serverSwitcherBtn');
+    if (serverSwitcherBtn) {
+        serverSwitcherBtn.classList.remove('open');
+        serverSwitcherBtn.setAttribute('aria-expanded', 'false');
+    }
 }
 
 export function closeServerModal() {
@@ -439,21 +444,36 @@ export function setupFleetEvents(loadHubStateCallback) {
     const btnDeskActivate = document.getElementById('btnDeskActivate');
     const btnSidebarOpenWorker = document.getElementById('btnSidebarOpenWorker');
 
+    const setServerPopoverOpen = (open) => {
+        if (!serverPopover) return;
+        serverPopover.style.display = open ? 'flex' : 'none';
+        serverPopover.classList.toggle('active', open);
+        if (serverSwitcherBtn) {
+            serverSwitcherBtn.classList.toggle('open', open);
+            serverSwitcherBtn.setAttribute('aria-expanded', String(open));
+        }
+    };
+
     if (serverSwitcherBtn && serverPopover) {
-        serverSwitcherBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const isOpen = serverPopover.style.display !== 'none';
-            serverPopover.style.display = isOpen ? 'none' : 'flex';
-            serverPopover.classList.toggle('active', !isOpen);
-            serverSwitcherBtn.classList.toggle('open', !isOpen);
+        serverSwitcherBtn.addEventListener('click', () => {
+            // No stopPropagation: el click debe burbujear hasta el listener de
+            // "cerrar al click afuera" de otros dropdowns globales (ej. el dropdown
+            // de Herramientas de app.js) para que se cierren entre sí. El check
+            // `!serverSwitcherWrap.contains(e.target)` de abajo ya evita que este
+            // mismo listener se autocierre al abrirse.
+            setServerPopoverOpen(serverPopover.style.display === 'none');
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && serverPopover.style.display !== 'none') {
+                setServerPopoverOpen(false);
+                serverSwitcherBtn.focus();
+            }
         });
     }
 
     document.addEventListener('click', (e) => {
         if (serverPopover && serverSwitcherWrap && !serverSwitcherWrap.contains(e.target)) {
-            serverPopover.style.display = 'none';
-            serverPopover.classList.remove('active');
-            if (serverSwitcherBtn) serverSwitcherBtn.classList.remove('open');
+            setServerPopoverOpen(false);
         }
     });
 
@@ -465,10 +485,7 @@ export function setupFleetEvents(loadHubStateCallback) {
 
     if (btnSidebarOpenWorker) {
         btnSidebarOpenWorker.addEventListener('click', async () => {
-            if (serverPopover) {
-                serverPopover.style.display = 'none';
-                serverPopover.classList.remove('active');
-            }
+            setServerPopoverOpen(false);
             const { openWorkerModal } = await import('/components/nodes/nodes.js');
             openWorkerModal();
         });

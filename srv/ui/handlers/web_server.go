@@ -1938,6 +1938,7 @@ func (w *WebServer) handleDatabaseItem(rw http.ResponseWriter, req *http.Request
 			http.Error(rw, "base de datos no encontrada", http.StatusNotFound)
 			return
 		}
+		db.Password = ""
 		jsonResponse(rw, db)
 		return
 	}
@@ -3554,47 +3555,45 @@ func (w *WebServer) handleLogs(rw http.ResponseWriter, req *http.Request) {
 
 	serverTarget := req.URL.Query().Get("server")
 	cfg := w.resolveTargetServer(serverTarget)
-	if cfg != nil && cfg.Host != "" {
-		sshExec := repositories.NewCryptoSSHExecutor()
-		if err := sshExec.Connect(*cfg); err == nil {
-			defer sshExec.Close()
+	if cfg == nil || cfg.Host == "" {
+		jsonError(rw, "Servidor no configurado o sin Host; no se pueden obtener logs reales", http.StatusBadRequest)
+		return
+	}
 
-			candidates := []string{
-				serviceName,
-				"tarhiata-db-" + serviceName,
-				"tarhiata-app-" + serviceName,
-			}
+	sshExec := repositories.NewCryptoSSHExecutor()
+	if err := sshExec.Connect(*cfg); err != nil {
+		jsonError(rw, fmt.Sprintf("No se pudo conectar por SSH a '%s': %v", cfg.Name, err), http.StatusBadGateway)
+		return
+	}
+	defer sshExec.Close()
 
-			for _, cand := range candidates {
-				// 1. Intentar docker service logs
-				res, err := sshExec.RunCommand(fmt.Sprintf("docker service logs --tail %s %s 2>&1", lines, cand))
-				if err == nil && res.ExitCode == 0 && res.Output != "" && !isDockerError(res.Output) {
-					jsonResponse(rw, map[string]string{"service": serviceName, "logs": res.Output})
-					return
-				}
+	candidates := []string{
+		serviceName,
+		"tarhiata-db-" + serviceName,
+		"tarhiata-app-" + serviceName,
+	}
 
-				// 2. Intentar docker logs directo por filtro de contenedor
-				resPs, errPs := sshExec.RunCommand(fmt.Sprintf("docker ps -a -q --filter name=%s | head -n 1", cand))
-				if errPs == nil && strings.TrimSpace(resPs.Output) != "" {
-					cid := strings.TrimSpace(resPs.Output)
-					resLogs, errLogs := sshExec.RunCommand(fmt.Sprintf("docker logs --tail %s %s 2>&1", lines, cid))
-					if errLogs == nil && resLogs.Output != "" && !isDockerError(resLogs.Output) {
-						jsonResponse(rw, map[string]string{"service": serviceName, "logs": resLogs.Output})
-						return
-					}
-				}
+	for _, cand := range candidates {
+		// 1. Intentar docker service logs
+		res, err := sshExec.RunCommand(fmt.Sprintf("docker service logs --tail %s %s 2>&1", lines, cand))
+		if err == nil && res.ExitCode == 0 && res.Output != "" && !isDockerError(res.Output) {
+			jsonResponse(rw, map[string]string{"service": serviceName, "logs": res.Output})
+			return
+		}
+
+		// 2. Intentar docker logs directo por filtro de contenedor
+		resPs, errPs := sshExec.RunCommand(fmt.Sprintf("docker ps -a -q --filter name=%s | head -n 1", cand))
+		if errPs == nil && strings.TrimSpace(resPs.Output) != "" {
+			cid := strings.TrimSpace(resPs.Output)
+			resLogs, errLogs := sshExec.RunCommand(fmt.Sprintf("docker logs --tail %s %s 2>&1", lines, cid))
+			if errLogs == nil && resLogs.Output != "" && !isDockerError(resLogs.Output) {
+				jsonResponse(rw, map[string]string{"service": serviceName, "logs": resLogs.Output})
+				return
 			}
 		}
 	}
 
-	nowStr := time.Now().Format("2006-01-02T15:04:05Z")
-	simLogs := fmt.Sprintf("[%s] [INFO] [%s] Starting service container...\n"+
-		"[%s] [INFO] [%s] Healthcheck status: PASSED (200 OK)\n"+
-		"[%s] [DEBUG] [%s] Injected ENV: DATABASE_URL=postgres://...\n"+
-		"[%s] [INFO] [%s] Processing incoming HTTP traffic on port 80\n",
-		nowStr, serviceName, nowStr, serviceName, nowStr, serviceName, nowStr, serviceName)
-
-	jsonResponse(rw, map[string]string{"service": serviceName, "logs": simLogs})
+	jsonError(rw, fmt.Sprintf("No se encontró ningún contenedor/servicio Docker para '%s' en '%s'", serviceName, cfg.Name), http.StatusNotFound)
 }
 
 func isDockerError(out string) bool {
@@ -3777,7 +3776,12 @@ func (w *WebServer) handleRegistries(rw http.ResponseWriter, req *http.Request) 
 
 func (w *WebServer) handleMigrations(rw http.ResponseWriter, req *http.Request) {
 	dbName := req.URL.Query().Get("db")
-	files, err := w.repo.GetMigrationFiles(dbName)
+	cfg := w.resolveTargetServer(req.URL.Query().Get("server"))
+	serverName := ""
+	if cfg != nil {
+		serverName = cfg.Name
+	}
+	files, err := w.repo.GetMigrationFiles(dbName, serverName)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
@@ -3786,6 +3790,11 @@ func (w *WebServer) handleMigrations(rw http.ResponseWriter, req *http.Request) 
 }
 
 func (w *WebServer) handleMigrationFile(rw http.ResponseWriter, req *http.Request) {
+	cfg := w.resolveTargetServer(req.URL.Query().Get("server"))
+	serverName := ""
+	if cfg != nil {
+		serverName = cfg.Name
+	}
 	switch req.Method {
 	case http.MethodPost:
 		var body struct {
@@ -3804,6 +3813,7 @@ func (w *WebServer) handleMigrationFile(rw http.ResponseWriter, req *http.Reques
 			Content:     body.Content,
 			DownContent: body.DownContent,
 			Status:      "pending",
+			ServerName:  serverName,
 		}
 		if err := w.repo.SaveMigrationFile(mf); err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
@@ -3814,7 +3824,7 @@ func (w *WebServer) handleMigrationFile(rw http.ResponseWriter, req *http.Reques
 	case http.MethodDelete:
 		dbName := req.URL.Query().Get("db")
 		filename := req.URL.Query().Get("filename")
-		if err := w.repo.DeleteMigrationFile(dbName, filename); err != nil {
+		if err := w.repo.DeleteMigrationFile(dbName, filename, serverName); err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -3879,7 +3889,12 @@ func (w *WebServer) handleObservabilityMetrics(rw http.ResponseWriter, req *http
 
 func (w *WebServer) handleBackups(rw http.ResponseWriter, req *http.Request) {
 	if req.Method == http.MethodGet {
-		backups, err := w.repo.GetBackups()
+		cfg := w.resolveTargetServer(req.URL.Query().Get("server"))
+		serverName := ""
+		if cfg != nil {
+			serverName = cfg.Name
+		}
+		backups, err := w.repo.GetBackups(serverName)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
@@ -3948,7 +3963,12 @@ func (w *WebServer) handleBackups(rw http.ResponseWriter, req *http.Request) {
 			http.Error(rw, "ID inválido", http.StatusBadRequest)
 			return
 		}
-		if err := w.repo.DeleteBackup(id); err != nil {
+		cfg := w.resolveTargetServer(req.URL.Query().Get("server"))
+		serverName := ""
+		if cfg != nil {
+			serverName = cfg.Name
+		}
+		if err := w.repo.DeleteBackup(id, serverName); err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
 		}

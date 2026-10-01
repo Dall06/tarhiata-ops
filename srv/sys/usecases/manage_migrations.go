@@ -21,23 +21,24 @@ func NewManageDBMigrationsUseCase(repo ports.ConfigRepository, ssh ports.SSHExec
 	}
 }
 
-func (uc *ManageDBMigrationsUseCase) GetFiles(dbName string) ([]domain.MigrationFile, error) {
-	return uc.repo.GetMigrationFiles(dbName)
+func (uc *ManageDBMigrationsUseCase) GetFiles(dbName, serverName string) ([]domain.MigrationFile, error) {
+	return uc.repo.GetMigrationFiles(dbName, serverName)
 }
 
-func (uc *ManageDBMigrationsUseCase) SaveFile(dbName, filename, content, downContent string) error {
+func (uc *ManageDBMigrationsUseCase) SaveFile(dbName, filename, content, downContent, serverName string) error {
 	file := domain.MigrationFile{
 		DBName:      dbName,
 		Filename:    filename,
 		Content:     content,
 		DownContent: downContent,
 		Status:      "pending",
+		ServerName:  serverName,
 	}
 	return uc.repo.SaveMigrationFile(file)
 }
 
-func (uc *ManageDBMigrationsUseCase) DeleteFile(dbName, filename string) error {
-	return uc.repo.DeleteMigrationFile(dbName, filename)
+func (uc *ManageDBMigrationsUseCase) DeleteFile(dbName, filename, serverName string) error {
+	return uc.repo.DeleteMigrationFile(dbName, filename, serverName)
 }
 
 func (uc *ManageDBMigrationsUseCase) Execute(req domain.DatabaseMigrationRequest, config domain.ServerConfig) ([]domain.MigrationFile, error) {
@@ -67,7 +68,7 @@ func (uc *ManageDBMigrationsUseCase) Execute(req domain.DatabaseMigrationRequest
 	}
 	defer uc.ssh.Close()
 
-	allFiles, err := uc.repo.GetMigrationFiles(req.TargetDB)
+	allFiles, err := uc.repo.GetMigrationFiles(req.TargetDB, config.Name)
 	if err != nil {
 		return nil, fmt.Errorf("error leyendo archivos de migración: %w", err)
 	}
@@ -75,7 +76,7 @@ func (uc *ManageDBMigrationsUseCase) Execute(req domain.DatabaseMigrationRequest
 	serviceName := fmt.Sprintf("tarhiata-db-%s", targetDB.Name)
 
 	if len(req.Filenames) > 0 {
-		return uc.executeFiles(req, targetDB, allFiles, serviceName)
+		return uc.executeFiles(req, targetDB, allFiles, serviceName, config.Name)
 	}
 
 	if req.SqlContent != "" {
@@ -85,7 +86,7 @@ func (uc *ManageDBMigrationsUseCase) Execute(req domain.DatabaseMigrationRequest
 	return nil, nil
 }
 
-func (uc *ManageDBMigrationsUseCase) executeFiles(req domain.DatabaseMigrationRequest, targetDB *domain.SavedDatabase, allFiles []domain.MigrationFile, serviceName string) ([]domain.MigrationFile, error) {
+func (uc *ManageDBMigrationsUseCase) executeFiles(req domain.DatabaseMigrationRequest, targetDB *domain.SavedDatabase, allFiles []domain.MigrationFile, serviceName, serverName string) ([]domain.MigrationFile, error) {
 	fileMap := make(map[string]domain.MigrationFile)
 	for _, f := range allFiles {
 		fileMap[f.Filename] = f
@@ -127,7 +128,7 @@ func (uc *ManageDBMigrationsUseCase) executeFiles(req domain.DatabaseMigrationRe
 			}
 		}
 
-		if recErr := uc.repo.RecordMigrationExecution(targetDB.Name, fname, status, logs); recErr != nil {
+		if recErr := uc.repo.RecordMigrationExecution(targetDB.Name, fname, serverName, status, logs); recErr != nil {
 			fmt.Printf("⚠️ Error registrando ejecución de migración: %v\n", recErr)
 		}
 		mf.Status = status

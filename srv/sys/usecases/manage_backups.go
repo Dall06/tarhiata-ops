@@ -66,13 +66,14 @@ func (uc *ManageBackupsUseCase) CreateSnapshot(req domain.BackupRequest, config 
 		Status:     "completed",
 		S3Location: s3Location,
 		CreatedAt:  time.Now().Format("2006-01-02 15:04:05"),
+		ServerName: config.Name,
 	}
 
 	if err := uc.repo.SaveBackup(backup); err != nil {
 		return nil, fmt.Errorf("error al guardar registro de backup en sqlite: %w", err)
 	}
 
-	backups, err := uc.repo.GetBackups()
+	backups, err := uc.repo.GetBackups(config.Name)
 	if err == nil && len(backups) > 0 {
 		return &backups[0], nil
 	}
@@ -200,7 +201,7 @@ func (uc *ManageBackupsUseCase) uploadToS3(req domain.BackupRequest, remotePath,
 }
 
 func (uc *ManageBackupsUseCase) RestoreSnapshot(backupID int, config domain.ServerConfig) error {
-	backup, err := uc.repo.GetBackupByID(backupID)
+	backup, err := uc.repo.GetBackupByID(backupID, config.Name)
 	if err != nil || backup == nil {
 		return fmt.Errorf("backup ID %d no encontrado", backupID)
 	}
@@ -276,7 +277,7 @@ func (uc *ManageBackupsUseCase) RestoreSnapshot(backupID int, config domain.Serv
 }
 
 func (uc *ManageBackupsUseCase) DownloadSnapshot(backupID int, config domain.ServerConfig) (*SnapshotDownloadResult, error) {
-	backup, err := uc.repo.GetBackupByID(backupID)
+	backup, err := uc.repo.GetBackupByID(backupID, config.Name)
 	if err != nil || backup == nil {
 		return nil, fmt.Errorf("backup ID %d no encontrado", backupID)
 	}

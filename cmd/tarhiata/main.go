@@ -1892,7 +1892,11 @@ func handleBackupCommand(repo *repositories.SQLiteRepository, config *domain.Ser
 		fmt.Printf("✅ Backup creado exitosamente: %s (%d bytes)\n", backup.Filename, backup.SizeBytes)
 
 	case "list":
-		backups, err := repo.GetBackups()
+		serverName := ""
+		if config != nil {
+			serverName = config.Name
+		}
+		backups, err := repo.GetBackups(serverName)
 		if err != nil {
 			fmt.Printf("❌ Error al consultar backups: %v\n", err)
 			return

@@ -87,6 +87,7 @@ type SavedBackup struct {
 	Status     string `json:"status"`     // "completed", "failed"
 	S3Location string `json:"s3Location,omitempty"` // Ruta S3 en MinIO/S3 si fue subido
 	CreatedAt  string `json:"createdAt"`
+	ServerName string `json:"serverName"` // Servidor del fleet dueño de este backup
 }
 
 // MigrationFile representa un archivo de migración SQL registrado para una base de datos.
@@ -99,6 +100,7 @@ type MigrationFile struct {
 	Status      string `json:"status"`      // "pending", "applied", "failed", "reverted"
 	ExecutedAt  string `json:"executedAt"`
 	LogOutput   string `json:"logOutput"`
+	ServerName  string `json:"serverName"` // Servidor del fleet dueño de la BD referenciada por DBName
 }
 
 // SavedPreviewEnv representa un entorno efímero temporal de pruebas desplegado.

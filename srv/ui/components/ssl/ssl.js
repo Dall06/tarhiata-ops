@@ -2,6 +2,7 @@ import { state } from '/pkg/store/state.js';
 import { showToast } from '/pkg/toast/toast.js';
 import { apiFetch } from '/pkg/apiclient/api.js';
 import { escapeHtml, debounce } from '/pkg/jsutil/utils.js';
+import { openModal, closeModal } from '/pkg/modal/modal.js';
 
 let sslItemsCache = [];
 
@@ -80,14 +81,13 @@ export async function openSSLModal() {
     const sslModal = document.getElementById('sslModal');
     const sslSearchInput = document.getElementById('sslSearchInput');
     if (!sslModal) return;
-    sslModal.style.display = 'flex';
+    openModal('sslModal');
     if (sslSearchInput) sslSearchInput.value = '';
     await fetchAndRenderSSL();
 }
 
 export function closeSSLModal() {
-    const sslModal = document.getElementById('sslModal');
-    if (sslModal) sslModal.style.display = 'none';
+    closeModal('sslModal');
 }
 
 
@@ -271,10 +271,5 @@ export function setupSSLListeners() {
     if (btnReloadTraefik) btnReloadTraefik.addEventListener('click', () => reloadTraefikProxy(btnReloadTraefik));
     if (btnCloseSSLModal) btnCloseSSLModal.addEventListener('click', closeSSLModal);
     if (btnCloseSSLModalBottom) btnCloseSSLModalBottom.addEventListener('click', closeSSLModal);
-    if (sslModal) {
-        sslModal.addEventListener('click', (e) => {
-            if (e.target === sslModal) closeSSLModal();
-        });
-    }
     if (sslSearchInput) sslSearchInput.addEventListener('input', debounce(() => renderSSLTable(sslItemsCache), 150));
 }

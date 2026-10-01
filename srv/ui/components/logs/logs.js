@@ -2,6 +2,7 @@ import { state } from '/pkg/store/state.js';
 import { showToast } from '/pkg/toast/toast.js';
 import { apiFetch } from '/pkg/apiclient/api.js';
 import { escapeHtml, debounce, copyToClipboard } from '/pkg/jsutil/utils.js';
+import { openModal, closeModal } from '/pkg/modal/modal.js';
 
 let currentLogsServiceName = '';
 let logsPollTimer = null;
@@ -99,15 +100,14 @@ export function openLogsModal(serviceName) {
     if (logsServiceNameTitle) logsServiceNameTitle.textContent = serviceName;
     if (logsSearchInput) logsSearchInput.value = '';
     if (logsTerminalContent) logsTerminalContent.textContent = 'Consultando logs del contenedor...';
-    logsModal.style.display = 'flex';
+    openModal('logsModal');
     fetchAndRenderLogs(false);
     startLogsPolling();
 }
 
 export function closeLogsModal() {
     stopLogsPolling();
-    const logsModal = document.getElementById('logsModal');
-    if (logsModal) logsModal.style.display = 'none';
+    closeModal('logsModal');
     currentLogsServiceName = '';
     rawLogsText = '';
 }
@@ -223,11 +223,6 @@ export function setupLogsListeners() {
 
     if (btnCloseLogsModal) btnCloseLogsModal.addEventListener('click', closeLogsModal);
     if (btnDismissLogs) btnDismissLogs.addEventListener('click', closeLogsModal);
-    if (logsModal) {
-        logsModal.addEventListener('click', (e) => {
-            if (e.target === logsModal) closeLogsModal();
-        });
-    }
 
     if (btnRefreshLogs) {
         btnRefreshLogs.addEventListener('click', () => fetchAndRenderLogs(false));

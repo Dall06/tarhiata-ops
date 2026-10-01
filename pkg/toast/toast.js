@@ -1,7 +1,8 @@
 /**
  * Tarhiata Cloud Studio — Toast Notifications
- * Leaf module: zero internal dependencies.
  */
+
+import { escapeHtml } from '/pkg/jsutil/utils.js';
 
 export function showToast(message, type = 'info') {
     const container = document.getElementById('toastContainer');
@@ -15,7 +16,7 @@ export function showToast(message, type = 'info') {
     if (type === 'error') icon = '❌';
     if (type === 'warning') icon = '⚠️';
 
-    toast.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-msg">${message}</span>`;
+    toast.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-msg">${escapeHtml(message)}</span>`;
     container.appendChild(toast);
 
     setTimeout(() => {

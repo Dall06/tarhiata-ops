@@ -2,6 +2,7 @@ import { state } from '/pkg/store/state.js';
 import { showToast } from '/pkg/toast/toast.js';
 import { apiFetch } from '/pkg/apiclient/api.js';
 import { escapeHtml, copyToClipboard } from '/pkg/jsutil/utils.js';
+import { openModal, closeModal } from '/pkg/modal/modal.js';
 
 let terminalActiveServer = '';
 let terminalCommandHistory = [];
@@ -179,15 +180,14 @@ export function openTerminalModal(serverName, targetContainer = '') {
         appendTerminalSystemNotice(`✨ Tarhiata-Ops Web Terminal v4.2 iniciada.\nConectado a: ${terminalActiveServer}\nEscribe comandos bash directamente o usa los atajos rápidos.\n👉 Puedes usar la Terminal de tu computadora en cualquier momento con "Terminal del PC".`);
     }
 
-    terminalModal.style.display = 'flex';
+    openModal('terminalModal');
     setTimeout(() => {
         if (terminalCommandInput) terminalCommandInput.focus();
     }, 80);
 }
 
 export function closeTerminalModal() {
-    const terminalModal = document.getElementById('terminalModal');
-    if (terminalModal) terminalModal.style.display = 'none';
+    closeModal('terminalModal');
 }
 
 export function updateTerminalPrompt() {

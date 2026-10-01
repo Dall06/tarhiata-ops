@@ -17,18 +17,18 @@ func TestManageDBMigrationsUseCase_SaveAndExecute(t *testing.T) {
 	uc := NewManageDBMigrationsUseCase(repo, sshExec)
 
 	// 1. Guardar dos archivos de migración (con sentencias de regresión)
-	err := uc.SaveFile("postgres-main", "01_init.sql", "CREATE TABLE users (id SERIAL PRIMARY KEY);", "DROP TABLE users;")
+	err := uc.SaveFile("postgres-main", "01_init.sql", "CREATE TABLE users (id SERIAL PRIMARY KEY);", "DROP TABLE users;", "")
 	if err != nil {
 		t.Fatalf("error inesperado en SaveFile: %v", err)
 	}
 
-	err = uc.SaveFile("postgres-main", "02_add_roles.sql", "ALTER TABLE users ADD COLUMN role TEXT;", "ALTER TABLE users DROP COLUMN role;")
+	err = uc.SaveFile("postgres-main", "02_add_roles.sql", "ALTER TABLE users ADD COLUMN role TEXT;", "ALTER TABLE users DROP COLUMN role;", "")
 	if err != nil {
 		t.Fatalf("error inesperado en SaveFile 2: %v", err)
 	}
 
 	// 2. Verificar GetFiles
-	files, err := uc.GetFiles("postgres-main")
+	files, err := uc.GetFiles("postgres-main", "")
 	if err != nil || len(files) != 2 {
 		t.Fatalf("se esperaban 2 archivos de migración, se obtuvieron: %d (err=%v)", len(files), err)
 	}
