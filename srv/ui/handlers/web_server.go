@@ -1438,6 +1438,16 @@ func (w *WebServer) handleServices(rw http.ResponseWriter, req *http.Request) {
 			http.Error(rw, "Nombre de servicio inválido", http.StatusBadRequest)
 			return
 		}
+		isGitSource := strings.TrimSpace(svc.SourceType) == "git"
+		if isGitSource {
+			if strings.TrimSpace(svc.GitRepoURL) == "" {
+				http.Error(rw, "gitRepoUrl requerido para origen 'git'", http.StatusBadRequest)
+				return
+			}
+		} else if strings.TrimSpace(svc.ImageSource) == "" {
+			http.Error(rw, "imageSource requerido", http.StatusBadRequest)
+			return
+		}
 
 		flusher, isStreaming := setupStreaming(rw)
 		send := func(t, m string) {}
@@ -1446,7 +1456,11 @@ func (w *WebServer) handleServices(rw http.ResponseWriter, req *http.Request) {
 		}
 
 		send("step", fmt.Sprintf("🚀 Desplegando Servicio '%s'...", svc.Name))
-		send("log", fmt.Sprintf("📦 Imagen: %s", svc.ImageSource))
+		if isGitSource {
+			send("log", fmt.Sprintf("🔧 Origen: repo Git %s", svc.GitRepoURL))
+		} else {
+			send("log", fmt.Sprintf("📦 Imagen: %s", svc.ImageSource))
+		}
 		send("log", fmt.Sprintf("🔌 Puerto: %d", svc.Port))
 
 		serverTarget := req.URL.Query().Get("server")
@@ -1456,6 +1470,31 @@ func (w *WebServer) handleServices(rw http.ResponseWriter, req *http.Request) {
 		cfg := w.resolveTargetServer(serverTarget)
 		if cfg != nil {
 			svc.ServerName = cfg.Name
+		}
+
+		if isGitSource {
+			if cfg == nil || (cfg.Host == "" && !isLocalConfig(cfg)) {
+				msg := "Se requiere un servidor VPS configurado para build-from-source"
+				if isStreaming {
+					send("error", "❌ "+msg)
+					return
+				}
+				http.Error(rw, msg, http.StatusBadRequest)
+				return
+			}
+			send("step", "🔧 Construyendo imagen desde repo Git...")
+			buildUC := usecases.NewBuildFromSourceUseCase(repositories.NewCryptoSSHExecutor())
+			tag, errBuild := buildUC.Execute(svc, "", *cfg, func(line string) { send("log", line) })
+			if errBuild != nil {
+				msg := fmt.Sprintf("Error en build desde Git: %v", errBuild)
+				if isStreaming {
+					send("error", "❌ "+msg)
+					return
+				}
+				http.Error(rw, msg, http.StatusInternalServerError)
+				return
+			}
+			svc.ImageSource = tag
 		}
 
 		if err := w.repo.SaveService(svc); err != nil {

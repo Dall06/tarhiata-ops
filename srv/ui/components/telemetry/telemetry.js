@@ -33,6 +33,19 @@ export function activateServerLoadingSkeletons(server) {
     const deskDocker = document.getElementById('deskDocker');
     const deskSwarm = document.getElementById('deskSwarm');
     const tileUptime = document.getElementById('tileUptime');
+    const topActiveName = document.getElementById('topActiveName');
+    const topActiveHost = document.getElementById('topActiveHost');
+    const topActiveDot = document.getElementById('topActiveDot');
+    const topActiveLatency = document.getElementById('topActiveLatency');
+
+    // El botón del chooser del appbar (topActiveName/Host/Dot/Latency) debe reflejar el
+    // servidor SELECCIONADO, no el servidor "activo" global (que solo se setea una vez en
+    // loadHubState). Sin esto, el botón se queda mostrando el servidor activo aunque el
+    // usuario haya seleccionado otro distinto en el popover.
+    if (topActiveName && server) topActiveName.textContent = server.name;
+    if (topActiveHost && server) topActiveHost.textContent = server.host || 'localhost';
+    if (topActiveDot) topActiveDot.className = 'status-dot status-pending';
+    if (topActiveLatency) topActiveLatency.textContent = '…';
 
     if (deskServerTitle && server) deskServerTitle.textContent = server.name;
     if (deskHost && server) deskHost.textContent = server.host;

@@ -163,7 +163,7 @@ export async function loadServiceLinks() {
     if (!linksTableBody) return;
 
     try {
-        const res = await apiFetch('/api/links');
+        const res = await apiFetch(`/api/links?server=${encodeURIComponent(state.selectedServerName || '')}`);
         if (!res.ok || !res.data) return;
 
         const links = res.data;
@@ -202,7 +202,7 @@ export async function loadServiceLinks() {
                 const toSvc = btn.getAttribute('data-to');
                 if (!confirm(`¿Desenlazar '${fromSvc}' de '${toSvc}'?`)) return;
 
-                const delRes = await apiFetch(`/api/links?source_svc=${encodeURIComponent(fromSvc)}&target_svc=${encodeURIComponent(toSvc)}`, { method: 'DELETE' });
+                const delRes = await apiFetch(`/api/links?source_svc=${encodeURIComponent(fromSvc)}&target_svc=${encodeURIComponent(toSvc)}&server=${encodeURIComponent(state.selectedServerName || '')}`, { method: 'DELETE' });
                 if (delRes.ok) {
                     showToast(`Enlace eliminado: ${fromSvc} ⤬ ${toSvc}`, 'info');
                     loadServiceLinks();
@@ -307,7 +307,7 @@ export function setupTopologyEvents() {
             if (btnSubmitLink) btnSubmitLink.disabled = true;
 
             try {
-                const res = await apiFetch('/api/links', {
+                const res = await apiFetch(`/api/links?server=${encodeURIComponent(state.selectedServerName || '')}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)

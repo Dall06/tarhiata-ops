@@ -574,8 +574,33 @@ export function ensureServicesModalsMounted() {
                         <input type="number" id="depPort" class="t-input" placeholder="ej: 3000 o 80" value="80" required>
                     </div>
                     <div class="form-field full-span">
+                        <label for="depSourceType">Origen</label>
+                        <select id="depSourceType" class="t-input">
+                            <option value="image">🐋 Imagen Docker (Hub/registry)</option>
+                            <option value="git">🔧 Construir desde repo Git (Dockerfile)</option>
+                        </select>
+                    </div>
+                    <div class="form-field full-span" id="depImageField">
                         <label for="depImage">Imagen Docker</label>
                         <input type="text" id="depImage" class="t-input" placeholder="ej: nginx:alpine o usuario/repo:tag" required>
+                    </div>
+                    <div id="depGitSourceFields" style="display:none;">
+                        <div class="form-field full-span">
+                            <label for="depGitRepoURL">URL del repo</label>
+                            <input type="text" id="depGitRepoURL" class="t-input" placeholder="https://github.com/org/repo.git">
+                        </div>
+                        <div class="form-field">
+                            <label for="depGitBranch">Branch</label>
+                            <input type="text" id="depGitBranch" class="t-input" placeholder="main">
+                        </div>
+                        <div class="form-field">
+                            <label for="depDockerfilePath">Ruta del Dockerfile</label>
+                            <input type="text" id="depDockerfilePath" class="t-input" placeholder="Dockerfile">
+                        </div>
+                        <div class="form-field full-span">
+                            <label for="depGitAccessToken">Token de acceso (solo repos privados)</label>
+                            <input type="password" id="depGitAccessToken" class="t-input" placeholder="Dejar vacío para repo público" autocomplete="new-password">
+                        </div>
                     </div>
                     <div class="form-field full-span">
                         <label for="depDomain">Dominio / Subdominio Web</label>
@@ -761,14 +786,26 @@ export async function loadSwarmStatus(serverName) {
 export function openDeployModal() {
     ensureServicesModalsMounted();
     const deployForm = document.getElementById('formDeploy') || document.getElementById('deployForm');
-    const deployFeedback = document.getElementById('deployFeedback');
     if (deployForm) deployForm.reset();
-    if (deployFeedback) deployFeedback.style.display = 'none';
+    const depSourceType = document.getElementById('depSourceType');
+    if (depSourceType) depSourceType.value = 'image';
+    toggleDeployGitSourceFields();
     openModal('deployModal');
 }
 
 export function closeDeployModal() {
     closeModal('deployModal');
+}
+
+function toggleDeployGitSourceFields() {
+    const sourceType = document.getElementById('depSourceType');
+    const gitFields = document.getElementById('depGitSourceFields');
+    const imageField = document.getElementById('depImageField');
+    const depImage = document.getElementById('depImage');
+    const isGit = sourceType && sourceType.value === 'git';
+    if (gitFields) gitFields.style.display = isGit ? 'contents' : 'none';
+    if (imageField) imageField.style.display = isGit ? 'none' : '';
+    if (depImage) depImage.required = !isGit;
 }
 
 function toggleEditGitSourceFields() {
@@ -940,9 +977,7 @@ export async function rollbackToVersion(recordId, serviceName, onReloadCallback,
 export function setupServicesEvents(onReloadStatus) {
     ensureServicesModalsMounted();
 
-    const btnGlobalDeploy = document.getElementById('btnGlobalDeploy');
     const btnOpenDeployModal = document.getElementById('btnOpenDeployModal');
-    const btnZeroStateDeployApp = document.getElementById('btnZeroStateDeployApp');
     const btnCloseDeployModal = document.getElementById('btnCloseDeployModal');
     const btnCancelDeploy = document.getElementById('btnCancelDeploy');
     const btnCloseEditServiceModal = document.getElementById('btnCloseEditServiceModal');
@@ -956,9 +991,7 @@ export function setupServicesEvents(onReloadStatus) {
     const editSvcExpose = document.getElementById('editServiceExpose') || document.getElementById('editSvcExpose');
     const editDomainField = document.getElementById('editDomainField') || document.getElementById('editDomainGroup');
 
-    if (btnGlobalDeploy) btnGlobalDeploy.addEventListener('click', openDeployModal);
     if (btnOpenDeployModal) btnOpenDeployModal.addEventListener('click', openDeployModal);
-    if (btnZeroStateDeployApp) btnZeroStateDeployApp.addEventListener('click', openDeployModal);
     if (btnCloseDeployModal) btnCloseDeployModal.addEventListener('click', closeDeployModal);
     if (btnCancelDeploy) btnCancelDeploy.addEventListener('click', closeDeployModal);
     if (btnCloseEditServiceModal) btnCloseEditServiceModal.addEventListener('click', closeEditServiceModal);
@@ -968,6 +1001,9 @@ export function setupServicesEvents(onReloadStatus) {
 
     const editServiceSourceType = document.getElementById('editServiceSourceType');
     if (editServiceSourceType) editServiceSourceType.addEventListener('change', toggleEditGitSourceFields);
+
+    const depSourceTypeEl = document.getElementById('depSourceType');
+    if (depSourceTypeEl) depSourceTypeEl.addEventListener('change', toggleDeployGitSourceFields);
 
     const btnCloseBuildLogsModal = document.getElementById('btnCloseBuildLogsModal');
     const btnCloseBuildLogs2 = document.getElementById('btnCloseBuildLogs2');
@@ -1016,31 +1052,35 @@ export function setupServicesEvents(onReloadStatus) {
         deployForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const depName = document.getElementById('depName');
+            const depSourceType = document.getElementById('depSourceType');
             const depImage = document.getElementById('depImage');
             const depPort = document.getElementById('depPort');
             const depDomain = document.getElementById('depDomain');
-            const depPreHook = document.getElementById('depPreHook');
-            const depAutoMigrate = document.getElementById('depAutoMigrate');
+            const depGitRepoURL = document.getElementById('depGitRepoURL');
+            const depGitBranch = document.getElementById('depGitBranch');
+            const depDockerfilePath = document.getElementById('depDockerfilePath');
+            const depGitAccessToken = document.getElementById('depGitAccessToken');
             const btnSubmitDeploy = document.getElementById('btnSubmitDeploy');
-            const deployFeedback = document.getElementById('deployFeedback');
 
+            const isGit = depSourceType && depSourceType.value === 'git';
             const payload = {
                 name: depName ? depName.value.trim() : '',
-                imageSource: depImage ? depImage.value.trim() : '',
+                sourceType: isGit ? 'git' : 'image',
+                imageSource: isGit ? '' : (depImage ? depImage.value.trim() : ''),
                 port: parseInt(depPort ? depPort.value || '80' : '80', 10),
                 domain: depDomain ? depDomain.value.trim() : '',
-                preDeployHook: depPreHook ? depPreHook.value.trim() : '',
-                autoMigrate: depAutoMigrate ? depAutoMigrate.checked : false,
                 server: state.selectedServerName || ''
             };
+            if (isGit) {
+                payload.gitRepoUrl = depGitRepoURL ? depGitRepoURL.value.trim() : '';
+                payload.gitBranch = depGitBranch ? depGitBranch.value.trim() : '';
+                payload.dockerfilePath = depDockerfilePath ? depDockerfilePath.value.trim() : '';
+                payload.gitAccessToken = depGitAccessToken ? depGitAccessToken.value : '';
+            }
 
             if (btnSubmitDeploy) {
                 btnSubmitDeploy.disabled = true;
-                btnSubmitDeploy.textContent = '🚀 Desplegando...';
-            }
-            if (deployFeedback) {
-                deployFeedback.style.display = 'block';
-                deployFeedback.innerHTML = `<span style="color:var(--status-warning);">⏳ Desplegando servicio en Swarm...</span>`;
+                btnSubmitDeploy.textContent = isGit ? '🔧 Construyendo y desplegando...' : '🚀 Desplegando...';
             }
 
             try {
@@ -1052,9 +1092,6 @@ export function setupServicesEvents(onReloadStatus) {
                 });
 
                 if (!res.ok) {
-                    if (deployFeedback) {
-                        deployFeedback.innerHTML = `<span style="color:var(--status-offline);">✕ ${escapeHtml(res.error)}</span>`;
-                    }
                     showToast(`Error al desplegar: ${res.error}`, 'error');
                     sendDesktopNotification('Fallo de Despliegue', `Error al desplegar '${payload.name}': ${res.error}`);
                     return;

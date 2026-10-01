@@ -96,10 +96,6 @@
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
                     <span>Terminal</span>
                 </button>
-                <button type="button" class="action-btn action-btn-primary" id="btnGlobalDeploy">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                    <span>Desplegar</span>
-                </button>
             </div>
         </div>
     </header>
@@ -285,15 +281,6 @@
                     <span class="tab-counter-pill" id="tabDevicesCount">0</span>
                 </button>
             </div>
-
-            <div class="tabs-right-actions">
-                <button type="button" class="btn-create-item" id="btnOpenDeployModal">
-                    <span>Desplegar App</span>
-                </button>
-                <button type="button" class="btn-create-item btn-create-db" id="btnOpenDeployDBModal">
-                    <span>Crear BD</span>
-                </button>
-            </div>
         </nav>
 
         <!-- Dynamic Content Views -->
@@ -344,10 +331,7 @@
                 <div class="zero-state-box" id="swarmServicesEmpty" style="display:none;">
                     <div class="zero-icon">🚀</div>
                     <h3 class="zero-title">Aún no hay aplicaciones ni contenedores en este servidor</h3>
-                    <p class="zero-desc">Despliega cualquier contenedor Docker con HTTPS automático en cuestión de segundos.</p>
-                    <button type="button" class="action-btn action-btn-primary" id="btnZeroStateDeployApp">
-                        Desplegar Primera Aplicación
-                    </button>
+                    <p class="zero-desc">Despliega cualquier contenedor Docker con HTTPS automático en cuestión de segundos. Usa el botón "+ Desplegar App" de arriba.</p>
                 </div>
 
                 <!-- Nodos del Clúster -->

@@ -667,13 +667,15 @@ export async function selectServer(serverName) {
 
     const { activateServerLoadingSkeletons, refreshServerTelemetry } = await import('/components/telemetry/telemetry.js');
     const { loadHostDevices } = await import('/components/hardware/hardware.js');
+    const { loadServiceLinks } = await import('/components/topology/topology.js');
 
     activateServerLoadingSkeletons(s);
     state.currentHostDevices = null;
 
     await Promise.all([
         refreshServerTelemetry(serverName),
-        loadHostDevices()
+        loadHostDevices(),
+        loadServiceLinks()
     ]);
 }
 

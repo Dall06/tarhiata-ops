@@ -80,7 +80,7 @@ export function buildSpotlightRegistry() {
         subtitle: 'Crear o actualizar un contenedor con proxy Traefik y SSL',
         shortcut: 'D',
         handler: () => {
-            const btn = document.getElementById('btnOpenDeployModal') || document.getElementById('btnGlobalDeploy');
+            const btn = document.getElementById('btnOpenDeployModal');
             if (btn) btn.click();
         }
     });
