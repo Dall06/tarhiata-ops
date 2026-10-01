@@ -108,6 +108,8 @@ export function processSwarmStatus(serverName, data, isSilent = false) {
         if (linkPortainer) linkPortainer.href = '#';
         if (linkDozzle) linkDozzle.href = '#';
         if (linkTraefik) linkTraefik.href = '#';
+
+        renderMasterServicesTable(state.swarmServicesCache, state.swarmDatabasesCache, state.currentServiceLinks);
         return;
     }
 
