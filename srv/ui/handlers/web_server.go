@@ -379,6 +379,7 @@ func (w *WebServer) Echo() *echo.Echo {
 	e.Any("/api/workers", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleWorkerProvision))))
 	e.Any("/api/provision-worker", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleWorkerProvision))))
 	e.Any("/api/swarm/provision-worker", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleWorkerProvision))))
+	e.Any("/api/nodes/join-existing-worker", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleJoinExistingWorker))))
 	e.Any("/api/observability", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleObservability))))
 	e.Any("/api/update", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServerUpdate))))
 	e.Any("/api/bootstrap-master", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleBootstrapMaster))))
@@ -2520,6 +2521,104 @@ func (w *WebServer) handleWorkerProvision(rw http.ResponseWriter, req *http.Requ
 		"nodeIp":  nodeIP,
 		"region":  reqData.Region,
 		"message": fmt.Sprintf("¡Nodo Worker '%s' en %s (%s) añadido al clúster y catálogo con éxito!", reqData.NodeName, nodeIP, reqData.Region),
+	})
+}
+
+// handleJoinExistingWorker une un servidor que YA existe en el fleet (registrado con su
+// propio ServerConfig) como nodo worker del clúster Swarm de otro servidor del fleet. A
+// diferencia de handleWorkerProvision, no crea infraestructura nueva: solo prepara (Docker,
+// firewall, registry interno) y une el servidor que el usuario ya tiene.
+func (w *WebServer) handleJoinExistingWorker(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(rw, "Método no permitido", http.StatusMethodNotAllowed)
+		return
+	}
+	var reqData struct {
+		WorkerServer string `json:"workerServer"`
+		LabelType    string `json:"labelType"`
+	}
+	if req.Body != nil {
+		if err := json.NewDecoder(req.Body).Decode(&reqData); err != nil && err != io.EOF {
+			slog.Warn("cuerpo JSON inválido en join-existing-worker", "error", err)
+		}
+	}
+
+	flusher, ok := setupStreaming(rw)
+	if !ok {
+		http.Error(rw, "Streaming no soportado", http.StatusInternalServerError)
+		return
+	}
+	send := func(t, m string) { streamJSON(rw, flusher, t, m) }
+
+	if reqData.LabelType == "" {
+		reqData.LabelType = "worker"
+	}
+	workerServerName := strings.TrimSpace(reqData.WorkerServer)
+	if workerServerName == "" {
+		send("error", "❌ Debes elegir un servidor existente del fleet para unir como worker")
+		return
+	}
+
+	managerCfg := w.resolveTargetServer(req.URL.Query().Get("server"))
+	if managerCfg == nil || (managerCfg.Host == "" && !isLocalConfig(managerCfg)) {
+		send("error", "❌ No hay ningún VPS Manager configurado")
+		return
+	}
+	if strings.EqualFold(workerServerName, managerCfg.Name) {
+		send("error", "❌ El servidor worker no puede ser el mismo que el manager")
+		return
+	}
+
+	workerCfg, err := w.repo.GetServerConfigByName(workerServerName)
+	if err != nil || workerCfg == nil {
+		send("error", fmt.Sprintf("❌ Servidor '%s' no encontrado en el fleet", workerServerName))
+		return
+	}
+	if workerCfg.Host == "" && !isLocalConfig(workerCfg) {
+		send("error", fmt.Sprintf("❌ El servidor '%s' no tiene Host configurado", workerServerName))
+		return
+	}
+
+	send("step", fmt.Sprintf("🚀 Uniendo '%s' como worker al clúster de '%s'...", workerCfg.Name, managerCfg.Name))
+
+	send("step", "🔗 [1/5] Conectando por SSH al Manager...")
+	managerSSHRaw := repositories.NewCryptoSSHExecutor()
+	if err := managerSSHRaw.Connect(*managerCfg); err != nil {
+		send("error", fmt.Sprintf("❌ Falló conexión SSH al Manager: %v", err))
+		return
+	}
+	defer func() {
+		if clErr := managerSSHRaw.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando sshExec del manager en joinExistingWorker", "error", clErr)
+		}
+	}()
+
+	send("step", fmt.Sprintf("🔗 Conectando por SSH al worker '%s'...", workerCfg.Name))
+	workerSSHRaw := repositories.NewCryptoSSHExecutor()
+	if err := workerSSHRaw.Connect(*workerCfg); err != nil {
+		send("error", fmt.Sprintf("❌ Falló conexión SSH al worker '%s': %v", workerCfg.Name, err))
+		return
+	}
+	defer func() {
+		if clErr := workerSSHRaw.Close(); clErr != nil {
+			slog.Warn("web_server: error cerrando sshExec del worker en joinExistingWorker", "error", clErr)
+		}
+	}()
+
+	managerSSH := NewLoggingSSHExecutor(managerSSHRaw, send)
+	workerSSH := NewLoggingSSHExecutor(workerSSHRaw, send)
+
+	joinUC := usecases.NewJoinExistingWorkerUseCase(managerSSH, workerSSH)
+	if err := joinUC.Execute(managerCfg.Host, workerCfg.Name, reqData.LabelType); err != nil {
+		send("error", fmt.Sprintf("❌ Falló al unir el worker: %v", err))
+		return
+	}
+
+	send("step", "✅ ¡Servidor unido al clúster Swarm exitosamente!")
+	streamDoneJSON(rw, flusher, map[string]string{
+		"status":  "worker_joined",
+		"worker":  workerCfg.Name,
+		"message": fmt.Sprintf("'%s' ahora es worker del clúster de '%s'", workerCfg.Name, managerCfg.Name),
 	})
 }
 

@@ -138,38 +138,53 @@ export function ensureNodesModalMounted() {
                 <div class="fast-notice">
                     <span class="notice-icon">🚀</span>
                     <div>
-                        <strong>Escalado Automático de Clúster</strong>
-                        <p>Crea un VPS secundario en la nube y lo une automáticamente como nodo worker a tu clúster Swarm.</p>
+                        <strong id="workerModeNotice">Escalado Automático de Clúster</strong>
+                        <p id="workerModeDesc">Crea un VPS secundario en la nube y lo une automáticamente como nodo worker a tu clúster Swarm.</p>
                     </div>
                 </div>
 
                 <div class="form-row-grid">
-                    <div class="form-field">
-                        <label for="workerName">Nombre del Nodo</label>
-                        <input type="text" id="workerName" class="t-input" placeholder="ej: worker-1" value="worker-1" required>
-                    </div>
-
-                    <div class="form-field">
-                        <label for="workerProvider">Proveedor Cloud</label>
-                        <select id="workerProvider" class="t-input">
-                            <option value="vultr">Vultr Cloud Compute</option>
-                            <option value="digitalocean">DigitalOcean Droplet</option>
+                    <div class="form-field full-span">
+                        <label for="workerMode">Origen del Nodo</label>
+                        <select id="workerMode" class="t-input">
+                            <option value="provision">☁️ Crear VPS nuevo en la nube (Vultr/DigitalOcean)</option>
+                            <option value="existing">🖥️ Unir un servidor que ya tengo en mi fleet</option>
                         </select>
                     </div>
 
-                    <div class="form-field full-span">
-                        <label for="workerApiKey">API Key del Proveedor Cloud</label>
-                        <input type="password" id="workerApiKey" class="t-input" placeholder="Ingresa tu API Key de Vultr o DigitalOcean" required>
+                    <div id="workerExistingField" class="form-field full-span" style="display:none;">
+                        <label for="workerExistingServer">Servidor del Fleet</label>
+                        <select id="workerExistingServer" class="t-input"></select>
                     </div>
 
-                    <div class="form-field">
-                        <label for="workerRegion">Región del Datacenter</label>
-                        <input type="text" id="workerRegion" class="t-input" placeholder="mex, nyc1, ewr" value="mex">
-                    </div>
+                    <div id="workerProvisionFields" class="form-row-grid" style="display:contents;">
+                        <div class="form-field">
+                            <label for="workerName">Nombre del Nodo</label>
+                            <input type="text" id="workerName" class="t-input" placeholder="ej: worker-1" value="worker-1" required>
+                        </div>
 
-                    <div class="form-field">
-                        <label for="workerPlan">Plan de Servidor</label>
-                        <input type="text" id="workerPlan" class="t-input" placeholder="vc2-1c-1gb o s-1vcpu-1gb" value="vc2-1c-1gb">
+                        <div class="form-field">
+                            <label for="workerProvider">Proveedor Cloud</label>
+                            <select id="workerProvider" class="t-input">
+                                <option value="vultr">Vultr Cloud Compute</option>
+                                <option value="digitalocean">DigitalOcean Droplet</option>
+                            </select>
+                        </div>
+
+                        <div class="form-field full-span">
+                            <label for="workerApiKey">API Key del Proveedor Cloud</label>
+                            <input type="password" id="workerApiKey" class="t-input" placeholder="Ingresa tu API Key de Vultr o DigitalOcean" required>
+                        </div>
+
+                        <div class="form-field">
+                            <label for="workerRegion">Región del Datacenter</label>
+                            <input type="text" id="workerRegion" class="t-input" placeholder="mex, nyc1, ewr" value="mex">
+                        </div>
+
+                        <div class="form-field">
+                            <label for="workerPlan">Plan de Servidor</label>
+                            <input type="text" id="workerPlan" class="t-input" placeholder="vc2-1c-1gb o s-1vcpu-1gb" value="vc2-1c-1gb">
+                        </div>
                     </div>
 
                     <div class="form-field full-span">
@@ -198,6 +213,41 @@ export function ensureNodesModalMounted() {
     document.body.appendChild(div.firstElementChild);
 }
 
+function populateWorkerExistingServers() {
+    const select = document.getElementById('workerExistingServer');
+    if (!select) return;
+    const candidates = (state.servers || []).filter(s => s.name !== state.selectedServerName);
+    if (candidates.length === 0) {
+        select.innerHTML = `<option value="">No tienes otros servidores en el fleet</option>`;
+        return;
+    }
+    select.innerHTML = candidates.map(s => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)} (${escapeHtml(s.host)})</option>`).join('');
+}
+
+function toggleWorkerMode() {
+    const mode = document.getElementById('workerMode');
+    const isExisting = mode && mode.value === 'existing';
+
+    const existingField = document.getElementById('workerExistingField');
+    const provisionFields = document.getElementById('workerProvisionFields');
+    const notice = document.getElementById('workerModeNotice');
+    const desc = document.getElementById('workerModeDesc');
+    const btnText = document.getElementById('btnSubmitWorkerText');
+    const workerApiKey = document.getElementById('workerApiKey');
+
+    if (existingField) existingField.style.display = isExisting ? '' : 'none';
+    if (provisionFields) provisionFields.style.display = isExisting ? 'none' : 'contents';
+    if (workerApiKey) workerApiKey.required = !isExisting;
+
+    if (notice) notice.textContent = isExisting ? 'Unir Servidor Existente' : 'Escalado Automático de Clúster';
+    if (desc) desc.textContent = isExisting
+        ? 'Prepara (Docker, firewall, registry interno) y une un servidor que ya tienes como nodo worker de este clúster.'
+        : 'Crea un VPS secundario en la nube y lo une automáticamente como nodo worker a tu clúster Swarm.';
+    if (btnText) btnText.textContent = isExisting ? 'Unir al Clúster' : 'Crear y Unir al Clúster';
+
+    if (isExisting) populateWorkerExistingServers();
+}
+
 export function openWorkerModal() {
     ensureNodesModalMounted();
     const workerForm = document.getElementById('formWorker') || document.getElementById('workerForm');
@@ -206,6 +256,9 @@ export function openWorkerModal() {
     if (workerForm) workerForm.reset();
     if (workerLogsContent) workerLogsContent.innerHTML = '';
     if (workerLogsBox) workerLogsBox.style.display = 'none';
+    const workerMode = document.getElementById('workerMode');
+    if (workerMode) workerMode.value = 'provision';
+    toggleWorkerMode();
     openModal('workerModal');
 }
 
@@ -226,6 +279,9 @@ export function setupNodesEvents(onReloadStatus) {
     if (btnCloseWorkerModal) btnCloseWorkerModal.addEventListener('click', closeWorkerModal);
     if (btnCancelWorker) btnCancelWorker.addEventListener('click', closeWorkerModal);
 
+    const workerModeSelect = document.getElementById('workerMode');
+    if (workerModeSelect) workerModeSelect.addEventListener('change', toggleWorkerMode);
+
     if (btnCopyJoinToken) {
         btnCopyJoinToken.addEventListener('click', async () => {
             const srv = state.selectedServerName;
@@ -242,35 +298,61 @@ export function setupNodesEvents(onReloadStatus) {
     if (workerForm) {
         workerForm.addEventListener('submit', async (e) => {
             e.preventDefault();
+            const workerMode = document.getElementById('workerMode');
+            const isExisting = workerMode && workerMode.value === 'existing';
+
             const workerNodeName = document.getElementById('workerName') || document.getElementById('workerNodeName');
             const workerProvider = document.getElementById('workerProvider');
             const workerApiKey = document.getElementById('workerApiKey');
             const workerLabel = document.getElementById('workerLabel');
             const workerRegion = document.getElementById('workerRegion');
             const workerPlan = document.getElementById('workerPlan');
+            const workerExistingServer = document.getElementById('workerExistingServer');
             const btnSubmitWorker = document.getElementById('btnSubmitWorker');
             const workerLogsBox = document.getElementById('workerLogsBox') || document.getElementById('workerTerminalContainer');
             const workerLogsContent = document.getElementById('workerLogsContent') || document.getElementById('workerStreamLog');
 
-            const payload = {
-                nodeName: workerNodeName ? workerNodeName.value.trim() : '',
-                provider: workerProvider ? workerProvider.value : 'vultr',
-                apiToken: workerApiKey ? workerApiKey.value.trim() : '',
-                label: workerLabel ? workerLabel.value : 'worker',
-                region: workerRegion ? workerRegion.value.trim() : 'mex',
-                plan: workerPlan ? workerPlan.value.trim() : 'vc2-1c-1gb',
-                server: state.selectedServerName || ''
-            };
+            let endpoint;
+            let payload;
+            let displayName;
+            if (isExisting) {
+                displayName = workerExistingServer ? workerExistingServer.value : '';
+                if (!displayName) {
+                    showToast('Elige un servidor de tu fleet para unir como worker', 'error');
+                    return;
+                }
+                endpoint = `/api/nodes/join-existing-worker?server=${encodeURIComponent(state.selectedServerName || '')}`;
+                payload = {
+                    workerServer: displayName,
+                    labelType: workerLabel ? workerLabel.value : 'worker'
+                };
+            } else {
+                displayName = workerNodeName ? workerNodeName.value.trim() : '';
+                endpoint = '/api/provision-worker';
+                payload = {
+                    nodeName: displayName,
+                    provider: workerProvider ? workerProvider.value : 'vultr',
+                    apiToken: workerApiKey ? workerApiKey.value.trim() : '',
+                    label: workerLabel ? workerLabel.value : 'worker',
+                    region: workerRegion ? workerRegion.value.trim() : 'mex',
+                    plan: workerPlan ? workerPlan.value.trim() : 'vc2-1c-1gb',
+                    server: state.selectedServerName || ''
+                };
+            }
 
             if (btnSubmitWorker) {
                 btnSubmitWorker.disabled = true;
-                btnSubmitWorker.textContent = '⏳ Aprovisionando...';
+                btnSubmitWorker.textContent = isExisting ? '⏳ Uniendo...' : '⏳ Aprovisionando...';
             }
             if (workerLogsBox) workerLogsBox.style.display = 'block';
-            if (workerLogsContent) workerLogsContent.innerHTML = `<span style="color:var(--text-muted);">Iniciando orquestación de VM en la nube...</span>\n`;
+            if (workerLogsContent) {
+                workerLogsContent.innerHTML = isExisting
+                    ? `<span style="color:var(--text-muted);">Preparando y uniendo servidor existente...</span>\n`
+                    : `<span style="color:var(--text-muted);">Iniciando orquestación de VM en la nube...</span>\n`;
+            }
 
             try {
-                const res = await fetch('/api/provision-worker', {
+                const res = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
@@ -279,7 +361,7 @@ export function setupNodesEvents(onReloadStatus) {
                 if (!res.ok) {
                     const errText = await res.text();
                     if (workerLogsContent) workerLogsContent.innerHTML += `<span style="color:var(--status-offline);">✕ Error (${res.status}): ${escapeHtml(errText)}</span>\n`;
-                    showToast(`Fallo al provisionar: ${errText}`, 'error');
+                    showToast(`Fallo al unir el worker: ${errText}`, 'error');
                     return;
                 }
 
@@ -295,7 +377,7 @@ export function setupNodesEvents(onReloadStatus) {
                     showToast(`Error: ${errMsg}`, 'error');
                 });
 
-                showToast(`¡Worker '${payload.nodeName}' unido exitosamente al clúster!`, 'success');
+                showToast(`¡Worker '${displayName}' unido exitosamente al clúster!`, 'success');
                 if (onReloadStatus && state.selectedServerName) {
                     onReloadStatus(state.selectedServerName);
                 }
@@ -304,7 +386,7 @@ export function setupNodesEvents(onReloadStatus) {
             } finally {
                 if (btnSubmitWorker) {
                     btnSubmitWorker.disabled = false;
-                    btnSubmitWorker.textContent = '⚡ Aprovisionar y Unir al Clúster';
+                    btnSubmitWorker.textContent = isExisting ? 'Unir al Clúster' : 'Crear y Unir al Clúster';
                 }
             }
         });
