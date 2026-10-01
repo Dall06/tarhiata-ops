@@ -60,7 +60,7 @@ func TestManageEnvVarsUseCase_UpdateAndGet(t *testing.T) {
 	uc := NewManageEnvVarsUseCase(repo, mockSSH)
 
 	// Get initial env
-	envData, err := uc.GetEnvVars("web-api")
+	envData, err := uc.GetEnvVars("web-api", "")
 	if err != nil {
 		t.Fatalf("unexpected get env error: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestManageEnvVarsUseCase_UpdateAndGet(t *testing.T) {
 	}
 
 	// Verify persistence
-	updatedData, err := uc.GetEnvVars("web-api")
+	updatedData, err := uc.GetEnvVars("web-api", "")
 	if err != nil {
 		t.Fatalf("unexpected error re-fetching env: %v", err)
 	}

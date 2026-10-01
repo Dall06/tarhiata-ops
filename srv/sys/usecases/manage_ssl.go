@@ -32,9 +32,9 @@ func determineSSLStatus(daysLeft int) string {
 	return "active"
 }
 
-// InspectSSL inspecta la validez de los certificados SSL de los dominios registrados
-func (uc *ManageSSLMaintenanceUseCase) InspectSSL() ([]SSLStatusItem, error) {
-	services, err := uc.repo.GetServices()
+// InspectSSL inspecta la validez de los certificados SSL de los dominios registrados en serverName
+func (uc *ManageSSLMaintenanceUseCase) InspectSSL(serverName string) ([]SSLStatusItem, error) {
+	services, err := uc.repo.GetServices(serverName)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ func (uc *ManageSSLMaintenanceUseCase) InspectSSL() ([]SSLStatusItem, error) {
 
 // ToggleMaintenanceMode activa o desactiva el modo mantenimiento (503 Drain) en Traefik para un servicio
 func (uc *ManageSSLMaintenanceUseCase) ToggleMaintenanceMode(serviceName string, enable bool, config domain.ServerConfig) error {
-	svc, err := uc.repo.GetService(serviceName)
+	svc, err := uc.repo.GetService(serviceName, config.Name)
 	if err != nil || svc == nil {
 		return fmt.Errorf("servicio '%s' no encontrado", serviceName)
 	}

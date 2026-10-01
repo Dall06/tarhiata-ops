@@ -75,7 +75,7 @@ func (m *MockConfigRepository) DeleteServerConfig(name string) error {
 // reemplaza el servicio existente con ese nombre en vez de duplicarlo con append.
 func (m *MockConfigRepository) SaveService(svc domain.SavedService) error {
 	for i, s := range m.Services {
-		if s.Name == svc.Name {
+		if s.Name == svc.Name && s.ServerName == svc.ServerName {
 			m.Services[i] = svc
 			return nil
 		}
@@ -84,23 +84,29 @@ func (m *MockConfigRepository) SaveService(svc domain.SavedService) error {
 	return nil
 }
 
-func (m *MockConfigRepository) GetServices() ([]domain.SavedService, error) {
-	return m.Services, nil
+func (m *MockConfigRepository) GetServices(serverName string) ([]domain.SavedService, error) {
+	var out []domain.SavedService
+	for _, s := range m.Services {
+		if s.ServerName == serverName {
+			out = append(out, s)
+		}
+	}
+	return out, nil
 }
 
-func (m *MockConfigRepository) GetService(name string) (*domain.SavedService, error) {
+func (m *MockConfigRepository) GetService(name, serverName string) (*domain.SavedService, error) {
 	for _, s := range m.Services {
-		if s.Name == name {
+		if s.Name == name && s.ServerName == serverName {
 			return &s, nil
 		}
 	}
 	return nil, nil
 }
 
-func (m *MockConfigRepository) DeleteService(name string) error {
+func (m *MockConfigRepository) DeleteService(name, serverName string) error {
 	var filtered []domain.SavedService
 	for _, s := range m.Services {
-		if s.Name != name {
+		if !(s.Name == name && s.ServerName == serverName) {
 			filtered = append(filtered, s)
 		}
 	}
@@ -109,27 +115,39 @@ func (m *MockConfigRepository) DeleteService(name string) error {
 }
 
 func (m *MockConfigRepository) SaveDatabase(db domain.SavedDatabase) error {
+	for i, d := range m.Databases {
+		if d.Name == db.Name && d.ServerName == db.ServerName {
+			m.Databases[i] = db
+			return nil
+		}
+	}
 	m.Databases = append(m.Databases, db)
 	return nil
 }
 
-func (m *MockConfigRepository) GetDatabases() ([]domain.SavedDatabase, error) {
-	return m.Databases, nil
+func (m *MockConfigRepository) GetDatabases(serverName string) ([]domain.SavedDatabase, error) {
+	var out []domain.SavedDatabase
+	for _, d := range m.Databases {
+		if d.ServerName == serverName {
+			out = append(out, d)
+		}
+	}
+	return out, nil
 }
 
-func (m *MockConfigRepository) GetDatabase(name string) (*domain.SavedDatabase, error) {
+func (m *MockConfigRepository) GetDatabase(name, serverName string) (*domain.SavedDatabase, error) {
 	for _, d := range m.Databases {
-		if d.Name == name {
+		if d.Name == name && d.ServerName == serverName {
 			return &d, nil
 		}
 	}
 	return nil, nil
 }
 
-func (m *MockConfigRepository) DeleteDatabase(name string) error {
+func (m *MockConfigRepository) DeleteDatabase(name, serverName string) error {
 	var filtered []domain.SavedDatabase
 	for _, d := range m.Databases {
-		if d.Name != name {
+		if !(d.Name == name && d.ServerName == serverName) {
 			filtered = append(filtered, d)
 		}
 	}
@@ -156,14 +174,20 @@ func (m *MockConfigRepository) SaveServiceLink(link domain.ServiceLink) error {
 	return nil
 }
 
-func (m *MockConfigRepository) GetServiceLinks() ([]domain.ServiceLink, error) {
-	return m.Links, nil
+func (m *MockConfigRepository) GetServiceLinks(serverName string) ([]domain.ServiceLink, error) {
+	var out []domain.ServiceLink
+	for _, l := range m.Links {
+		if l.ServerName == serverName {
+			out = append(out, l)
+		}
+	}
+	return out, nil
 }
 
-func (m *MockConfigRepository) DeleteServiceLink(sourceSvc, targetSvc string) error {
+func (m *MockConfigRepository) DeleteServiceLink(sourceSvc, targetSvc, serverName string) error {
 	var filtered []domain.ServiceLink
 	for _, l := range m.Links {
-		if !(l.SourceSvc == sourceSvc && l.TargetSvc == targetSvc) {
+		if !(l.SourceSvc == sourceSvc && l.TargetSvc == targetSvc && l.ServerName == serverName) {
 			filtered = append(filtered, l)
 		}
 	}

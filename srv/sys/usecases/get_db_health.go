@@ -32,7 +32,7 @@ func (uc *GetDBHealthUseCase) Execute(name string, config domain.ServerConfig) (
 	cleanName := strings.TrimPrefix(name, "tarhiata-db-")
 	cleanName = strings.TrimPrefix(cleanName, "tarhiata-")
 
-	db, errDB := uc.repo.GetDatabase(cleanName)
+	db, errDB := uc.repo.GetDatabase(cleanName, config.Name)
 	if errDB != nil {
 		slog.Warn("get_db_health: error obteniendo base de datos", "name", cleanName, "error", errDB)
 	}

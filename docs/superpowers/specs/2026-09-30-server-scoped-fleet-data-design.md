@@ -71,6 +71,8 @@ GetServiceLinks(serverName string) ([]domain.ServiceLink, error)
 // Save*/Create* reciben server_name como parte de la entidad, no como parámetro aparte
 ```
 
+**Alcance ampliado durante la implementación:** los lookups/deletes singulares (`GetService`, `GetDatabase`, `DeleteService`, `DeleteDatabase`, `DeleteServiceLink`) también pasaron a recibir `serverName`. Con `UNIQUE(name, server_name)` compuesto, el mismo `name` puede repetirse entre servidores — dejar los singulares buscando solo por `name` los habría dejado ambiguos (un `DeleteService("api")` podría borrar el "api" del servidor equivocado).
+
 - **Handlers web** (`web_server.go`, ~10 puntos incluido `handleSwarmStatus`): ya resuelven el servidor de la request vía `getTargetServerConfig`/`resolveTargetServer` — se les agrega pasar `cfg.Name` a las llamadas del repo.
 - **Usecases** (`sync_cluster_state.go`, `bootstrap_master.go`, `unlink_services.go`, `manage_ssl.go`, `manage_migrations.go`): ya operan en el contexto de un servidor conocido (viene del handler que los invoca) — ganan `serverName` como parámetro de su función pública.
 - **CLI** (`srv/cli/usecases/dashboard.go`, `service.go`, `database.go`, `cmd/tarhiata/main.go`): hoy no resuelven "servidor activo" al listar — se les agrega resolver igual que la UI web (default: `server_config` con `is_active=1`), con flag `--server <name>` para override donde el comando ya acepta flags.

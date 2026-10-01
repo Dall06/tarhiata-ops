@@ -80,7 +80,7 @@ func (uc *TriggerWebhookDeployUseCase) Execute(serviceName, imageTag string, con
 	}
 
 	// 1. Obtener servicio guardado en catálogo
-	svc, err := uc.repo.GetService(serviceName)
+	svc, err := uc.repo.GetService(serviceName, config.Name)
 	if err != nil {
 		return nil, fmt.Errorf("error obteniendo servicio: %w", err)
 	}

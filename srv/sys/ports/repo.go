@@ -17,16 +17,18 @@ type ConfigRepository interface {
 	DeleteServerConfig(name string) error
 
 	// --- Catálogo de Servicios ---
+	// serverName identifica al servidor del fleet (server_configs.name) dueño de la fila:
+	// services/databases/service_links son multi-servidor, nunca globales.
 	SaveService(svc domain.SavedService) error
-	GetServices() ([]domain.SavedService, error)
-	GetService(name string) (*domain.SavedService, error)
-	DeleteService(name string) error
+	GetServices(serverName string) ([]domain.SavedService, error)
+	GetService(name, serverName string) (*domain.SavedService, error)
+	DeleteService(name, serverName string) error
 
 	// --- Catálogo de Bases de Datos ---
 	SaveDatabase(db domain.SavedDatabase) error
-	GetDatabases() ([]domain.SavedDatabase, error)
-	GetDatabase(name string) (*domain.SavedDatabase, error)
-	DeleteDatabase(name string) error
+	GetDatabases(serverName string) ([]domain.SavedDatabase, error)
+	GetDatabase(name, serverName string) (*domain.SavedDatabase, error)
+	DeleteDatabase(name, serverName string) error
 
 	// --- Observabilidad ---
 	SaveObservability(obs domain.SavedObservability) error
@@ -35,8 +37,8 @@ type ConfigRepository interface {
 
 	// --- Interconexión de Servicios ---
 	SaveServiceLink(link domain.ServiceLink) error
-	GetServiceLinks() ([]domain.ServiceLink, error)
-	DeleteServiceLink(sourceSvc, targetSvc string) error
+	GetServiceLinks(serverName string) ([]domain.ServiceLink, error)
+	DeleteServiceLink(sourceSvc, targetSvc, serverName string) error
 
 	// --- Entornos de Preview Temporales ---
 	SavePreviewEnv(env domain.SavedPreviewEnv) error

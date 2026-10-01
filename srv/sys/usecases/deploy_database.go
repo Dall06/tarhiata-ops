@@ -67,7 +67,7 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 	fmt.Printf("🔌 URI Interna (Oculta): %s\n", dockerutil.BuildSafeURI(db.Engine, serviceName, db.InternalPort))
 
 	syncUC := NewSyncClusterStateUseCase(nil, uc.ssh)
-	if errSync := syncUC.ExportStateToRemote(); errSync != nil {
+	if errSync := syncUC.ExportStateToRemote(""); errSync != nil {
 		slog.Warn("Fallo al exportar estado de sincronización al VPS", "error", errSync)
 	}
 

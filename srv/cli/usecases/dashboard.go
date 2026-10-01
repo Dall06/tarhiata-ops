@@ -94,11 +94,15 @@ func (h *DashboardHandler) RenderDashboard(config *sysdomain.ServerConfig) {
 	}
 	card1 := cardStyle.Render(c1Text)
 
-	services, errSvc := h.repo.GetServices()
+	serverName := ""
+	if config != nil {
+		serverName = config.Name
+	}
+	services, errSvc := h.repo.GetServices(serverName)
 	if errSvc != nil {
 		slog.Warn("dashboard: error obteniendo servicios", "error", errSvc)
 	}
-	dbs, errDB := h.repo.GetDatabases()
+	dbs, errDB := h.repo.GetDatabases(serverName)
 	if errDB != nil {
 		slog.Warn("dashboard: error obteniendo bases de datos", "error", errDB)
 	}

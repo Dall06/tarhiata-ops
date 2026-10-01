@@ -19,10 +19,10 @@ func NewUnlinkServicesUseCase(repo ports.ConfigRepository, ssh ports.SSHExecutor
 	}
 }
 
-func (u *DefaultUnlinkServicesUseCase) Execute(sourceSvc string, targetSvc string) error {
+func (u *DefaultUnlinkServicesUseCase) Execute(sourceSvc string, targetSvc string, serverName string) error {
 	// 1. Consultar links existentes para encontrar la variable de entorno a remover
 	if u.repo != nil {
-		links, err := u.repo.GetServiceLinks()
+		links, err := u.repo.GetServiceLinks(serverName)
 		if err != nil {
 			return fmt.Errorf("error obteniendo enlaces de servicios: %w", err)
 		}
@@ -40,14 +40,14 @@ func (u *DefaultUnlinkServicesUseCase) Execute(sourceSvc string, targetSvc strin
 			}
 		}
 		// 3. Eliminar de SQLite
-		if err := u.repo.DeleteServiceLink(sourceSvc, targetSvc); err != nil {
+		if err := u.repo.DeleteServiceLink(sourceSvc, targetSvc, serverName); err != nil {
 			return fmt.Errorf("error al eliminar enlace en base de datos: %w", err)
 		}
 	}
 
 	if u.ssh != nil {
 		syncUC := NewSyncClusterStateUseCase(u.repo, u.ssh)
-		if errSync := syncUC.ExportStateToRemote(); errSync != nil {
+		if errSync := syncUC.ExportStateToRemote(serverName); errSync != nil {
 			slog.Warn("Fallo al exportar estado de enlaces al VPS", "error", errSync)
 		}
 	}

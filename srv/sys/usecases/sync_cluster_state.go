@@ -30,7 +30,8 @@ func NewSyncClusterStateUseCase(repo ports.ConfigRepository, sshExec ports.SSHEx
 }
 
 // ExportStateToRemote escribe /opt/tarhiata/state.json en el VPS host para asegurar que el VPS sea la fuente de verdad.
-func (uc *SyncClusterStateUseCase) ExportStateToRemote() error {
+// serverName acota el export al catálogo de ESE servidor del fleet.
+func (uc *SyncClusterStateUseCase) ExportStateToRemote(serverName string) error {
 	if uc.sshExec == nil {
 		return fmt.Errorf("ssh executor no disponible")
 	}
@@ -42,15 +43,15 @@ func (uc *SyncClusterStateUseCase) ExportStateToRemote() error {
 
 	if uc.repo != nil {
 		var err error
-		svcs, err = uc.repo.GetServices()
+		svcs, err = uc.repo.GetServices(serverName)
 		if err != nil {
 			slog.Warn("Error obteniendo servicios para exportar", "error", err)
 		}
-		dbs, err = uc.repo.GetDatabases()
+		dbs, err = uc.repo.GetDatabases(serverName)
 		if err != nil {
 			slog.Warn("Error obteniendo bases de datos para exportar", "error", err)
 		}
-		links, err = uc.repo.GetServiceLinks()
+		links, err = uc.repo.GetServiceLinks(serverName)
 		if err != nil {
 			slog.Warn("Error obteniendo enlaces para exportar", "error", err)
 		}
@@ -88,7 +89,8 @@ func (uc *SyncClusterStateUseCase) ExportStateToRemote() error {
 }
 
 // ImportStateFromRemote lee /opt/tarhiata/state.json del VPS Host y sincroniza el catálogo en la BD local de la nueva PC.
-func (uc *SyncClusterStateUseCase) ImportStateFromRemote() (*ClusterStateDump, error) {
+// serverName es el servidor del fleet al que se atribuye el catálogo importado.
+func (uc *SyncClusterStateUseCase) ImportStateFromRemote(serverName string) (*ClusterStateDump, error) {
 	if uc.sshExec == nil {
 		return nil, fmt.Errorf("ssh executor no disponible")
 	}
@@ -106,16 +108,19 @@ func (uc *SyncClusterStateUseCase) ImportStateFromRemote() (*ClusterStateDump, e
 	// Sincronizar Servicios y Datos en repositorio local si está disponible
 	if uc.repo != nil {
 		for _, s := range dump.Services {
+			s.ServerName = serverName
 			if errSave := uc.repo.SaveService(s); errSave != nil {
 				slog.Warn("Fallo al guardar servicio sincronizado", "service", s.Name, "error", errSave)
 			}
 		}
 		for _, d := range dump.Databases {
+			d.ServerName = serverName
 			if errSave := uc.repo.SaveDatabase(d); errSave != nil {
 				slog.Warn("Fallo al guardar base de datos sincronizada", "database", d.Name, "error", errSave)
 			}
 		}
 		for _, l := range dump.ServiceLinks {
+			l.ServerName = serverName
 			if errSave := uc.repo.SaveServiceLink(l); errSave != nil {
 				slog.Warn("Fallo al guardar enlace sincronizado", "source", l.SourceSvc, "target", l.TargetSvc, "error", errSave)
 			}

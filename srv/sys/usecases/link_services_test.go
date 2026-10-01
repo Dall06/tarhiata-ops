@@ -11,7 +11,7 @@ func TestLinkServices_Execute(t *testing.T) {
 
 	usecase := NewLinkServicesUseCase(nil, mockSSH)
 
-	link, err := usecase.Execute("api-backend", "db-postgres", "DATABASE_URL")
+	link, err := usecase.Execute("api-backend", "db-postgres", "DATABASE_URL", "")
 	if err != nil {
 		t.Fatalf("se esperaba éxito en link, se obtuvo error: %v", err)
 	}

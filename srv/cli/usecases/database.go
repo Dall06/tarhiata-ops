@@ -28,7 +28,7 @@ func NewDatabaseHandler(repo ports.ConfigRepository) ports.DatabaseHandler {
 }
 
 func (h *databaseHandler) Execute(config sysdomain.ServerConfig) {
-	dbs, err := h.repo.GetDatabases()
+	dbs, err := h.repo.GetDatabases(config.Name)
 	if err != nil {
 		fmt.Printf("❌ Error leyendo bases de datos: %v\n", err)
 		return
@@ -58,7 +58,7 @@ func (h *databaseHandler) Execute(config sysdomain.ServerConfig) {
 	}
 
 	if selectedAction == "add_new" {
-		h.runAddDatabaseWizard()
+		h.runAddDatabaseWizard(config)
 		return
 	}
 
@@ -66,7 +66,7 @@ func (h *databaseHandler) Execute(config sysdomain.ServerConfig) {
 	h.runManageDatabaseMenu(dbName, config)
 }
 
-func (h *databaseHandler) runAddDatabaseWizard() {
+func (h *databaseHandler) runAddDatabaseWizard(config sysdomain.ServerConfig) {
 	fmt.Println("\n🗄️  Agregando Base de Datos al catálogo...")
 
 	var dbName, engine, deployType, externalURL, hostPath string
@@ -136,6 +136,7 @@ func (h *databaseHandler) runAddDatabaseWizard() {
 		ExternalURL:    externalURL,
 		InternalPort:   internalPort,
 		VolumeHostPath: hostPath,
+		ServerName:     config.Name,
 	}
 
 	if deployType != "external" {
@@ -154,7 +155,7 @@ func (h *databaseHandler) runAddDatabaseWizard() {
 }
 
 func (h *databaseHandler) runManageDatabaseMenu(dbName string, config sysdomain.ServerConfig) {
-	db, err := h.repo.GetDatabase(dbName)
+	db, err := h.repo.GetDatabase(dbName, config.Name)
 	if err != nil || db == nil {
 		fmt.Println("❌ No se encontró la base de datos.")
 		return
@@ -313,7 +314,7 @@ func (h *databaseHandler) runManageDatabaseMenu(dbName string, config sysdomain.
 					}
 				}
 			}
-			if errDel := h.repo.DeleteDatabase(db.Name); errDel != nil {
+			if errDel := h.repo.DeleteDatabase(db.Name, config.Name); errDel != nil {
 				slog.Warn("fallo al eliminar base de datos del catálogo", "db", db.Name, "error", errDel)
 			}
 			fmt.Println("✅ Base de datos eliminada del catálogo y apagada.")

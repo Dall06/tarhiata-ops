@@ -71,7 +71,7 @@ func TestBootstrapMasterService_Execute(t *testing.T) {
 	if res.Database.Password == "secretpass123" || res.Database.Password == "" {
 		t.Errorf("se esperaba una contraseña generada, no estática/vacía, obtenida: %q", res.Database.Password)
 	}
-	saved, err := repo.GetDatabase(res.Database.Name)
+	saved, err := repo.GetDatabase(res.Database.Name, config.Name)
 	if err != nil || saved == nil {
 		t.Fatalf("no se encontró la base de datos guardada: %v", err)
 	}

@@ -62,7 +62,7 @@ func TestManageSSLMaintenanceUseCase_TableDriven(t *testing.T) {
 		{
 			name: "Inspect SSL across registered exposed services",
 			action: func() error {
-				items, err := uc.InspectSSL()
+				items, err := uc.InspectSSL("")
 				if err != nil {
 					return err
 				}

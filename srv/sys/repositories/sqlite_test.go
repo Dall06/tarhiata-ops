@@ -58,7 +58,7 @@ func TestSQLiteServiceCatalog(t *testing.T) {
 				t.Fatalf("Error guardando servicio: %v", err)
 			}
 
-			saved, err := repo.GetService(tc.service.Name)
+			saved, err := repo.GetService(tc.service.Name, "")
 			if err != nil || saved == nil {
 				t.Fatalf("Error leyendo servicio: %v", err)
 			}
@@ -71,12 +71,12 @@ func TestSQLiteServiceCatalog(t *testing.T) {
 
 	// Test Delete (fuera del struct para probar el estado secuencial)
 	t.Run("Eliminar servicio", func(t *testing.T) {
-		err := repo.DeleteService("api")
+		err := repo.DeleteService("api", "")
 		if err != nil {
 			t.Fatalf("Error eliminando servicio: %v", err)
 		}
 
-		saved, errGet := repo.GetService("api")
+		saved, errGet := repo.GetService("api", "")
 		if errGet != nil {
 			t.Fatalf("Error consultando servicio eliminado: %v", errGet)
 		}
@@ -101,7 +101,7 @@ func TestSQLiteServiceCatalog(t *testing.T) {
 			t.Fatalf("error guardando servicio git: %v", err)
 		}
 
-		saved, err := repo.GetService("git-app")
+		saved, err := repo.GetService("git-app", "")
 		if err != nil || saved == nil {
 			t.Fatalf("error leyendo servicio git: %v", err)
 		}
@@ -165,7 +165,7 @@ func TestSQLiteDatabaseCatalog(t *testing.T) {
 				t.Fatalf("Error guardando BD: %v", err)
 			}
 
-			saved, err := repo.GetDatabase(tc.db.Name)
+			saved, err := repo.GetDatabase(tc.db.Name, "")
 			if err != nil || saved == nil {
 				t.Fatalf("Error leyendo BD: %v", err)
 			}
@@ -177,12 +177,12 @@ func TestSQLiteDatabaseCatalog(t *testing.T) {
 	}
 
 	t.Run("Eliminar BD", func(t *testing.T) {
-		err := repo.DeleteDatabase("mi-postgres-ext")
+		err := repo.DeleteDatabase("mi-postgres-ext", "")
 		if err != nil {
 			t.Fatalf("Error eliminando BD: %v", err)
 		}
 
-		saved, errGet := repo.GetDatabase("mi-postgres-ext")
+		saved, errGet := repo.GetDatabase("mi-postgres-ext", "")
 		if errGet != nil {
 			t.Fatalf("Error consultando BD eliminada: %v", errGet)
 		}
@@ -365,7 +365,7 @@ func TestSQLiteEncryptionAtRest(t *testing.T) {
 		t.Errorf("expected database password to be encrypted in SQLite, got: %s", rawStoredDBPass)
 	}
 
-	retrievedDB, err := repo.GetDatabase("postgres-app")
+	retrievedDB, err := repo.GetDatabase("postgres-app", "")
 	if err != nil || retrievedDB == nil {
 		t.Fatalf("error retrieving database: %v", err)
 	}
@@ -606,12 +606,12 @@ func TestSQLiteNotFoundCases(t *testing.T) {
 	}
 	defer repo.Close()
 
-	svc, err := repo.GetService("non-existent-svc")
+	svc, err := repo.GetService("non-existent-svc", "")
 	if err != nil || svc != nil {
 		t.Errorf("expected nil service, got: %v (err: %v)", svc, err)
 	}
 
-	db, err := repo.GetDatabase("non-existent-db")
+	db, err := repo.GetDatabase("non-existent-db", "")
 	if err != nil || db != nil {
 		t.Errorf("expected nil database, got: %v (err: %v)", db, err)
 	}
@@ -754,6 +754,75 @@ func TestSQLiteDeploymentHistory_TableDriven(t *testing.T) {
 	}
 	if single.ServiceName != "app-api" {
 		t.Errorf("expected serviceName app-api, got %s", single.ServiceName)
+	}
+}
+
+// TestSQLiteServerScopedIsolation cierra el bug original (datos de un servidor
+// apareciendo como "fantasmas" en otro, info repetida entre servidores): con el
+// mismo name de servicio/BD/link sembrado en dos servidores distintos, cada
+// servidor debe ver únicamente lo suyo.
+func TestSQLiteServerScopedIsolation(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "isolation_test.db")
+	repo, err := NewSQLiteRepository(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create repo: %v", err)
+	}
+	defer repo.Close()
+
+	for _, server := range []string{"local", "vps-prod"} {
+		if err := repo.SaveService(domain.SavedService{Name: "api", ImageSource: "node:18", Port: 80, ServerName: server}); err != nil {
+			t.Fatalf("error saving service for %s: %v", server, err)
+		}
+		if err := repo.SaveDatabase(domain.SavedDatabase{Name: "pg", Engine: "postgres", ServerName: server}); err != nil {
+			t.Fatalf("error saving database for %s: %v", server, err)
+		}
+		if err := repo.SaveServiceLink(domain.ServiceLink{SourceSvc: "api", TargetSvc: "pg", EnvVarName: "DATABASE_URL", ServerName: server}); err != nil {
+			t.Fatalf("error saving service link for %s: %v", server, err)
+		}
+	}
+
+	localSvcs, err := repo.GetServices("local")
+	if err != nil {
+		t.Fatalf("GetServices(local) error: %v", err)
+	}
+	if len(localSvcs) != 1 || localSvcs[0].ServerName != "local" {
+		t.Errorf("expected exactly 1 service scoped to 'local', got: %+v", localSvcs)
+	}
+
+	vpsSvcs, err := repo.GetServices("vps-prod")
+	if err != nil {
+		t.Fatalf("GetServices(vps-prod) error: %v", err)
+	}
+	if len(vpsSvcs) != 1 || vpsSvcs[0].ServerName != "vps-prod" {
+		t.Errorf("expected exactly 1 service scoped to 'vps-prod', got: %+v", vpsSvcs)
+	}
+
+	localDBs, err := repo.GetDatabases("local")
+	if err != nil || len(localDBs) != 1 {
+		t.Fatalf("expected exactly 1 database scoped to 'local', got: %+v (err=%v)", localDBs, err)
+	}
+
+	localLinks, err := repo.GetServiceLinks("local")
+	if err != nil || len(localLinks) != 1 {
+		t.Fatalf("expected exactly 1 service link scoped to 'local', got: %+v (err=%v)", localLinks, err)
+	}
+
+	// Un delete en "local" no debe afectar al "api"/"pg" de "vps-prod".
+	if err := repo.DeleteService("api", "local"); err != nil {
+		t.Fatalf("DeleteService(local) error: %v", err)
+	}
+	if err := repo.DeleteDatabase("pg", "local"); err != nil {
+		t.Fatalf("DeleteDatabase(local) error: %v", err)
+	}
+
+	localSvcsAfter, err := repo.GetServices("local")
+	if err != nil || len(localSvcsAfter) != 0 {
+		t.Errorf("expected 0 services left in 'local' after delete, got: %+v", localSvcsAfter)
+	}
+	vpsSvcsAfter, err := repo.GetServices("vps-prod")
+	if err != nil || len(vpsSvcsAfter) != 1 {
+		t.Errorf("expected 'vps-prod' service to survive the 'local' delete, got: %+v", vpsSvcsAfter)
 	}
 }
 

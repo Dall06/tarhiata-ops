@@ -52,7 +52,7 @@ func (h *serviceHandler) Execute(config sysdomain.ServerConfig) {
 		}
 	}
 
-	savedServices, err := h.repo.GetServices()
+	savedServices, err := h.repo.GetServices(config.Name)
 	if err != nil {
 		fmt.Printf("❌ Error leyendo catálogo local: %v\n", err)
 		return
@@ -88,7 +88,7 @@ func (h *serviceHandler) Execute(config sysdomain.ServerConfig) {
 	}
 
 	if selectedAction == "add_new" {
-		h.runAddServiceWizard()
+		h.runAddServiceWizard(config)
 		return
 	}
 	if selectedAction == "map" {
@@ -96,21 +96,21 @@ func (h *serviceHandler) Execute(config sysdomain.ServerConfig) {
 		return
 	}
 	if selectedAction == "global_link" {
-		h.runGlobalLinkWizard()
+		h.runGlobalLinkWizard(config)
 		return
 	}
 
 	stackName := strings.TrimPrefix(selectedAction, "manage_")
-	h.runManageServiceMenu(stackName, sshExec)
+	h.runManageServiceMenu(stackName, sshExec, config)
 }
 
-func (h *serviceHandler) runGlobalLinkWizard() {
+func (h *serviceHandler) runGlobalLinkWizard(config sysdomain.ServerConfig) {
 	fmt.Printf("\n🔗 --- ASISTENTE GLOBAL DE INTERCONEXIÓN ---")
-	allSvc, errSvc := h.repo.GetServices()
+	allSvc, errSvc := h.repo.GetServices(config.Name)
 	if errSvc != nil {
 		slog.Warn("service_handler: error obteniendo servicios", "error", errSvc)
 	}
-	allDBs, errDB := h.repo.GetDatabases()
+	allDBs, errDB := h.repo.GetDatabases(config.Name)
 	if errDB != nil {
 		slog.Warn("service_handler: error obteniendo bases de datos", "error", errDB)
 	}
@@ -135,7 +135,7 @@ func (h *serviceHandler) runGlobalLinkWizard() {
 		return
 	}
 
-	svc, err := h.repo.GetService(originName)
+	svc, err := h.repo.GetService(originName, config.Name)
 	if err != nil || svc == nil {
 		fmt.Println("❌ Error leyendo el servicio origen.")
 		return
@@ -212,11 +212,11 @@ func (h *serviceHandler) runGlobalLinkWizard() {
 }
 
 func (h *serviceHandler) showNetworkMap(config sysdomain.ServerConfig) {
-	services, errSvc := h.repo.GetServices()
+	services, errSvc := h.repo.GetServices(config.Name)
 	if errSvc != nil {
 		slog.Warn("topology: fallo leyendo servicios", "error", errSvc)
 	}
-	databases, errDB := h.repo.GetDatabases()
+	databases, errDB := h.repo.GetDatabases(config.Name)
 	if errDB != nil {
 		slog.Warn("topology: fallo leyendo bases de datos", "error", errDB)
 	}
@@ -326,7 +326,7 @@ func (h *serviceHandler) showNetworkMap(config sysdomain.ServerConfig) {
 	}
 }
 
-func (h *serviceHandler) runAddServiceWizard() {
+func (h *serviceHandler) runAddServiceWizard(config sysdomain.ServerConfig) {
 	fmt.Printf("\n📦 Agregando nuevo servicio al catálogo (Aún no se desplegará)...")
 
 	var (
@@ -436,6 +436,7 @@ func (h *serviceHandler) runAddServiceWizard() {
 		EnvFilePath:    envFilePath,
 		EnableSSL:      enableSSL,
 		HealthcheckCmd: healthcheckCmd,
+		ServerName:     config.Name,
 	}
 
 	if errSave := h.repo.SaveService(newService); errSave != nil {
@@ -458,8 +459,8 @@ func getEnvPath(serviceName string) string {
 	return filepath.Join(envDir, serviceName+".env")
 }
 
-func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec sysports.SSHExecutor) {
-	svc, err := h.repo.GetService(serviceName)
+func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec sysports.SSHExecutor, config sysdomain.ServerConfig) {
+	svc, err := h.repo.GetService(serviceName, config.Name)
 	if err != nil || svc == nil {
 		fmt.Println("❌ No se encontró el servicio en la base de datos.")
 		return
@@ -588,11 +589,11 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec syspor
 		fmt.Println("❌ Error al abrir el editor.")
 
 	case "link_service":
-		allSvc, errSvc := h.repo.GetServices()
+		allSvc, errSvc := h.repo.GetServices(config.Name)
 		if errSvc != nil {
 			slog.Warn("link_service: fallo leyendo servicios", "error", errSvc)
 		}
-		allDBs, errDB := h.repo.GetDatabases()
+		allDBs, errDB := h.repo.GetDatabases(config.Name)
 		if errDB != nil {
 			slog.Warn("link_service: fallo leyendo bases de datos", "error", errDB)
 		}
@@ -833,7 +834,7 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec syspor
 		if _, errRmDir := sshExec.RunCommand(fmt.Sprintf("rm -rf /opt/tarhiata/services/%s", svc.Name)); errRmDir != nil {
 			slog.Debug("aviso al limpiar directorio de servicio", "error", errRmDir)
 		}
-		if errDel := h.repo.DeleteService(svc.Name); errDel != nil {
+		if errDel := h.repo.DeleteService(svc.Name, config.Name); errDel != nil {
 			fmt.Printf("❌ Error eliminando del catálogo: %v\n", errDel)
 			return
 		}

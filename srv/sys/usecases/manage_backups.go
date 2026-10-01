@@ -39,7 +39,7 @@ func (uc *ManageBackupsUseCase) CreateSnapshot(req domain.BackupRequest, config 
 	}
 
 	ts := time.Now().Format("20060102_150405")
-	dumpCmd, filename, remotePath, engine := uc.buildDumpCommand(req, ts)
+	dumpCmd, filename, remotePath, engine := uc.buildDumpCommand(req, ts, config.Name)
 
 	res, err := uc.ssh.RunCommand(dumpCmd)
 	if err != nil || res == nil || res.ExitCode != 0 {
@@ -80,7 +80,7 @@ func (uc *ManageBackupsUseCase) CreateSnapshot(req domain.BackupRequest, config 
 	return &backup, nil
 }
 
-func (uc *ManageBackupsUseCase) buildDumpCommand(req domain.BackupRequest, ts string) (string, string, string, string) {
+func (uc *ManageBackupsUseCase) buildDumpCommand(req domain.BackupRequest, ts string, serverName string) (string, string, string, string) {
 	if req.TargetType != "database" {
 		filename := fmt.Sprintf("backup_vol_%s_%s.tar.gz", req.TargetName, ts)
 		remotePath := fmt.Sprintf("/opt/tarhiata/backups/%s", filename)
@@ -88,7 +88,7 @@ func (uc *ManageBackupsUseCase) buildDumpCommand(req domain.BackupRequest, ts st
 		return dumpCmd, filename, remotePath, "volume"
 	}
 
-	db, err := uc.repo.GetDatabase(req.TargetName)
+	db, err := uc.repo.GetDatabase(req.TargetName, serverName)
 	if err != nil || db == nil {
 		engineName := strings.TrimSpace(req.Engine)
 		if engineName == "" {
@@ -230,7 +230,7 @@ func (uc *ManageBackupsUseCase) RestoreSnapshot(backupID int, config domain.Serv
 		return nil
 	}
 
-	db, err := uc.repo.GetDatabase(backup.TargetName)
+	db, err := uc.repo.GetDatabase(backup.TargetName, config.Name)
 	if err != nil || db == nil {
 		engineName := strings.TrimSpace(backup.Engine)
 		if engineName == "" {

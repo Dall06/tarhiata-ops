@@ -326,6 +326,10 @@ func (r *SQLiteRepository) migrate() error {
 
 	r.addColumnIfMissing("migration_files", "down_content", "TEXT NOT NULL DEFAULT ''")
 
+	if err := ApplyPendingMigrations(r.db); err != nil {
+		return fmt.Errorf("falló aplicando migraciones versionadas: %w", err)
+	}
+
 	return nil
 }
 
@@ -552,9 +556,9 @@ func (r *SQLiteRepository) Close() error {
 
 func (r *SQLiteRepository) SaveService(svc domain.SavedService) error {
 	query := `
-	INSERT INTO services (name, image_source, is_url, port, domain, expose, env_file_path, enable_ssl, healthcheck_cmd, mounts_json, env_vars, target_node, pre_deploy_hook, custom_domains, webhook_secret, source_type, git_repo_url, git_branch, git_access_token, dockerfile_path)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	ON CONFLICT(name) DO UPDATE SET
+	INSERT INTO services (name, image_source, is_url, port, domain, expose, env_file_path, enable_ssl, healthcheck_cmd, mounts_json, env_vars, target_node, pre_deploy_hook, custom_domains, webhook_secret, source_type, git_repo_url, git_branch, git_access_token, dockerfile_path, server_name)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(name, server_name) DO UPDATE SET
 		image_source=excluded.image_source,
 		is_url=excluded.is_url,
 		port=excluded.port,
@@ -575,13 +579,13 @@ func (r *SQLiteRepository) SaveService(svc domain.SavedService) error {
 		git_access_token=excluded.git_access_token,
 		dockerfile_path=excluded.dockerfile_path;`
 
-	_, err := r.db.Exec(query, svc.Name, svc.ImageSource, svc.IsURL, svc.Port, svc.Domain, svc.Expose, svc.EnvFilePath, svc.EnableSSL, svc.HealthcheckCmd, svc.MountsJSON, svc.EnvVars, svc.TargetNode, svc.PreDeployHook, svc.CustomDomains, encryptSecret(svc.WebhookSecret), svc.SourceType, svc.GitRepoURL, svc.GitBranch, encryptSecret(svc.GitAccessToken), svc.DockerfilePath)
+	_, err := r.db.Exec(query, svc.Name, svc.ImageSource, svc.IsURL, svc.Port, svc.Domain, svc.Expose, svc.EnvFilePath, svc.EnableSSL, svc.HealthcheckCmd, svc.MountsJSON, svc.EnvVars, svc.TargetNode, svc.PreDeployHook, svc.CustomDomains, encryptSecret(svc.WebhookSecret), svc.SourceType, svc.GitRepoURL, svc.GitBranch, encryptSecret(svc.GitAccessToken), svc.DockerfilePath, svc.ServerName)
 	return err
 }
 
-func (r *SQLiteRepository) GetServices() ([]domain.SavedService, error) {
-	query := `SELECT id, name, image_source, is_url, port, domain, expose, env_file_path, enable_ssl, healthcheck_cmd, mounts_json, env_vars, target_node, pre_deploy_hook, custom_domains, webhook_secret, source_type, git_repo_url, git_branch, git_access_token, dockerfile_path FROM services ORDER BY name ASC;`
-	rows, err := r.db.Query(query)
+func (r *SQLiteRepository) GetServices(serverName string) ([]domain.SavedService, error) {
+	query := `SELECT id, name, image_source, is_url, port, domain, expose, env_file_path, enable_ssl, healthcheck_cmd, mounts_json, env_vars, target_node, pre_deploy_hook, custom_domains, webhook_secret, source_type, git_repo_url, git_branch, git_access_token, dockerfile_path, server_name FROM services WHERE server_name = ? ORDER BY name ASC;`
+	rows, err := r.db.Query(query, serverName)
 	if err != nil {
 		return nil, err
 	}
@@ -590,22 +594,25 @@ func (r *SQLiteRepository) GetServices() ([]domain.SavedService, error) {
 	var services []domain.SavedService
 	for rows.Next() {
 		var s domain.SavedService
-		if err := rows.Scan(&s.ID, &s.Name, &s.ImageSource, &s.IsURL, &s.Port, &s.Domain, &s.Expose, &s.EnvFilePath, &s.EnableSSL, &s.HealthcheckCmd, &s.MountsJSON, &s.EnvVars, &s.TargetNode, &s.PreDeployHook, &s.CustomDomains, &s.WebhookSecret, &s.SourceType, &s.GitRepoURL, &s.GitBranch, &s.GitAccessToken, &s.DockerfilePath); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.ImageSource, &s.IsURL, &s.Port, &s.Domain, &s.Expose, &s.EnvFilePath, &s.EnableSSL, &s.HealthcheckCmd, &s.MountsJSON, &s.EnvVars, &s.TargetNode, &s.PreDeployHook, &s.CustomDomains, &s.WebhookSecret, &s.SourceType, &s.GitRepoURL, &s.GitBranch, &s.GitAccessToken, &s.DockerfilePath, &s.ServerName); err != nil {
 			return nil, err
 		}
 		s.WebhookSecret = decryptSecret(s.WebhookSecret)
 		s.GitAccessToken = decryptSecret(s.GitAccessToken)
 		services = append(services, s)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return services, nil
 }
 
-func (r *SQLiteRepository) GetService(name string) (*domain.SavedService, error) {
-	query := `SELECT id, name, image_source, is_url, port, domain, expose, env_file_path, enable_ssl, healthcheck_cmd, mounts_json, env_vars, target_node, pre_deploy_hook, custom_domains, webhook_secret, source_type, git_repo_url, git_branch, git_access_token, dockerfile_path FROM services WHERE name = ?;`
-	row := r.db.QueryRow(query, name)
+func (r *SQLiteRepository) GetService(name, serverName string) (*domain.SavedService, error) {
+	query := `SELECT id, name, image_source, is_url, port, domain, expose, env_file_path, enable_ssl, healthcheck_cmd, mounts_json, env_vars, target_node, pre_deploy_hook, custom_domains, webhook_secret, source_type, git_repo_url, git_branch, git_access_token, dockerfile_path, server_name FROM services WHERE name = ? AND server_name = ?;`
+	row := r.db.QueryRow(query, name, serverName)
 
 	var s domain.SavedService
-	err := row.Scan(&s.ID, &s.Name, &s.ImageSource, &s.IsURL, &s.Port, &s.Domain, &s.Expose, &s.EnvFilePath, &s.EnableSSL, &s.HealthcheckCmd, &s.MountsJSON, &s.EnvVars, &s.TargetNode, &s.PreDeployHook, &s.CustomDomains, &s.WebhookSecret, &s.SourceType, &s.GitRepoURL, &s.GitBranch, &s.GitAccessToken, &s.DockerfilePath)
+	err := row.Scan(&s.ID, &s.Name, &s.ImageSource, &s.IsURL, &s.Port, &s.Domain, &s.Expose, &s.EnvFilePath, &s.EnableSSL, &s.HealthcheckCmd, &s.MountsJSON, &s.EnvVars, &s.TargetNode, &s.PreDeployHook, &s.CustomDomains, &s.WebhookSecret, &s.SourceType, &s.GitRepoURL, &s.GitBranch, &s.GitAccessToken, &s.DockerfilePath, &s.ServerName)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil // No encontrado
@@ -617,17 +624,17 @@ func (r *SQLiteRepository) GetService(name string) (*domain.SavedService, error)
 	return &s, nil
 }
 
-func (r *SQLiteRepository) DeleteService(name string) error {
+func (r *SQLiteRepository) DeleteService(name, serverName string) error {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec("DELETE FROM service_links WHERE source_svc = ? OR target_svc = ?", name, name); err != nil {
+	if _, err := tx.Exec("DELETE FROM service_links WHERE (source_svc = ? OR target_svc = ?) AND server_name = ?", name, name, serverName); err != nil {
 		return err
 	}
-	if _, err := tx.Exec("DELETE FROM services WHERE name = ?", name); err != nil {
+	if _, err := tx.Exec("DELETE FROM services WHERE name = ? AND server_name = ?", name, serverName); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -638,9 +645,9 @@ func (r *SQLiteRepository) DeleteService(name string) error {
 func (r *SQLiteRepository) SaveDatabase(db domain.SavedDatabase) error {
 	encPass := encryptSecret(db.Password)
 	query := `
-	INSERT INTO databases (name, engine, deploy_type, external_url, internal_port, volume_host_path, node_ip, password, target_node)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	ON CONFLICT(name) DO UPDATE SET
+	INSERT INTO databases (name, engine, deploy_type, external_url, internal_port, volume_host_path, node_ip, password, target_node, server_name)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(name, server_name) DO UPDATE SET
 		engine=excluded.engine,
 		deploy_type=excluded.deploy_type,
 		external_url=excluded.external_url,
@@ -650,13 +657,13 @@ func (r *SQLiteRepository) SaveDatabase(db domain.SavedDatabase) error {
 		password=excluded.password,
 		target_node=excluded.target_node;`
 
-	_, err := r.db.Exec(query, db.Name, db.Engine, db.DeployType, db.ExternalURL, db.InternalPort, db.VolumeHostPath, db.NodeIP, encPass, db.TargetNode)
+	_, err := r.db.Exec(query, db.Name, db.Engine, db.DeployType, db.ExternalURL, db.InternalPort, db.VolumeHostPath, db.NodeIP, encPass, db.TargetNode, db.ServerName)
 	return err
 }
 
-func (r *SQLiteRepository) GetDatabases() ([]domain.SavedDatabase, error) {
-	query := `SELECT id, name, engine, deploy_type, external_url, internal_port, volume_host_path, node_ip, password, target_node FROM databases ORDER BY name ASC;`
-	rows, err := r.db.Query(query)
+func (r *SQLiteRepository) GetDatabases(serverName string) ([]domain.SavedDatabase, error) {
+	query := `SELECT id, name, engine, deploy_type, external_url, internal_port, volume_host_path, node_ip, password, target_node, server_name FROM databases WHERE server_name = ? ORDER BY name ASC;`
+	rows, err := r.db.Query(query, serverName)
 	if err != nil {
 		return nil, err
 	}
@@ -665,21 +672,24 @@ func (r *SQLiteRepository) GetDatabases() ([]domain.SavedDatabase, error) {
 	var dbs []domain.SavedDatabase
 	for rows.Next() {
 		var d domain.SavedDatabase
-		if err := rows.Scan(&d.ID, &d.Name, &d.Engine, &d.DeployType, &d.ExternalURL, &d.InternalPort, &d.VolumeHostPath, &d.NodeIP, &d.Password, &d.TargetNode); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Engine, &d.DeployType, &d.ExternalURL, &d.InternalPort, &d.VolumeHostPath, &d.NodeIP, &d.Password, &d.TargetNode, &d.ServerName); err != nil {
 			return nil, err
 		}
 		d.Password = decryptSecret(d.Password)
 		dbs = append(dbs, d)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return dbs, nil
 }
 
-func (r *SQLiteRepository) GetDatabase(name string) (*domain.SavedDatabase, error) {
-	query := `SELECT id, name, engine, deploy_type, external_url, internal_port, volume_host_path, node_ip, password, target_node FROM databases WHERE name = ?;`
-	row := r.db.QueryRow(query, name)
+func (r *SQLiteRepository) GetDatabase(name, serverName string) (*domain.SavedDatabase, error) {
+	query := `SELECT id, name, engine, deploy_type, external_url, internal_port, volume_host_path, node_ip, password, target_node, server_name FROM databases WHERE name = ? AND server_name = ?;`
+	row := r.db.QueryRow(query, name, serverName)
 
 	var d domain.SavedDatabase
-	err := row.Scan(&d.ID, &d.Name, &d.Engine, &d.DeployType, &d.ExternalURL, &d.InternalPort, &d.VolumeHostPath, &d.NodeIP, &d.Password, &d.TargetNode)
+	err := row.Scan(&d.ID, &d.Name, &d.Engine, &d.DeployType, &d.ExternalURL, &d.InternalPort, &d.VolumeHostPath, &d.NodeIP, &d.Password, &d.TargetNode, &d.ServerName)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil // No encontrado
@@ -690,7 +700,7 @@ func (r *SQLiteRepository) GetDatabase(name string) (*domain.SavedDatabase, erro
 	return &d, nil
 }
 
-func (r *SQLiteRepository) DeleteDatabase(name string) error {
+func (r *SQLiteRepository) DeleteDatabase(name, serverName string) error {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return err
@@ -700,10 +710,10 @@ func (r *SQLiteRepository) DeleteDatabase(name string) error {
 	cleanName := strings.TrimPrefix(name, "tarhiata-db-")
 	cleanName = strings.TrimPrefix(cleanName, "tarhiata-")
 
-	if _, err := tx.Exec("DELETE FROM service_links WHERE source_svc = ? OR target_svc = ? OR source_svc = ? OR target_svc = ?", name, name, cleanName, cleanName); err != nil {
+	if _, err := tx.Exec("DELETE FROM service_links WHERE (source_svc = ? OR target_svc = ? OR source_svc = ? OR target_svc = ?) AND server_name = ?", name, name, cleanName, cleanName, serverName); err != nil {
 		return err
 	}
-	if _, err := tx.Exec("DELETE FROM databases WHERE name = ? OR name = ? OR name = ?", name, cleanName, "tarhiata-db-"+cleanName); err != nil {
+	if _, err := tx.Exec("DELETE FROM databases WHERE (name = ? OR name = ? OR name = ?) AND server_name = ?", name, cleanName, "tarhiata-db-"+cleanName, serverName); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -747,18 +757,18 @@ func (r *SQLiteRepository) DeleteObservability() error {
 
 func (r *SQLiteRepository) SaveServiceLink(link domain.ServiceLink) error {
 	query := `
-	INSERT INTO service_links (source_svc, target_svc, env_var_name, target_url)
-	VALUES (?, ?, ?, ?)
-	ON CONFLICT(source_svc, env_var_name) DO UPDATE SET 
-		target_svc=excluded.target_svc, 
+	INSERT INTO service_links (source_svc, target_svc, env_var_name, target_url, server_name)
+	VALUES (?, ?, ?, ?, ?)
+	ON CONFLICT(source_svc, env_var_name, server_name) DO UPDATE SET
+		target_svc=excluded.target_svc,
 		target_url=excluded.target_url;`
-	_, err := r.db.Exec(query, link.SourceSvc, link.TargetSvc, link.EnvVarName, link.TargetURL)
+	_, err := r.db.Exec(query, link.SourceSvc, link.TargetSvc, link.EnvVarName, link.TargetURL, link.ServerName)
 	return err
 }
 
-func (r *SQLiteRepository) GetServiceLinks() ([]domain.ServiceLink, error) {
-	query := `SELECT id, source_svc, target_svc, env_var_name, target_url FROM service_links;`
-	rows, err := r.db.Query(query)
+func (r *SQLiteRepository) GetServiceLinks(serverName string) ([]domain.ServiceLink, error) {
+	query := `SELECT id, source_svc, target_svc, env_var_name, target_url, server_name FROM service_links WHERE server_name = ?;`
+	rows, err := r.db.Query(query, serverName)
 	if err != nil {
 		return nil, err
 	}
@@ -767,16 +777,19 @@ func (r *SQLiteRepository) GetServiceLinks() ([]domain.ServiceLink, error) {
 	var links []domain.ServiceLink
 	for rows.Next() {
 		var l domain.ServiceLink
-		if err := rows.Scan(&l.ID, &l.SourceSvc, &l.TargetSvc, &l.EnvVarName, &l.TargetURL); err != nil {
+		if err := rows.Scan(&l.ID, &l.SourceSvc, &l.TargetSvc, &l.EnvVarName, &l.TargetURL, &l.ServerName); err != nil {
 			return nil, err
 		}
 		links = append(links, l)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return links, nil
 }
 
-func (r *SQLiteRepository) DeleteServiceLink(sourceSvc, targetSvc string) error {
-	_, err := r.db.Exec("DELETE FROM service_links WHERE source_svc = ? AND target_svc = ?", sourceSvc, targetSvc)
+func (r *SQLiteRepository) DeleteServiceLink(sourceSvc, targetSvc, serverName string) error {
+	_, err := r.db.Exec("DELETE FROM service_links WHERE source_svc = ? AND target_svc = ? AND server_name = ?", sourceSvc, targetSvc, serverName)
 	return err
 }
 

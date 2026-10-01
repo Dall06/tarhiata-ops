@@ -43,6 +43,8 @@ type SavedService struct {
 	GitBranch      string `json:"gitBranch"`      // default "main"
 	GitAccessToken string `json:"gitAccessToken"` // PAT opcional para repos privados, cifrado en reposo
 	DockerfilePath string `json:"dockerfilePath"` // default "Dockerfile", relativo a la raíz del repo
+
+	ServerName string `json:"serverName"` // Servidor del fleet (server_configs.name) donde vive este servicio
 }
 
 // SavedDatabase representa una base de datos gestionada en el catálogo local.
@@ -59,6 +61,8 @@ type SavedDatabase struct {
 	TargetNode        string `json:"targetNode"`          // Restricción de afinidad (ej: manager, worker-1)
 	ReuseExistingData bool   `json:"reuseExistingData"`  // Reutiliza /opt/data/db-<name> en modo Recovery
 	CleanExistingData bool   `json:"cleanExistingData"`  // Limpia el directorio host antes de desplegar
+
+	ServerName string `json:"serverName"` // Servidor del fleet (server_configs.name) donde vive esta base de datos
 }
 
 // ServiceLink representa la interconexión entre dos servicios o bases de datos mediante una variable de entorno.
@@ -68,6 +72,7 @@ type ServiceLink struct {
 	TargetSvc  string `json:"targetSvc"`  // Nombre del servicio o BD destino (ej: "db-postgres")
 	EnvVarName string `json:"envVarName"` // Variable inyectada (ej: "DATABASE_URL")
 	TargetURL  string `json:"targetUrl"`  // URL interna resuelta (ej: "postgres://admin:***@tarhiata-db-postgres:5432/db")
+	ServerName string `json:"serverName"` // Servidor del fleet donde viven source_svc y target_svc
 }
 
 // SavedBackup representa un snapshot / backup realizado de una BD o Volumen persistente.

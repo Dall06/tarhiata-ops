@@ -72,7 +72,7 @@ func (uc *ManagePreviewEnvUseCaseImpl) Create(input ports.CreatePreviewEnvInput,
 		var envVarFlags string
 		if input.LinkDBName != "" && uc.repo != nil {
 			// Buscar la BD para inyectar su URL
-			if db, err := uc.repo.GetDatabase(input.LinkDBName); err == nil && db != nil {
+			if db, err := uc.repo.GetDatabase(input.LinkDBName, config.Name); err == nil && db != nil {
 				envURL := fmt.Sprintf("postgres://admin:secret@tarhiata-db-%s:%d/db", db.Name, db.InternalPort)
 				envVarFlags = fmt.Sprintf(" --env DATABASE_URL=%s", validator.ShellQuote(envURL))
 			}

@@ -489,12 +489,17 @@ func isDockerServiceMatch(targetName string, liveMap map[string]bool) bool {
 }
 
 func (w *WebServer) handleStatus(rw http.ResponseWriter, req *http.Request) {
-	services, errSvc := w.repo.GetServices()
-	databases, errDB := w.repo.GetDatabases()
 	cfg, cfgErr := w.repo.GetServerConfig()
 	if cfgErr != nil {
 		slog.Warn("web_server: error obteniendo server config en handleStatus", "error", cfgErr)
 	}
+	serverName := ""
+	if cfg != nil {
+		serverName = cfg.Name
+	}
+
+	services, errSvc := w.repo.GetServices(serverName)
+	databases, errDB := w.repo.GetDatabases(serverName)
 
 	if errSvc != nil {
 		http.Error(rw, fmt.Sprintf("Error leyendo servicios: %v", errSvc), http.StatusInternalServerError)
@@ -523,13 +528,13 @@ func (w *WebServer) handleStatus(rw http.ResponseWriter, req *http.Request) {
 			// Si es una PC nueva o migrada (0 servicios/BDs en local), importar el catálogo y las relaciones del VPS
 			if len(services) == 0 && len(databases) == 0 {
 				syncUC := usecases.NewSyncClusterStateUseCase(w.repo, sshExec)
-				if dump, err := syncUC.ImportStateFromRemote(); err == nil && dump != nil {
+				if dump, err := syncUC.ImportStateFromRemote(serverName); err == nil && dump != nil {
 					var errSvcReload, errDbReload error
-					services, errSvcReload = w.repo.GetServices()
+					services, errSvcReload = w.repo.GetServices(serverName)
 					if errSvcReload != nil {
 						slog.Warn("falló recargar servicios tras importar estado", "error", errSvcReload)
 					}
-					databases, errDbReload = w.repo.GetDatabases()
+					databases, errDbReload = w.repo.GetDatabases(serverName)
 					if errDbReload != nil {
 						slog.Warn("falló recargar bases de datos tras importar estado", "error", errDbReload)
 					}
@@ -1158,7 +1163,7 @@ func (w *WebServer) handleSystemReport(rw http.ResponseWriter, req *http.Request
 		swSt = *swarmStatus
 	}
 
-	dbs, _ := w.repo.GetDatabases()
+	dbs, _ := w.repo.GetDatabases(cfg.Name)
 
 	report := domain.SystemDiagnosticReport{
 		Timestamp:   time.Now(),
@@ -1272,7 +1277,7 @@ func (w *WebServer) handleSwarmStatus(rw http.ResponseWriter, req *http.Request)
 	}
 
 	// Incorporar información de bases de datos registradas
-	dbs, dbsErr := w.repo.GetDatabases()
+	dbs, dbsErr := w.repo.GetDatabases(cfg.Name)
 	if dbsErr != nil {
 		slog.Warn("web_server: error obteniendo databases para swarm status", "error", dbsErr)
 		dbs = []domain.SavedDatabase{}
@@ -1311,7 +1316,7 @@ func (w *WebServer) handleSwarmStatus(rw http.ResponseWriter, req *http.Request)
 	}
 
 	// Incorporar información de servicios registrados en SQLite para que no desaparezcan si están detenidos
-	savedSvcs, svcsErr := w.repo.GetServices()
+	savedSvcs, svcsErr := w.repo.GetServices(cfg.Name)
 	if svcsErr != nil {
 		slog.Warn("web_server: error obteniendo servicios para swarm status", "error", svcsErr)
 	} else {
@@ -1393,7 +1398,12 @@ func (w *WebServer) handleConnectAll(rw http.ResponseWriter, req *http.Request) 
 
 func (w *WebServer) handleServices(rw http.ResponseWriter, req *http.Request) {
 	if req.Method == http.MethodGet {
-		svcs, err := w.repo.GetServices()
+		cfg := w.resolveTargetServer(req.URL.Query().Get("server"))
+		serverName := ""
+		if cfg != nil {
+			serverName = cfg.Name
+		}
+		svcs, err := w.repo.GetServices(serverName)
 		if err != nil {
 			http.Error(rw, fmt.Sprintf("Error leyendo servicios: %v", err), http.StatusInternalServerError)
 			return
@@ -1435,6 +1445,15 @@ func (w *WebServer) handleServices(rw http.ResponseWriter, req *http.Request) {
 		send("log", fmt.Sprintf("📦 Imagen: %s", svc.ImageSource))
 		send("log", fmt.Sprintf("🔌 Puerto: %d", svc.Port))
 
+		serverTarget := req.URL.Query().Get("server")
+		if serverTarget == "" && svc.TargetNode != "" {
+			serverTarget = svc.TargetNode
+		}
+		cfg := w.resolveTargetServer(serverTarget)
+		if cfg != nil {
+			svc.ServerName = cfg.Name
+		}
+
 		if err := w.repo.SaveService(svc); err != nil {
 			if isStreaming {
 				send("error", fmt.Sprintf("❌ Error guardando servicio: %v", err))
@@ -1445,11 +1464,6 @@ func (w *WebServer) handleServices(rw http.ResponseWriter, req *http.Request) {
 		}
 		send("log", "💾 Registro del Servicio guardado en catálogo local")
 
-		serverTarget := req.URL.Query().Get("server")
-		if serverTarget == "" && svc.TargetNode != "" {
-			serverTarget = svc.TargetNode
-		}
-		cfg := w.resolveTargetServer(serverTarget)
 		if cfg != nil && (cfg.Host != "" || isLocalConfig(cfg)) {
 			send("step", fmt.Sprintf("🔗 Conectando por SSH a %s...", cfg.Host))
 			sshExec := repositories.NewCryptoSSHExecutor()
@@ -1544,17 +1558,21 @@ func (w *WebServer) handleServices(rw http.ResponseWriter, req *http.Request) {
 
 		cleanName := strings.TrimPrefix(name, "tarhiata-db-")
 		cleanName = strings.TrimPrefix(cleanName, "tarhiata-")
+		deleteServerName := ""
+		if cfg != nil {
+			deleteServerName = cfg.Name
+		}
 
-		if err := w.repo.DeleteService(name); err != nil {
+		if err := w.repo.DeleteService(name, deleteServerName); err != nil {
 			slog.Debug("aviso al eliminar servicio por nombre", "name", name, "error", err)
 		}
-		if err := w.repo.DeleteService(cleanName); err != nil {
+		if err := w.repo.DeleteService(cleanName, deleteServerName); err != nil {
 			slog.Debug("aviso al eliminar servicio por cleanName", "cleanName", cleanName, "error", err)
 		}
-		if err := w.repo.DeleteDatabase(name); err != nil {
+		if err := w.repo.DeleteDatabase(name, deleteServerName); err != nil {
 			slog.Debug("aviso al eliminar base de datos por nombre", "name", name, "error", err)
 		}
-		if err := w.repo.DeleteDatabase(cleanName); err != nil {
+		if err := w.repo.DeleteDatabase(cleanName, deleteServerName); err != nil {
 			slog.Debug("aviso al eliminar base de datos por cleanName", "cleanName", cleanName, "error", err)
 		}
 
@@ -1570,7 +1588,12 @@ func (w *WebServer) handleServiceItem(rw http.ResponseWriter, req *http.Request)
 		return
 	}
 	if req.Method == http.MethodGet {
-		svc, err := w.repo.GetService(name)
+		cfg := w.resolveTargetServer(req.URL.Query().Get("server"))
+		serverName := ""
+		if cfg != nil {
+			serverName = cfg.Name
+		}
+		svc, err := w.repo.GetService(name, serverName)
 		if err != nil {
 			http.Error(rw, fmt.Sprintf("Error leyendo servicio: %v", err), http.StatusInternalServerError)
 			return
@@ -1609,11 +1632,21 @@ func (w *WebServer) handleServiceItem(rw http.ResponseWriter, req *http.Request)
 		if name != "update" {
 			svc.Name = name
 		}
+
+		serverTarget := req.URL.Query().Get("server")
+		if serverTarget == "" && svc.TargetNode != "" {
+			serverTarget = svc.TargetNode
+		}
+		cfg := w.resolveTargetServer(serverTarget)
+		if cfg != nil {
+			svc.ServerName = cfg.Name
+		}
+
 		// Los secretos (token de git, secreto de webhook) no viajan de vuelta al cliente
 		// en los formularios de edición; si llegan vacíos, se conserva el valor ya
 		// guardado en vez de borrarlo en cada edición de cualquier otro campo.
 		if strings.TrimSpace(svc.GitAccessToken) == "" || strings.TrimSpace(svc.WebhookSecret) == "" {
-			if existing, errExisting := w.repo.GetService(svc.Name); errExisting == nil && existing != nil {
+			if existing, errExisting := w.repo.GetService(svc.Name, svc.ServerName); errExisting == nil && existing != nil {
 				if strings.TrimSpace(svc.GitAccessToken) == "" {
 					svc.GitAccessToken = existing.GitAccessToken
 				}
@@ -1626,11 +1659,6 @@ func (w *WebServer) handleServiceItem(rw http.ResponseWriter, req *http.Request)
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		serverTarget := req.URL.Query().Get("server")
-		if serverTarget == "" && svc.TargetNode != "" {
-			serverTarget = svc.TargetNode
-		}
-		cfg := w.resolveTargetServer(serverTarget)
 		if cfg != nil && (cfg.Host != "" || isLocalConfig(cfg)) {
 			sshExec := repositories.NewCryptoSSHExecutor()
 			if err := sshExec.Connect(*cfg); err == nil {
@@ -1679,7 +1707,11 @@ func (w *WebServer) handleServiceItem(rw http.ResponseWriter, req *http.Request)
 				}
 			}
 		}
-		if err := w.repo.DeleteService(name); err != nil {
+		deleteServerName := ""
+		if cfg != nil {
+			deleteServerName = cfg.Name
+		}
+		if err := w.repo.DeleteService(name, deleteServerName); err != nil {
 			http.Error(rw, fmt.Sprintf("Error al eliminar servicio: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -1691,7 +1723,12 @@ func (w *WebServer) handleServiceItem(rw http.ResponseWriter, req *http.Request)
 
 func (w *WebServer) handleDatabases(rw http.ResponseWriter, req *http.Request) {
 	if req.Method == http.MethodGet {
-		dbs, err := w.repo.GetDatabases()
+		cfg := w.resolveTargetServer(req.URL.Query().Get("server"))
+		serverName := ""
+		if cfg != nil {
+			serverName = cfg.Name
+		}
+		dbs, err := w.repo.GetDatabases(serverName)
 		if err != nil {
 			http.Error(rw, fmt.Sprintf("Error leyendo bases de datos: %v", err), http.StatusInternalServerError)
 			return
@@ -1746,6 +1783,15 @@ func (w *WebServer) handleDatabases(rw http.ResponseWriter, req *http.Request) {
 			send("log", fmt.Sprintf("🎯 Nodo Target: %s", db.TargetNode))
 		}
 
+		serverTarget := req.URL.Query().Get("server")
+		if serverTarget == "" && db.TargetNode != "" {
+			serverTarget = db.TargetNode
+		}
+		cfg := w.resolveTargetServer(serverTarget)
+		if cfg != nil {
+			db.ServerName = cfg.Name
+		}
+
 		if err := w.repo.SaveDatabase(db); err != nil {
 			if isStreaming {
 				send("error", fmt.Sprintf("❌ Error al guardar base de datos: %v", err))
@@ -1756,11 +1802,6 @@ func (w *WebServer) handleDatabases(rw http.ResponseWriter, req *http.Request) {
 		}
 		send("log", "💾 Registro de Base de Datos guardado en catálogo local")
 
-		serverTarget := req.URL.Query().Get("server")
-		if serverTarget == "" && db.TargetNode != "" {
-			serverTarget = db.TargetNode
-		}
-		cfg := w.resolveTargetServer(serverTarget)
 		if cfg != nil && (cfg.Host != "" || isLocalConfig(cfg)) {
 			send("step", fmt.Sprintf("🔗 Conectando por SSH a %s...", cfg.Host))
 			sshExec := repositories.NewCryptoSSHExecutor()
@@ -1811,20 +1852,24 @@ func (w *WebServer) handleDatabases(rw http.ResponseWriter, req *http.Request) {
 		}
 		serverTarget := req.URL.Query().Get("server")
 		cfg := w.resolveTargetServer(serverTarget)
+		deleteServerName := ""
+		if cfg != nil {
+			deleteServerName = cfg.Name
+		}
 		if cfg != nil && (cfg.Host != "" || isLocalConfig(cfg)) {
 			sshExec := repositories.NewCryptoSSHExecutor()
 			if err := sshExec.Connect(*cfg); err == nil {
 				defer sshExec.Close()
 
 				// 1. Remover variables de entorno inyectadas en servicios vinculados en Swarm
-				links, errLinks := w.repo.GetServiceLinks()
+				links, errLinks := w.repo.GetServiceLinks(deleteServerName)
 				if errLinks != nil {
 					slog.Warn("falló al obtener enlaces de servicios", "error", errLinks)
 				}
 				unlinkUC := usecases.NewUnlinkServicesUseCase(w.repo, sshExec)
 				for _, l := range links {
 					if l.TargetSvc == name || l.SourceSvc == name {
-						if err := unlinkUC.Execute(l.SourceSvc, l.TargetSvc); err != nil {
+						if err := unlinkUC.Execute(l.SourceSvc, l.TargetSvc, deleteServerName); err != nil {
 							slog.Warn("falló al desvincular servicio", "source", l.SourceSvc, "target", l.TargetSvc, "error", err)
 						}
 					}
@@ -1848,16 +1893,16 @@ func (w *WebServer) handleDatabases(rw http.ResponseWriter, req *http.Request) {
 		cleanName := strings.TrimPrefix(name, "tarhiata-db-")
 		cleanName = strings.TrimPrefix(cleanName, "tarhiata-")
 
-		if err := w.repo.DeleteDatabase(name); err != nil {
+		if err := w.repo.DeleteDatabase(name, deleteServerName); err != nil {
 			slog.Debug("aviso al eliminar base de datos por nombre", "name", name, "error", err)
 		}
-		if err := w.repo.DeleteDatabase(cleanName); err != nil {
+		if err := w.repo.DeleteDatabase(cleanName, deleteServerName); err != nil {
 			slog.Debug("aviso al eliminar base de datos por cleanName", "cleanName", cleanName, "error", err)
 		}
-		if err := w.repo.DeleteService(name); err != nil {
+		if err := w.repo.DeleteService(name, deleteServerName); err != nil {
 			slog.Debug("aviso al eliminar servicio por nombre", "name", name, "error", err)
 		}
-		if err := w.repo.DeleteService(cleanName); err != nil {
+		if err := w.repo.DeleteService(cleanName, deleteServerName); err != nil {
 			slog.Debug("aviso al eliminar servicio por cleanName", "cleanName", cleanName, "error", err)
 		}
 
@@ -1873,7 +1918,12 @@ func (w *WebServer) handleDatabaseItem(rw http.ResponseWriter, req *http.Request
 		return
 	}
 	if req.Method == http.MethodGet {
-		db, err := w.repo.GetDatabase(name)
+		cfg := w.resolveTargetServer(req.URL.Query().Get("server"))
+		serverName := ""
+		if cfg != nil {
+			serverName = cfg.Name
+		}
+		db, err := w.repo.GetDatabase(name, serverName)
 		if err != nil {
 			http.Error(rw, fmt.Sprintf("Error leyendo base de datos: %v", err), http.StatusInternalServerError)
 			return
@@ -1903,6 +1953,10 @@ func (w *WebServer) handleDatabaseItem(rw http.ResponseWriter, req *http.Request
 			return
 		}
 		db.Name = name
+		cfgSave := w.resolveTargetServer(req.URL.Query().Get("server"))
+		if cfgSave != nil {
+			db.ServerName = cfgSave.Name
+		}
 		if err := w.repo.SaveDatabase(db); err != nil {
 			http.Error(rw, fmt.Sprintf("Error guardando base de datos: %v", err), http.StatusInternalServerError)
 			return
@@ -1916,20 +1970,24 @@ func (w *WebServer) handleDatabaseItem(rw http.ResponseWriter, req *http.Request
 			return
 		}
 		cfg := w.getConfig()
+		deleteServerName := ""
+		if cfg != nil {
+			deleteServerName = cfg.Name
+		}
 		if cfg != nil && cfg.Host != "" {
 			sshExec := repositories.NewCryptoSSHExecutor()
 			if err := sshExec.Connect(*cfg); err == nil {
 				defer sshExec.Close()
 
 				// 1. Remover variables de entorno inyectadas en servicios vinculados en Swarm
-				links, errLinks := w.repo.GetServiceLinks()
+				links, errLinks := w.repo.GetServiceLinks(deleteServerName)
 				if errLinks != nil {
 					slog.Warn("falló al obtener enlaces de servicios", "error", errLinks)
 				}
 				unlinkUC := usecases.NewUnlinkServicesUseCase(w.repo, sshExec)
 				for _, l := range links {
 					if l.TargetSvc == name || l.SourceSvc == name {
-						if err := unlinkUC.Execute(l.SourceSvc, l.TargetSvc); err != nil {
+						if err := unlinkUC.Execute(l.SourceSvc, l.TargetSvc, deleteServerName); err != nil {
 							slog.Warn("falló al desvincular servicio", "source", l.SourceSvc, "target", l.TargetSvc, "error", err)
 						}
 					}
@@ -1953,16 +2011,16 @@ func (w *WebServer) handleDatabaseItem(rw http.ResponseWriter, req *http.Request
 		cleanName := strings.TrimPrefix(name, "tarhiata-db-")
 		cleanName = strings.TrimPrefix(cleanName, "tarhiata-")
 
-		if err := w.repo.DeleteDatabase(name); err != nil {
+		if err := w.repo.DeleteDatabase(name, deleteServerName); err != nil {
 			slog.Debug("aviso al eliminar base de datos por nombre", "name", name, "error", err)
 		}
-		if err := w.repo.DeleteDatabase(cleanName); err != nil {
+		if err := w.repo.DeleteDatabase(cleanName, deleteServerName); err != nil {
 			slog.Debug("aviso al eliminar base de datos por cleanName", "cleanName", cleanName, "error", err)
 		}
-		if err := w.repo.DeleteService(name); err != nil {
+		if err := w.repo.DeleteService(name, deleteServerName); err != nil {
 			slog.Debug("aviso al eliminar servicio por nombre", "name", name, "error", err)
 		}
-		if err := w.repo.DeleteService(cleanName); err != nil {
+		if err := w.repo.DeleteService(cleanName, deleteServerName); err != nil {
 			slog.Debug("aviso al eliminar servicio por cleanName", "cleanName", cleanName, "error", err)
 		}
 
@@ -2817,15 +2875,20 @@ func (w *WebServer) handleRepairTraefik(rw http.ResponseWriter, req *http.Reques
 }
 
 func (w *WebServer) handleTopology(rw http.ResponseWriter, req *http.Request) {
-	services, errSvc := w.repo.GetServices()
+	cfg := w.resolveTargetServer(req.URL.Query().Get("server"))
+	serverName := ""
+	if cfg != nil {
+		serverName = cfg.Name
+	}
+	services, errSvc := w.repo.GetServices(serverName)
 	if errSvc != nil {
 		slog.Warn("web_server: error leyendo servicios en handleTopology", "error", errSvc)
 	}
-	databases, errDB := w.repo.GetDatabases()
+	databases, errDB := w.repo.GetDatabases(serverName)
 	if errDB != nil {
 		slog.Warn("web_server: error leyendo bases de datos en handleTopology", "error", errDB)
 	}
-	links, errLinks := w.repo.GetServiceLinks()
+	links, errLinks := w.repo.GetServiceLinks(serverName)
 	if errLinks != nil {
 		slog.Warn("web_server: error leyendo service links en handleTopology", "error", errLinks)
 	}
@@ -2876,7 +2939,12 @@ func (w *WebServer) handleTopology(rw http.ResponseWriter, req *http.Request) {
 
 func (w *WebServer) handleLinks(rw http.ResponseWriter, req *http.Request) {
 	if req.Method == "GET" {
-		links, err := w.repo.GetServiceLinks()
+		cfg := w.resolveTargetServer(req.URL.Query().Get("server"))
+		serverName := ""
+		if cfg != nil {
+			serverName = cfg.Name
+		}
+		links, err := w.repo.GetServiceLinks(serverName)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
@@ -2917,8 +2985,12 @@ func (w *WebServer) handleLinks(rw http.ResponseWriter, req *http.Request) {
 			}
 		}
 
+		serverName := ""
+		if w.config != nil {
+			serverName = w.config.Name
+		}
 		linkUseCase := usecases.NewLinkServicesUseCase(w.repo, sshExec)
-		link, err := linkUseCase.Execute(reqData.SourceSvc, reqData.TargetSvc, reqData.EnvVarName)
+		link, err := linkUseCase.Execute(reqData.SourceSvc, reqData.TargetSvc, reqData.EnvVarName, serverName)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
@@ -2945,8 +3017,12 @@ func (w *WebServer) handleLinks(rw http.ResponseWriter, req *http.Request) {
 			}
 		}
 
+		serverName := ""
+		if w.config != nil {
+			serverName = w.config.Name
+		}
 		unlinkUseCase := usecases.NewUnlinkServicesUseCase(w.repo, sshExec)
-		if err := unlinkUseCase.Execute(sourceSvc, targetSvc); err != nil {
+		if err := unlinkUseCase.Execute(sourceSvc, targetSvc, serverName); err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -3922,9 +3998,14 @@ func (w *WebServer) handleEnvVars(rw http.ResponseWriter, req *http.Request) {
 			http.Error(rw, "Parámetro 'service' es requerido", http.StatusBadRequest)
 			return
 		}
+		cfg := w.resolveTargetServer(req.URL.Query().Get("server"))
+		serverName := ""
+		if cfg != nil {
+			serverName = cfg.Name
+		}
 		sshExec := repositories.NewCryptoSSHExecutor()
 		uc := usecases.NewManageEnvVarsUseCase(w.repo, sshExec)
-		envData, err := uc.GetEnvVars(serviceName)
+		envData, err := uc.GetEnvVars(serviceName, serverName)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusNotFound)
 			return
@@ -3978,9 +4059,14 @@ func (w *WebServer) handleExportEnvVars(rw http.ResponseWriter, req *http.Reques
 		http.Error(rw, "Parámetro 'service' es requerido", http.StatusBadRequest)
 		return
 	}
+	cfg := w.resolveTargetServer(req.URL.Query().Get("server"))
+	serverName := ""
+	if cfg != nil {
+		serverName = cfg.Name
+	}
 	sshExec := repositories.NewCryptoSSHExecutor()
 	uc := usecases.NewManageEnvVarsUseCase(w.repo, sshExec)
-	envData, err := uc.GetEnvVars(serviceName)
+	envData, err := uc.GetEnvVars(serviceName, serverName)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusNotFound)
 		return
@@ -4186,9 +4272,14 @@ func (w *WebServer) handleSSLInspect(rw http.ResponseWriter, req *http.Request) 
 		http.Error(rw, "Método no permitido", http.StatusMethodNotAllowed)
 		return
 	}
+	cfg := w.resolveTargetServer(req.URL.Query().Get("server"))
+	serverName := ""
+	if cfg != nil {
+		serverName = cfg.Name
+	}
 	sshExec := repositories.NewCryptoSSHExecutor()
 	uc := usecases.NewManageSSLMaintenanceUseCase(w.repo, sshExec)
-	items, err := uc.InspectSSL()
+	items, err := uc.InspectSSL(serverName)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
@@ -4265,7 +4356,7 @@ func (w *WebServer) handleCustomDomains(rw http.ResponseWriter, req *http.Reques
 			http.Error(rw, "service es requerido", http.StatusBadRequest)
 			return
 		}
-		info, err := uc.GetServiceDomains(serviceName)
+		info, err := uc.GetServiceDomains(serviceName, cfg.Name)
 		if err != nil || info == nil {
 			msg := "servicio no encontrado"
 			if err != nil {
@@ -4514,10 +4605,10 @@ func (w *WebServer) handleSyncState(rw http.ResponseWriter, req *http.Request) {
 	switch req.Method {
 	case http.MethodGet, http.MethodPost:
 		// Primero intenta importar del VPS
-		dump, err := syncUC.ImportStateFromRemote()
+		dump, err := syncUC.ImportStateFromRemote(cfg.Name)
 		if err != nil {
 			// Si no existe state.json en VPS, exporta el estado local actual
-			if exportErr := syncUC.ExportStateToRemote(); exportErr != nil {
+			if exportErr := syncUC.ExportStateToRemote(cfg.Name); exportErr != nil {
 				slog.Warn("falló exportar estado a VPS remoto", "error", exportErr)
 			}
 		}
@@ -4538,7 +4629,7 @@ func (w *WebServer) syncStateToRemote(cfg *domain.ServerConfig) {
 	if err := sshExec.Connect(*cfg); err == nil {
 		defer sshExec.Close()
 		syncUC := usecases.NewSyncClusterStateUseCase(w.repo, sshExec)
-		if err := syncUC.ExportStateToRemote(); err != nil {
+		if err := syncUC.ExportStateToRemote(cfg.Name); err != nil {
 			slog.Warn("falló sincronización de estado a remoto", "error", err)
 		}
 	}
@@ -4942,7 +5033,12 @@ func (w *WebServer) handleWebhookDeploy(rw http.ResponseWriter, req *http.Reques
 	// Validación de firma HMAC obligatoria contra el secreto guardado del lado del
 	// servidor para este servicio (nunca contra un valor que venga en la propia request:
 	// eso le permitiría a quien manda la petición controlar ambos lados de la comparación).
-	svc, errSvc := w.repo.GetService(serviceName)
+	webhookCfg, errCfg := w.getTargetServerConfig(req)
+	if errCfg != nil {
+		jsonError(rw, errCfg.Error(), http.StatusNotFound)
+		return
+	}
+	svc, errSvc := w.repo.GetService(serviceName, webhookCfg.Name)
 	if errSvc != nil {
 		jsonError(rw, fmt.Sprintf("Error obteniendo servicio: %v", errSvc), http.StatusInternalServerError)
 		return
@@ -5084,19 +5180,19 @@ func (w *WebServer) handleServiceRebuild(rw http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	svc, err := w.repo.GetService(name)
+	cfg := w.getConfig()
+	if cfg == nil || (cfg.Host == "" && !isLocalConfig(cfg)) {
+		jsonError(rw, "Servidor VPS no configurado", http.StatusBadRequest)
+		return
+	}
+
+	svc, err := w.repo.GetService(name, cfg.Name)
 	if err != nil || svc == nil {
 		jsonError(rw, fmt.Sprintf("Servicio '%s' no encontrado", name), http.StatusNotFound)
 		return
 	}
 	if svc.SourceType != "git" {
 		jsonError(rw, "Este servicio no está configurado con origen 'git' (build-from-source)", http.StatusBadRequest)
-		return
-	}
-
-	cfg := w.getConfig()
-	if cfg == nil || (cfg.Host == "" && !isLocalConfig(cfg)) {
-		jsonError(rw, "Servidor VPS no configurado", http.StatusBadRequest)
 		return
 	}
 

@@ -45,7 +45,7 @@ func (uc *ManageDBMigrationsUseCase) Execute(req domain.DatabaseMigrationRequest
 		return nil, fmt.Errorf("debes especificar la base de datos de destino")
 	}
 
-	databases, err := uc.repo.GetDatabases()
+	databases, err := uc.repo.GetDatabases(config.Name)
 	if err != nil {
 		return nil, fmt.Errorf("error leyendo bases de datos: %w", err)
 	}

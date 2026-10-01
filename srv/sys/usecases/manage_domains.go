@@ -31,8 +31,8 @@ type ServiceDomainsInfo struct {
 }
 
 // GetServiceDomains obtiene el dominio principal y los dominios personalizados/redirecciones asociados
-func (uc *ManageDomainsUseCase) GetServiceDomains(serviceName string) (*ServiceDomainsInfo, error) {
-	svc, err := uc.repo.GetService(serviceName)
+func (uc *ManageDomainsUseCase) GetServiceDomains(serviceName, serverName string) (*ServiceDomainsInfo, error) {
+	svc, err := uc.repo.GetService(serviceName, serverName)
 	if err != nil || svc == nil {
 		return nil, fmt.Errorf("servicio '%s' no encontrado", serviceName)
 	}
@@ -51,7 +51,7 @@ func (uc *ManageDomainsUseCase) GetServiceDomains(serviceName string) (*ServiceD
 
 // AddCustomDomain agrega un alias o regla de redirección CNAME al servicio y actualiza Traefik en Docker Swarm
 func (uc *ManageDomainsUseCase) AddCustomDomain(serviceName, customDomain, redirectTarget string, config domain.ServerConfig) error {
-	svc, err := uc.repo.GetService(serviceName)
+	svc, err := uc.repo.GetService(serviceName, config.Name)
 	if err != nil || svc == nil {
 		return fmt.Errorf("servicio '%s' no encontrado", serviceName)
 	}
@@ -96,7 +96,7 @@ func (uc *ManageDomainsUseCase) AddCustomDomain(serviceName, customDomain, redir
 
 // RemoveCustomDomain elimina un dominio personalizado o alias del servicio
 func (uc *ManageDomainsUseCase) RemoveCustomDomain(serviceName, customDomain string, config domain.ServerConfig) error {
-	svc, err := uc.repo.GetService(serviceName)
+	svc, err := uc.repo.GetService(serviceName, config.Name)
 	if err != nil || svc == nil {
 		return fmt.Errorf("servicio '%s' no encontrado", serviceName)
 	}

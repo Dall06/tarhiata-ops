@@ -73,12 +73,12 @@ func (uc *bootstrapMasterServiceUseCase) Execute(input ports.BootstrapMasterInpu
 
 	// 1. Auto-desconectar (Unlink) de servicios o bases de datos antiguas si el servicio ya tenía enlaces
 	if uc.repo != nil {
-		existingLinks, err := uc.repo.GetServiceLinks()
+		existingLinks, err := uc.repo.GetServiceLinks(config.Name)
 		if err == nil {
 			for _, l := range existingLinks {
 				if l.SourceSvc == input.AppName {
 					if uc.unlinkUC != nil {
-						if errUnlink := uc.unlinkUC.Execute(l.SourceSvc, l.TargetSvc); errUnlink != nil {
+						if errUnlink := uc.unlinkUC.Execute(l.SourceSvc, l.TargetSvc, config.Name); errUnlink != nil {
 							slog.Warn("Fallo al desvincular enlace previo", "source", l.SourceSvc, "target", l.TargetSvc, "error", errUnlink)
 						}
 					}
@@ -102,6 +102,7 @@ func (uc *bootstrapMasterServiceUseCase) Execute(input ports.BootstrapMasterInpu
 			Password:     dbPassword,
 			InternalPort: 5432,
 			DeployType:   "manager",
+			ServerName:   config.Name,
 		}
 
 		if uc.dbUC != nil {
@@ -126,6 +127,7 @@ func (uc *bootstrapMasterServiceUseCase) Execute(input ports.BootstrapMasterInpu
 		Domain:      input.Domain,
 		Expose:      input.ExposePublic,
 		EnableSSL:   input.ExposePublic,
+		ServerName:  config.Name,
 	}
 
 	deployCfg := domain.DeployConfig{
@@ -155,7 +157,7 @@ func (uc *bootstrapMasterServiceUseCase) Execute(input ports.BootstrapMasterInpu
 
 	// 4. Auto-Interconectar (Link A -> B) e inyectar la variable de entorno
 	if createdDB != nil && uc.linkUC != nil {
-		link, err := uc.linkUC.Execute(svc.Name, createdDB.Name, input.EnvVarName)
+		link, err := uc.linkUC.Execute(svc.Name, createdDB.Name, input.EnvVarName, config.Name)
 		if err == nil {
 			result.Link = &link
 		}

@@ -25,7 +25,7 @@ func TestSyncClusterStateUseCase(t *testing.T) {
 	uc := NewSyncClusterStateUseCase(repo, sshExec)
 
 	// 1. Probar exportación
-	if err := uc.ExportStateToRemote(); err != nil {
+	if err := uc.ExportStateToRemote(""); err != nil {
 		t.Fatalf("Error exportando estado: %v", err)
 	}
 
@@ -41,7 +41,7 @@ func TestSyncClusterStateUseCase(t *testing.T) {
 	}
 
 	// 2. Probar importación en nueva PC
-	dump, err := uc.ImportStateFromRemote()
+	dump, err := uc.ImportStateFromRemote("")
 	if err != nil {
 		t.Fatalf("Error importando estado remoto: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestSyncClusterStateUseCase(t *testing.T) {
 	}
 
 	// Validar que se guardó en el repositorio local
-	svc, err := repo.GetService("api-remote")
+	svc, err := repo.GetService("api-remote", "")
 	if err != nil || svc == nil {
 		t.Fatalf("Servicio 'api-remote' no fue importado en el repositorio local")
 	}

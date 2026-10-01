@@ -44,7 +44,7 @@ func TestManageDomainsUseCase_AddAndRemove(t *testing.T) {
 		t.Fatalf("unexpected error adding custom domain: %v", err)
 	}
 
-	info, err := uc.GetServiceDomains("web-app")
+	info, err := uc.GetServiceDomains("web-app", "")
 	if err != nil {
 		t.Fatalf("unexpected error getting domains: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestManageDomainsUseCase_AddAndRemove(t *testing.T) {
 		t.Fatalf("unexpected error removing custom domain: %v", err)
 	}
 
-	info2, errGet2 := uc.GetServiceDomains("web-app")
+	info2, errGet2 := uc.GetServiceDomains("web-app", "")
 	if errGet2 != nil {
 		t.Fatalf("unexpected error getting domains after removal: %v", errGet2)
 	}

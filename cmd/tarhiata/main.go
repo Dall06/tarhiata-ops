@@ -169,7 +169,7 @@ func main() {
 		handleUpdateCommand(serverConfig)
 
 	case "list", "ps", "services", "ls":
-		handleListCommand(repo)
+		handleListCommand(repo, serverConfig)
 
 	case "logs", "log":
 		handleLogsCLICommand(serverConfig, subArgs)
@@ -187,7 +187,10 @@ func main() {
 		handleStatusCommand(repo, serverConfig)
 
 	case "topology":
-		handleTopologyCommand(repo)
+		handleTopologyCommand(repo, serverConfig)
+
+	case "migrate":
+		handleMigrateCommand(repo, subArgs)
 
 	case "prune":
 		handlePruneCommand(serverConfig)
@@ -1437,12 +1440,16 @@ func handleUpdateCommand(config *domain.ServerConfig) {
 	fmt.Println("✅ Servidor actualizado al día.")
 }
 
-func handleListCommand(repo *repositories.SQLiteRepository) {
-	svcs, errSvc := repo.GetServices()
+func handleListCommand(repo *repositories.SQLiteRepository, config *domain.ServerConfig) {
+	serverName := ""
+	if config != nil {
+		serverName = config.Name
+	}
+	svcs, errSvc := repo.GetServices(serverName)
 	if errSvc != nil {
 		slog.Warn("main: error leyendo servicios en handleList", "error", errSvc)
 	}
-	dbs, errDb := repo.GetDatabases()
+	dbs, errDb := repo.GetDatabases(serverName)
 	if errDb != nil {
 		slog.Warn("main: error leyendo bases de datos en handleList", "error", errDb)
 	}
@@ -1479,11 +1486,15 @@ func handleListCommand(repo *repositories.SQLiteRepository) {
 }
 
 func handleStatusCommand(repo *repositories.SQLiteRepository, config *domain.ServerConfig) {
-	svcs, errSvc := repo.GetServices()
+	serverName := ""
+	if config != nil {
+		serverName = config.Name
+	}
+	svcs, errSvc := repo.GetServices(serverName)
 	if errSvc != nil {
 		slog.Warn("main: error leyendo servicios en handleStatus", "error", errSvc)
 	}
-	dbs, errDb := repo.GetDatabases()
+	dbs, errDb := repo.GetDatabases(serverName)
 	if errDb != nil {
 		slog.Warn("main: error leyendo bases de datos en handleStatus", "error", errDb)
 	}
@@ -1525,16 +1536,20 @@ func handleStatusCommand(repo *repositories.SQLiteRepository, config *domain.Ser
 	fmt.Println("========================================================")
 }
 
-func handleTopologyCommand(repo *repositories.SQLiteRepository) {
-	svcs, errSvc := repo.GetServices()
+func handleTopologyCommand(repo *repositories.SQLiteRepository, config *domain.ServerConfig) {
+	serverName := ""
+	if config != nil {
+		serverName = config.Name
+	}
+	svcs, errSvc := repo.GetServices(serverName)
 	if errSvc != nil {
 		slog.Warn("main: error leyendo servicios en handleTopology", "error", errSvc)
 	}
-	dbs, errDb := repo.GetDatabases()
+	dbs, errDb := repo.GetDatabases(serverName)
 	if errDb != nil {
 		slog.Warn("main: error leyendo bases de datos en handleTopology", "error", errDb)
 	}
-	links, errLinks := repo.GetServiceLinks()
+	links, errLinks := repo.GetServiceLinks(serverName)
 	if errLinks != nil {
 		slog.Warn("main: error leyendo service links en handleTopology", "error", errLinks)
 	}
@@ -1606,6 +1621,65 @@ func handlePruneCommand(config *domain.ServerConfig) {
 	fmt.Println(output)
 }
 
+// handleMigrateCommand expone el runner de migraciones versionadas (migrations/*.sql)
+// para correrlas a mano, además del auto-apply que ya ocurre al arrancar el daemon.
+// Ambos modos comparten el mismo runner e idempotencia vía schema_migrations.
+func handleMigrateCommand(repo *repositories.SQLiteRepository, args []string) {
+	subCmd := "status"
+	if len(args) > 0 {
+		subCmd = args[0]
+	}
+
+	switch subCmd {
+	case "status":
+		applied, err := repo.AppliedMigrations()
+		if err != nil {
+			fmt.Printf("❌ Error leyendo migraciones aplicadas: %v\n", err)
+			return
+		}
+		pending, err := repo.PendingMigrations()
+		if err != nil {
+			fmt.Printf("❌ Error leyendo migraciones pendientes: %v\n", err)
+			return
+		}
+		fmt.Println("========================================================")
+		fmt.Println(" 🗃️  ESTADO DE MIGRACIONES DE ESQUEMA")
+		fmt.Println("========================================================")
+		fmt.Printf("\n✅ Aplicadas (%d):\n", len(applied))
+		for _, name := range applied {
+			fmt.Printf(" • %s\n", name)
+		}
+		fmt.Printf("\n⏳ Pendientes (%d):\n", len(pending))
+		for _, name := range pending {
+			fmt.Printf(" • %s\n", name)
+		}
+		fmt.Println("========================================================")
+
+	case "up":
+		pending, err := repo.PendingMigrations()
+		if err != nil {
+			fmt.Printf("❌ Error leyendo migraciones pendientes: %v\n", err)
+			return
+		}
+		if len(pending) == 0 {
+			fmt.Println("✅ No hay migraciones pendientes.")
+			return
+		}
+		fmt.Printf("⏳ Aplicando %d migración(es) pendiente(s)...\n", len(pending))
+		if err := repo.ApplyPendingMigrations(); err != nil {
+			fmt.Printf("❌ Error aplicando migraciones: %v\n", err)
+			return
+		}
+		for _, name := range pending {
+			fmt.Printf(" ✅ %s\n", name)
+		}
+		fmt.Println("✅ Migraciones aplicadas exitosamente.")
+
+	default:
+		fmt.Println("❌ Uso: tarhiata migrate <status|up>")
+	}
+}
+
 func handleLinkCommand(repo *repositories.SQLiteRepository, config *domain.ServerConfig, args []string) {
 	fs := flag.NewFlagSet("link", flag.ExitOnError)
 	from := fs.String("from", "", "Servicio origen (ej. api-backend)")
@@ -1627,9 +1701,13 @@ func handleLinkCommand(repo *repositories.SQLiteRepository, config *domain.Serve
 		}
 	}
 
+	serverName := ""
+	if config != nil {
+		serverName = config.Name
+	}
 	linkUseCase := usecases.NewLinkServicesUseCase(repo, sshExec)
 	fmt.Printf("🔗 Interconectando '%s' ───[ %s ]───► '%s'...\n", *from, strings.ToUpper(*envVar), *to)
-	link, err := linkUseCase.Execute(*from, *to, *envVar)
+	link, err := linkUseCase.Execute(*from, *to, *envVar, serverName)
 	if err != nil {
 		fmt.Printf("❌ Error al enlazar servicios: %v\n", err)
 		return
@@ -1662,9 +1740,13 @@ func handleUnlinkCommand(repo *repositories.SQLiteRepository, config *domain.Ser
 		}
 	}
 
+	serverName := ""
+	if config != nil {
+		serverName = config.Name
+	}
 	unlinkUseCase := usecases.NewUnlinkServicesUseCase(repo, sshExec)
 	fmt.Printf("🗑️ Removiendo enlace '%s' ➔ '%s'...\n", *from, *to)
-	err := unlinkUseCase.Execute(*from, *to)
+	err := unlinkUseCase.Execute(*from, *to, serverName)
 	if err != nil {
 		fmt.Printf("❌ Error al eliminar enlace: %v\n", err)
 		return
@@ -1859,7 +1941,7 @@ func handleEnvCommand(repo *repositories.SQLiteRepository, config *domain.Server
 			fmt.Println("❌ Especifica el servicio con --service <nombre>")
 			return
 		}
-		envData, err := uc.GetEnvVars(*svcName)
+		envData, err := uc.GetEnvVars(*svcName, cfg.Name)
 		if err != nil {
 			fmt.Printf("❌ Error: %v\n", err)
 			return
@@ -1902,7 +1984,7 @@ func handleEnvCommand(repo *repositories.SQLiteRepository, config *domain.Server
 			fmt.Println("❌ Especifica --service <nombre> y --output <ruta.env>")
 			return
 		}
-		envData, err := uc.GetEnvVars(*svcName)
+		envData, err := uc.GetEnvVars(*svcName, cfg.Name)
 		if err != nil {
 			fmt.Printf("❌ Error: %v\n", err)
 			return
@@ -1926,7 +2008,7 @@ func handleEnvCommand(repo *repositories.SQLiteRepository, config *domain.Server
 			return
 		}
 		kv := fs.Args()[0]
-		envData, err := uc.GetEnvVars(*svcName)
+		envData, err := uc.GetEnvVars(*svcName, cfg.Name)
 		if err != nil {
 			slog.Warn("error al obtener variables previas", "service", *svcName, "error", err)
 		}
@@ -2021,10 +2103,14 @@ func handleVolumeCommand(repo *repositories.SQLiteRepository, config *domain.Ser
 }
 
 func handleSSLCommand(repo *repositories.SQLiteRepository, config *domain.ServerConfig, args []string) {
+	serverName := ""
+	if config != nil {
+		serverName = config.Name
+	}
 	sshExec := repositories.NewCryptoSSHExecutor()
 	defer sshExec.Close()
 	uc := usecases.NewManageSSLMaintenanceUseCase(repo, sshExec)
-	items, err := uc.InspectSSL()
+	items, err := uc.InspectSSL(serverName)
 	if err != nil {
 		fmt.Printf("❌ Error al inspeccionar SSL: %v\n", err)
 		return
@@ -2123,7 +2209,7 @@ func handleDomainCommand(repo *repositories.SQLiteRepository, config *domain.Ser
 			fmt.Println("❌ Especifica --service <nombre>")
 			return
 		}
-		info, err := uc.GetServiceDomains(*svcName)
+		info, err := uc.GetServiceDomains(*svcName, cfg.Name)
 		if err != nil || info == nil {
 			fmt.Printf("❌ Error al obtener dominios: %v\n", err)
 			return
@@ -2263,10 +2349,14 @@ func handleServiceStopCommand(repo *repositories.SQLiteRepository, config *domai
 		}
 	}
 
-	if delErr := repo.DeleteService(svcName); delErr != nil {
+	serverName := ""
+	if config != nil {
+		serverName = config.Name
+	}
+	if delErr := repo.DeleteService(svcName, serverName); delErr != nil {
 		slog.Debug("aviso al eliminar servicio de catálogo", "error", delErr)
 	}
-	if delDbErr := repo.DeleteDatabase(svcName); delDbErr != nil {
+	if delDbErr := repo.DeleteDatabase(svcName, serverName); delDbErr != nil {
 		slog.Debug("aviso al eliminar db de catálogo", "error", delDbErr)
 	}
 	fmt.Printf("✅ Servicio o base de datos '%s' detenido y removido del clúster.\n", svcName)
@@ -2334,7 +2424,7 @@ func handleSyncCLICommand(repo *repositories.SQLiteRepository, config *domain.Se
 
 	if subCmd == "export" {
 		fmt.Println("⏳ Exportando estado de catálogo local al clúster remoto...")
-		if err := syncUC.ExportStateToRemote(); err != nil {
+		if err := syncUC.ExportStateToRemote(config.Name); err != nil {
 			fmt.Printf("❌ Error exportando estado: %v\n", err)
 			return
 		}
@@ -2343,7 +2433,7 @@ func handleSyncCLICommand(repo *repositories.SQLiteRepository, config *domain.Se
 	}
 
 	fmt.Println("⏳ Sincronizando e importando catálogo desde el VPS remoto...")
-	dump, err := syncUC.ImportStateFromRemote()
+	dump, err := syncUC.ImportStateFromRemote(config.Name)
 	if err != nil {
 		fmt.Printf("❌ Error sincronizando catálogo remoto: %v\n", err)
 		return

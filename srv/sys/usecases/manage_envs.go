@@ -62,8 +62,8 @@ type EnvVarsData struct {
 	Map map[string]string
 }
 
-func (uc *ManageEnvVarsUseCase) GetEnvVars(serviceName string) (*EnvVarsData, error) {
-	svc, err := uc.repo.GetService(serviceName)
+func (uc *ManageEnvVarsUseCase) GetEnvVars(serviceName, serverName string) (*EnvVarsData, error) {
+	svc, err := uc.repo.GetService(serviceName, serverName)
 	if err != nil || svc == nil {
 		return &EnvVarsData{
 			Raw: "",
@@ -78,7 +78,7 @@ func (uc *ManageEnvVarsUseCase) GetEnvVars(serviceName string) (*EnvVarsData, er
 }
 
 func (uc *ManageEnvVarsUseCase) UpdateEnvVars(serviceName string, rawEnvContent string, config domain.ServerConfig) error {
-	svc, err := uc.repo.GetService(serviceName)
+	svc, err := uc.repo.GetService(serviceName, config.Name)
 	if err != nil || svc == nil {
 		svc = &domain.SavedService{
 			Name: serviceName,

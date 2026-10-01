@@ -11,7 +11,7 @@ func TestUnlinkServices_Execute(t *testing.T) {
 
 	usecase := NewUnlinkServicesUseCase(nil, mockSSH)
 
-	err := usecase.Execute("api-backend", "db-postgres")
+	err := usecase.Execute("api-backend", "db-postgres", "")
 	if err != nil {
 		t.Fatalf("se esperaba éxito al eliminar link, se obtuvo error: %v", err)
 	}

@@ -21,7 +21,7 @@ func NewLinkServicesUseCase(repo ports.ConfigRepository, sshExec ports.SSHExecut
 	}
 }
 
-func (u *linkServicesUseCase) Execute(sourceSvc string, targetSvc string, envVarName string) (domain.ServiceLink, error) {
+func (u *linkServicesUseCase) Execute(sourceSvc string, targetSvc string, envVarName string, serverName string) (domain.ServiceLink, error) {
 	if sourceSvc == "" || targetSvc == "" {
 		return domain.ServiceLink{}, fmt.Errorf("sourceSvc y targetSvc son requeridos")
 	}
@@ -31,13 +31,14 @@ func (u *linkServicesUseCase) Execute(sourceSvc string, targetSvc string, envVar
 	}
 	envVarName = strings.ToUpper(envVarName)
 
-	targetURL := u.resolveTargetURL(targetSvc)
+	targetURL := u.resolveTargetURL(targetSvc, serverName)
 
 	link := domain.ServiceLink{
 		SourceSvc:  sourceSvc,
 		TargetSvc:  targetSvc,
 		EnvVarName: envVarName,
 		TargetURL:  targetURL,
+		ServerName: serverName,
 	}
 
 	if u.repo != nil {
@@ -56,7 +57,7 @@ func (u *linkServicesUseCase) Execute(sourceSvc string, targetSvc string, envVar
 			slog.Warn("Fallo al inyectar variable de entorno vía SSH", "error", errCmd)
 		}
 		syncUC := NewSyncClusterStateUseCase(u.repo, u.sshExec)
-		if errSync := syncUC.ExportStateToRemote(); errSync != nil {
+		if errSync := syncUC.ExportStateToRemote(serverName); errSync != nil {
 			slog.Warn("Fallo al exportar estado de enlaces al VPS", "error", errSync)
 		}
 	}
@@ -64,13 +65,13 @@ func (u *linkServicesUseCase) Execute(sourceSvc string, targetSvc string, envVar
 	return link, nil
 }
 
-func (u *linkServicesUseCase) resolveTargetURL(targetSvc string) string {
+func (u *linkServicesUseCase) resolveTargetURL(targetSvc, serverName string) string {
 	if u.repo == nil {
 		return fmt.Sprintf("http://tarhiata-app-%s:80", targetSvc)
 	}
 
 	// 1. Buscar si targetSvc es una Base de Datos en SQLite
-	db, err := u.repo.GetDatabase(targetSvc)
+	db, err := u.repo.GetDatabase(targetSvc, serverName)
 	if err == nil && db != nil {
 		switch strings.ToLower(db.Engine) {
 		case "postgres":
@@ -87,7 +88,7 @@ func (u *linkServicesUseCase) resolveTargetURL(targetSvc string) string {
 	}
 
 	// 2. Si no es BD, buscar si es un Servicio App
-	svc, err := u.repo.GetService(targetSvc)
+	svc, err := u.repo.GetService(targetSvc, serverName)
 	if err == nil && svc != nil {
 		return fmt.Sprintf("http://tarhiata-app-%s:%d", svc.Name, svc.Port)
 	}

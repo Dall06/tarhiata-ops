@@ -28,19 +28,19 @@ func (m *mockRepo) GetServerConfigByName(name string) (*domain.ServerConfig, err
 func (m *mockRepo) SetActiveServerConfig(name string) error                   { return nil }
 func (m *mockRepo) DeleteServerConfig(name string) error                      { return nil }
 func (m *mockRepo) SaveService(service domain.SavedService) error             { return nil }
-func (m *mockRepo) GetServices() ([]domain.SavedService, error)                { return nil, nil }
-func (m *mockRepo) GetService(name string) (*domain.SavedService, error)        { return nil, nil }
-func (m *mockRepo) DeleteService(name string) error                            { return nil }
+func (m *mockRepo) GetServices(serverName string) ([]domain.SavedService, error) { return nil, nil }
+func (m *mockRepo) GetService(name, serverName string) (*domain.SavedService, error) { return nil, nil }
+func (m *mockRepo) DeleteService(name, serverName string) error                { return nil }
 func (m *mockRepo) SaveDatabase(db domain.SavedDatabase) error                 { return nil }
-func (m *mockRepo) GetDatabases() ([]domain.SavedDatabase, error)                { return nil, nil }
-func (m *mockRepo) GetDatabase(name string) (*domain.SavedDatabase, error)        { return nil, nil }
-func (m *mockRepo) DeleteDatabase(name string) error                           { return nil }
+func (m *mockRepo) GetDatabases(serverName string) ([]domain.SavedDatabase, error) { return nil, nil }
+func (m *mockRepo) GetDatabase(name, serverName string) (*domain.SavedDatabase, error) { return nil, nil }
+func (m *mockRepo) DeleteDatabase(name, serverName string) error               { return nil }
 func (m *mockRepo) SaveObservability(obs domain.SavedObservability) error       { return nil }
 func (m *mockRepo) GetObservability() (*domain.SavedObservability, error)      { return nil, nil }
 func (m *mockRepo) DeleteObservability() error                                 { return nil }
 func (m *mockRepo) SaveServiceLink(link domain.ServiceLink) error              { return nil }
-func (m *mockRepo) GetServiceLinks() ([]domain.ServiceLink, error)              { return nil, nil }
-func (m *mockRepo) DeleteServiceLink(sourceSvc, targetSvc string) error         { return nil }
+func (m *mockRepo) GetServiceLinks(serverName string) ([]domain.ServiceLink, error) { return nil, nil }
+func (m *mockRepo) DeleteServiceLink(sourceSvc, targetSvc, serverName string) error { return nil }
 func (m *mockRepo) SavePreviewEnv(prev domain.SavedPreviewEnv) error           { return nil }
 func (m *mockRepo) GetPreviewEnvs() ([]domain.SavedPreviewEnv, error)         { return nil, nil }
 func (m *mockRepo) GetPreviewEnv(name string) (*domain.SavedPreviewEnv, error) { return nil, nil }
@@ -2306,7 +2306,7 @@ func TestWebServer_HandleWebhookDeploy_SignatureEnforcement(t *testing.T) {
 
 	newServer := func(webhookSecret string) *WebServer {
 		repo := mocks.NewMockConfigRepository()
-		repo.Services = []domain.SavedService{{Name: "web-api", WebhookSecret: webhookSecret}}
+		repo.Services = []domain.SavedService{{Name: "web-api", WebhookSecret: webhookSecret, ServerName: "local"}}
 		return NewWebServer(repo, &domain.ServerConfig{Name: "local", Host: "localhost", CloudProvider: "local"})
 	}
 
@@ -2369,6 +2369,7 @@ func TestWebServer_HandleWebhookDeploy_GitSourceTriggersAsyncBuild(t *testing.T)
 		WebhookSecret: "s3cret",
 		SourceType:    "git",
 		GitRepoURL:    "https://github.com/org/repo.git",
+		ServerName:    "local",
 	}}
 	ws := NewWebServer(repo, &domain.ServerConfig{Name: "local", Host: "localhost", CloudProvider: "local"})
 
@@ -2415,7 +2416,7 @@ func TestWebServer_HandleBuildStream_UnknownIDReturns404(t *testing.T) {
 // es build-from-source no pueda usar el endpoint de rebuild manual.
 func TestWebServer_HandleServiceRebuild_RejectsNonGitService(t *testing.T) {
 	repo := mocks.NewMockConfigRepository()
-	repo.Services = []domain.SavedService{{Name: "image-app", SourceType: "image"}}
+	repo.Services = []domain.SavedService{{Name: "image-app", SourceType: "image", ServerName: "local"}}
 	ws := NewWebServer(repo, &domain.ServerConfig{Name: "local", Host: "localhost", CloudProvider: "local"})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/services/rebuild?name=image-app", nil)
@@ -2437,6 +2438,7 @@ func TestWebServer_HandleServiceItem_PreservesSecretsOnEmptyUpdate(t *testing.T)
 		GitAccessToken: "ghp_existing_token",
 		WebhookSecret:  "existing_webhook_secret",
 		Domain:         "old.example.com",
+		ServerName:     "local",
 	}}
 	ws := NewWebServer(repo, &domain.ServerConfig{Name: "local"})
 
@@ -2449,7 +2451,7 @@ func TestWebServer_HandleServiceItem_PreservesSecretsOnEmptyUpdate(t *testing.T)
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
 
-	saved, err := repo.GetService("git-app")
+	saved, err := repo.GetService("git-app", "local")
 	if err != nil || saved == nil {
 		t.Fatalf("error leyendo servicio actualizado: %v", err)
 	}

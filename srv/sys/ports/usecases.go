@@ -52,11 +52,11 @@ type UpdateServerUseCase interface {
 }
 
 type LinkServicesUseCase interface {
-	Execute(sourceSvc string, targetSvc string, envVarName string) (domain.ServiceLink, error)
+	Execute(sourceSvc string, targetSvc string, envVarName string, serverName string) (domain.ServiceLink, error)
 }
 
 type UnlinkServicesUseCase interface {
-	Execute(sourceSvc string, targetSvc string) error
+	Execute(sourceSvc string, targetSvc string, serverName string) error
 }
 
 type BootstrapMasterServiceUseCase interface {

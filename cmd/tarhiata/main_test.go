@@ -105,7 +105,7 @@ func TestHandleDeployServiceCommand_LocalSave(t *testing.T) {
 		t.Errorf("expected local catalog saved message, got: %s", out)
 	}
 
-	svcs, errSvcs := repo.GetServices()
+	svcs, errSvcs := repo.GetServices("")
 	if errSvcs != nil {
 		t.Fatalf("unexpected error getting services: %v", errSvcs)
 	}
@@ -125,7 +125,7 @@ func TestHandleDatabaseCommand_LocalSave(t *testing.T) {
 		t.Errorf("expected local catalog saved message, got: %s", out)
 	}
 
-	dbs, errDbs := repo.GetDatabases()
+	dbs, errDbs := repo.GetDatabases("")
 	if errDbs != nil {
 		t.Fatalf("unexpected error getting databases: %v", errDbs)
 	}
@@ -146,7 +146,7 @@ func TestHandleListCommand(t *testing.T) {
 	}
 
 	out := captureOutput(func() {
-		handleListCommand(repo)
+		handleListCommand(repo, nil)
 	})
 	if !strings.Contains(out, "svc1") || !strings.Contains(out, "db1") {
 		t.Errorf("expected svc1 and db1 in list output, got: %s", out)
@@ -158,7 +158,7 @@ func TestHandleTopologyCommand(t *testing.T) {
 	defer cleanup()
 
 	out := captureOutput(func() {
-		handleTopologyCommand(repo)
+		handleTopologyCommand(repo, nil)
 	})
 	if !strings.Contains(out, "TOPOLOGY") {
 		t.Errorf("expected topology title, got: %s", out)
@@ -239,7 +239,7 @@ func TestHandleListCommand_JSON(t *testing.T) {
 	defer os.Unsetenv("TARHIATA_JSON")
 
 	out := captureOutput(func() {
-		handleListCommand(repo)
+		handleListCommand(repo, nil)
 	})
 
 	if !strings.Contains(out, `"services"`) || !strings.Contains(out, `"json-svc"`) {
@@ -275,7 +275,7 @@ func TestHandleTopologyCommand_JSON(t *testing.T) {
 	defer os.Unsetenv("TARHIATA_JSON")
 
 	out := captureOutput(func() {
-		handleTopologyCommand(repo)
+		handleTopologyCommand(repo, nil)
 	})
 
 	if !strings.Contains(out, `"topo-svc"`) || !strings.Contains(out, `"service_links"`) {
@@ -328,7 +328,7 @@ func TestHandleServiceStopCommand(t *testing.T) {
 		t.Errorf("expected stopped confirmation, got: %s", out)
 	}
 
-	svc, errGet := repo.GetService("app-to-stop")
+	svc, errGet := repo.GetService("app-to-stop", "")
 	if errGet != nil {
 		t.Fatalf("unexpected error fetching service: %v", errGet)
 	}
@@ -381,6 +381,33 @@ func TestTUICommand_Execution(t *testing.T) {
 
 	if !strings.Contains(out, "TARHIATA") {
 		t.Errorf("expected TUI render output to contain 'TARHIATA', got: %s", out)
+	}
+}
+
+func TestHandleMigrateCommand_StatusThenUp(t *testing.T) {
+	repo, cleanup := setupTempRepo(t)
+	defer cleanup()
+
+	// Justo después de NewSQLiteRepository, migrate() ya corrió el auto-apply al
+	// arrancar, así que no debería quedar nada pendiente.
+	outStatus := captureOutput(func() {
+		handleMigrateCommand(repo, []string{"status"})
+	})
+	if !strings.Contains(outStatus, "ESTADO DE MIGRACIONES") {
+		t.Errorf("expected status header, got: %s", outStatus)
+	}
+	if !strings.Contains(outStatus, "migration-001-server-name-scoping.sql") {
+		t.Errorf("expected migration-001 listed as applied, got: %s", outStatus)
+	}
+	if !strings.Contains(outStatus, "Pendientes (0)") {
+		t.Errorf("expected 0 pending migrations right after auto-apply, got: %s", outStatus)
+	}
+
+	outUp := captureOutput(func() {
+		handleMigrateCommand(repo, []string{"up"})
+	})
+	if !strings.Contains(outUp, "No hay migraciones pendientes") {
+		t.Errorf("expected no-op 'up' when nothing is pending, got: %s", outUp)
 	}
 }
 
