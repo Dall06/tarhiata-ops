@@ -26,6 +26,9 @@ func TestInitServer_Execute(t *testing.T) {
 				"docker swarm init",
 				"docker network create --driver overlay --attachable tarhiata_public",
 				"tarhiata_proxy", // El stack de traefik
+				"insecure-registries", // Config de daemon.json para el registry privado
+				RegistryInternalAddress,
+				"docker stack deploy -c /tmp/registry-stack.yml " + RegistryStackName,
 			},
 		},
 	}

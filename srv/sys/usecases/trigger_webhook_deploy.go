@@ -4,15 +4,40 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/Dall06/tarhiata-ops/pkg/validator"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 )
+
+// ExtractCommitSHA busca el commit SHA en un payload de webhook de GitHub, GitLab o
+// Gitea. Las 3 plataformas usan alguno de estos campos en sus eventos de "push";
+// devuelve "" si no se encuentra ninguno (ej. payload genérico sin esos campos).
+func ExtractCommitSHA(bodyBytes []byte) string {
+	var payload struct {
+		After       string `json:"after"`
+		CheckoutSHA string `json:"checkout_sha"`
+		HeadCommit  struct {
+			ID string `json:"id"`
+		} `json:"head_commit"`
+	}
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		return ""
+	}
+	if payload.After != "" {
+		return payload.After
+	}
+	if payload.CheckoutSHA != "" {
+		return payload.CheckoutSHA
+	}
+	return payload.HeadCommit.ID
+}
 
 // TriggerWebhookDeployUseCase procesa eventos entrantes de Git Webhooks (GitHub, GitLab, Gitea) para auto-despliegue.
 type TriggerWebhookDeployUseCase struct {
@@ -27,10 +52,12 @@ func NewTriggerWebhookDeployUseCase(repo ports.ConfigRepository, executor ports.
 	}
 }
 
-// VerifySignature verifica la firma HMAC SHA256 enviada por GitHub/Gitea.
+// VerifySignature verifica la firma HMAC SHA256 enviada por GitHub/Gitea contra un
+// secreto guardado del lado del servidor. Sin secreto configurado no hay nada contra qué
+// validar, así que se rechaza (fail-closed) en vez de permitir la petición.
 func VerifySignature(secret string, body []byte, signatureHeader string) bool {
 	if secret == "" {
-		return true // Si no hay secreto configurado, se permite
+		return false
 	}
 	signatureHeader = strings.TrimPrefix(signatureHeader, "sha256=")
 	if signatureHeader == "" {
@@ -77,10 +104,12 @@ func (uc *TriggerWebhookDeployUseCase) Execute(serviceName, imageTag string, con
 	}()
 
 	// 3. Ejecutar actualización del servicio en Swarm
-	updateCmd := fmt.Sprintf("docker service update --image %s --force %s || docker service update --image %s --force tarhiata-app-%s || docker service update --image %s --force %s_%s",
-		targetImage, serviceName,
-		targetImage, serviceName,
-		targetImage, serviceName, serviceName,
+	quotedImage := validator.ShellQuote(targetImage)
+	quotedService := validator.ShellQuote(serviceName)
+	updateCmd := fmt.Sprintf("docker service update --image %s --force %s || docker service update --image %s --force %s || docker service update --image %s --force %s",
+		quotedImage, quotedService,
+		quotedImage, validator.ShellQuote("tarhiata-app-"+serviceName),
+		quotedImage, validator.ShellQuote(serviceName+"_"+serviceName),
 	)
 
 	cmdRes, err := uc.executor.RunCommand(updateCmd)

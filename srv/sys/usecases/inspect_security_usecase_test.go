@@ -27,6 +27,9 @@ func (m *mockSecuritySSHExecutor) RunCommand(cmd string) (*domain.CommandResult,
 	}
 	return &domain.CommandResult{Output: "", ExitCode: 0}, nil
 }
+func (m *mockSecuritySSHExecutor) RunCommandStreaming(cmd string, onLine func(string)) (*domain.CommandResult, error) {
+	return m.RunCommand(cmd)
+}
 func (m *mockSecuritySSHExecutor) InteractiveShell() error             { return nil }
 func (m *mockSecuritySSHExecutor) InteractiveCommand(cmd string) error { return nil }
 func (m *mockSecuritySSHExecutor) WriteRemoteFile(r, c string) error   { return nil }

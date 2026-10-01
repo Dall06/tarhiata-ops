@@ -167,3 +167,34 @@ func TestCryptoSSHExecutor_LocalExecution_NonZeroExitDoesNotPropagateAsGoError(t
 		t.Errorf("expected exit code 7, got %d", res.ExitCode)
 	}
 }
+
+// TestCryptoSSHExecutor_RunCommandStreaming_Local valida el flujo completo en modo
+// local: cada línea producida por el comando debe llegar a onLine a medida que se
+// produce (no solo al final en el Output acumulado).
+func TestCryptoSSHExecutor_RunCommandStreaming_Local(t *testing.T) {
+	exec := NewCryptoSSHExecutor()
+	if err := exec.Connect(domain.ServerConfig{Host: "localhost"}); err != nil {
+		t.Fatalf("unexpected error connecting to local: %v", err)
+	}
+	defer exec.Close()
+
+	var gotLines []string
+	res, err := exec.RunCommandStreaming("printf 'uno\\ndos\\ntres\\n'", func(line string) {
+		gotLines = append(gotLines, line)
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.ExitCode != 0 {
+		t.Fatalf("expected exit code 0, got %d", res.ExitCode)
+	}
+	want := []string{"uno", "dos", "tres"}
+	if len(gotLines) != len(want) {
+		t.Fatalf("se esperaban %d líneas, got %v", len(want), gotLines)
+	}
+	for i, w := range want {
+		if gotLines[i] != w {
+			t.Errorf("línea %d: got %q, want %q", i, gotLines[i], w)
+		}
+	}
+}

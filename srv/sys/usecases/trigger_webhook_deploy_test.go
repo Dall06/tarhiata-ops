@@ -41,11 +41,18 @@ func TestVerifySignature(t *testing.T) {
 			want:      false,
 		},
 		{
-			name:      "Empty secret allows any signature",
+			name:      "Empty secret fails closed (ya no permite cualquier firma)",
 			secret:    "",
 			body:      body,
 			signature: "",
-			want:      true,
+			want:      false,
+		},
+		{
+			name:      "Empty secret fails closed incluso con una firma presente",
+			secret:    "",
+			body:      body,
+			signature: validSig,
+			want:      false,
 		},
 		{
 			name:      "Empty signature with non-empty secret fails",
@@ -61,6 +68,56 @@ func TestVerifySignature(t *testing.T) {
 			got := VerifySignature(tc.secret, tc.body, tc.signature)
 			if got != tc.want {
 				t.Errorf("VerifySignature() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestExtractCommitSHA valida el flujo completo con payloads reales (recortados) de
+// GitHub, GitLab y Gitea, los 3 proveedores que este webhook dice soportar.
+func TestExtractCommitSHA(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{
+			name:    "GitHub push event (after)",
+			payload: `{"ref":"refs/heads/main","before":"000","after":"abc123def","repository":{"name":"repo"},"head_commit":{"id":"abc123def"}}`,
+			want:    "abc123def",
+		},
+		{
+			name:    "GitLab push event (checkout_sha + after)",
+			payload: `{"object_kind":"push","ref":"refs/heads/main","checkout_sha":"gl9876","after":"gl9876","project":{"name":"repo"}}`,
+			want:    "gl9876",
+		},
+		{
+			name:    "Gitea push event (compatible con GitHub)",
+			payload: `{"ref":"refs/heads/main","after":"gt5555","repository":{"name":"repo"}}`,
+			want:    "gt5555",
+		},
+		{
+			name:    "Solo head_commit.id disponible",
+			payload: `{"ref":"refs/heads/main","head_commit":{"id":"hc777"}}`,
+			want:    "hc777",
+		},
+		{
+			name:    "Payload genérico sin campos de git",
+			payload: `{"service":"web-api","image":"myrepo/web-api:v2"}`,
+			want:    "",
+		},
+		{
+			name:    "JSON inválido",
+			payload: `no es json`,
+			want:    "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ExtractCommitSHA([]byte(tc.payload))
+			if got != tc.want {
+				t.Errorf("ExtractCommitSHA() = %q, want %q", got, tc.want)
 			}
 		})
 	}

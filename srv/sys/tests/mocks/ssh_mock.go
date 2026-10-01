@@ -61,6 +61,21 @@ func (m *MockSSHExecutor) RunCommand(cmd string) (*domain.CommandResult, error) 
 	return &domain.CommandResult{Output: "success", ExitCode: 0}, nil
 }
 
+// RunCommandStreaming replica la misma lógica de resolución de respuesta que RunCommand,
+// pero además invoca onLine por cada línea del Output resuelto, para poder probar
+// callers que dependen del streaming línea por línea sin necesitar una sesión SSH real.
+func (m *MockSSHExecutor) RunCommandStreaming(cmd string, onLine func(line string)) (*domain.CommandResult, error) {
+	res, err := m.RunCommand(cmd)
+	if res != nil && onLine != nil {
+		for _, line := range strings.Split(res.Output, "\n") {
+			if strings.TrimSpace(line) != "" {
+				onLine(line)
+			}
+		}
+	}
+	return res, err
+}
+
 func (m *MockSSHExecutor) Close() error {
 	m.CloseCalls++
 	return nil

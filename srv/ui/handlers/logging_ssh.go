@@ -55,6 +55,28 @@ func (l *LoggingSSHExecutor) RunCommand(cmd string) (*domain.CommandResult, erro
 	return result, err
 }
 
+func (l *LoggingSSHExecutor) RunCommandStreaming(cmd string, onLine func(line string)) (*domain.CommandResult, error) {
+	displayCmd := cmd
+	if len(displayCmd) > 300 {
+		displayCmd = displayCmd[:300] + "…"
+	}
+	l.logFunc("cmd", fmt.Sprintf("$ %s", displayCmd))
+
+	result, err := l.inner.RunCommandStreaming(cmd, func(line string) {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			l.logFunc("out", trimmed)
+		}
+		if onLine != nil {
+			onLine(line)
+		}
+	})
+	if err != nil {
+		l.logFunc("log", fmt.Sprintf("⚠️  Comando retornó error: %v", err))
+	}
+	return result, err
+}
+
 func (l *LoggingSSHExecutor) InteractiveShell() error {
 	return l.inner.InteractiveShell()
 }

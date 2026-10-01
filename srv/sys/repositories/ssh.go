@@ -1,11 +1,15 @@
 package repositories
 
 import (
+	"bufio"
 	"encoding/base64"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/Dall06/tarhiata-ops/pkg/secutil"
 	"github.com/Dall06/tarhiata-ops/pkg/sshclient"
@@ -108,6 +112,86 @@ func (e *CryptoSSHExecutor) RunCommand(cmd string) (*domain.CommandResult, error
 	}
 
 	out, exitCode, err := e.client.RunCommand(cmd)
+	result := &domain.CommandResult{
+		Output:   out,
+		ExitCode: exitCode,
+		Error:    err,
+	}
+	if _, isExitErr := err.(*ssh.ExitError); err != nil && !isExitErr {
+		return result, err
+	}
+	return result, nil
+}
+
+// RunCommandStreaming ejecuta un comando entregando cada línea de salida a onLine a
+// medida que se produce. En modo local usa un pipe sobre exec.Command; en modo remoto
+// delega en pkg/sshclient.Client.RunCommandStreaming.
+func (e *CryptoSSHExecutor) RunCommandStreaming(cmd string, onLine func(line string)) (*domain.CommandResult, error) {
+	if e.isLocal {
+		execCmd := exec.Command("sh", "-c", cmd)
+		pr, pw := io.Pipe()
+		execCmd.Stdout = pw
+		execCmd.Stderr = pw
+
+		var fullOutput strings.Builder
+		scanDone := make(chan struct{})
+		go func() {
+			defer close(scanDone)
+			scanner := bufio.NewScanner(pr)
+			scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+			for scanner.Scan() {
+				line := scanner.Text()
+				fullOutput.WriteString(line)
+				fullOutput.WriteString("\n")
+				if onLine != nil {
+					onLine(line)
+				}
+			}
+			if scanErr := scanner.Err(); scanErr != nil {
+				slog.Debug("error escaneando salida en streaming local", "error", scanErr)
+			}
+		}()
+
+		startErr := execCmd.Start()
+		var runErr error
+		if startErr != nil {
+			runErr = startErr
+		} else {
+			runErr = execCmd.Wait()
+		}
+		if clErr := pw.Close(); clErr != nil {
+			slog.Debug("falló cierre del pipe writer en streaming local", "error", clErr)
+		}
+		<-scanDone
+
+		exitCode := 0
+		if runErr != nil {
+			if exitErr, ok := runErr.(*exec.ExitError); ok {
+				exitCode = exitErr.ExitCode()
+			} else {
+				exitCode = -1
+			}
+		}
+		result := &domain.CommandResult{
+			Output:   fullOutput.String(),
+			ExitCode: exitCode,
+			Error:    runErr,
+		}
+		if _, isExitErr := runErr.(*exec.ExitError); runErr != nil && !isExitErr {
+			return result, runErr
+		}
+		return result, nil
+	}
+
+	if e.client == nil {
+		return &domain.CommandResult{
+			Output:   "",
+			ExitCode: -1,
+			Error:    fmt.Errorf("cliente ssh no conectado"),
+		}, fmt.Errorf("cliente ssh no conectado")
+	}
+
+	out, exitCode, err := e.client.RunCommandStreaming(cmd, onLine)
 	result := &domain.CommandResult{
 		Output:   out,
 		ExitCode: exitCode,

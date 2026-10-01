@@ -2,7 +2,7 @@
 
 # ⚡ Tarhiata-Ops (PaaS Privado 100% Stateless & Local-First)
 
-![Go Version](https://img.shields.io/badge/Go-1.25%2B-00ADD8?style=for-the-badge&logo=go)
+![Go Version](https://img.shields.io/badge/Go-1.27%2B-00ADD8?style=for-the-badge&logo=go)
 ![Docker Swarm](https://img.shields.io/badge/Docker_Swarm-2496ED?style=for-the-badge&logo=docker&logoColor=white)
 ![Traefik](https://img.shields.io/badge/Traefik_v3-24A1C1?style=for-the-badge&logo=traefik&logoColor=white)
 ![Vultr](https://img.shields.io/badge/Vultr_API_v2-007BFF?style=for-the-badge&logo=vultr&logoColor=white)
@@ -110,7 +110,7 @@ Descarga el ejecutable pre-compilado listo para usar en tu sistema operativo sin
 ## 🛠️ Instalación y Arranque Rápido
 
 ### Requisitos Previos
-- **Go 1.25+** instalado en tu computadora local.
+- **Go 1.27+** instalado en tu computadora local.
 - Un VPS virgen (Ubuntu 22.04 / 24.04 recomendado) con acceso root por SSH.
 
 ### Ejecución Local

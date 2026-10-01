@@ -66,6 +66,11 @@ func (uc *InitServerUseCase) Execute(acmeEmail string) error {
 		return fmt.Errorf("error desplegando traefik: %w", err)
 	}
 
+	// 6. Desplegar el registry Docker privado interno (para build-from-source)
+	if err := NewDeployRegistryUseCase(uc.ssh).Execute(); err != nil {
+		return fmt.Errorf("error desplegando registry privado: %w", err)
+	}
+
 	return nil
 }
 
@@ -124,13 +129,14 @@ func (uc *InitServerUseCase) ensureDockerInstalled() error {
 
 func (uc *InitServerUseCase) configureDockerDaemon() error {
 	// 1. Limitar el tamaño a nivel del demonio (Capa 1 de seguridad)
-	daemonJSON := `{
+	daemonJSON := fmt.Sprintf(`{
   "log-driver": "json-file",
   "log-opts": {
     "max-size": "50m",
     "max-file": "3"
-  }
-}`
+  },
+  "insecure-registries": ["%s"]
+}`, RegistryInternalAddress)
 	cmd1 := fmt.Sprintf("mkdir -p /etc/docker && echo '%s' > /etc/docker/daemon.json && systemctl restart docker", daemonJSON)
 	res1, err := uc.ssh.RunCommand(cmd1)
 	if err != nil || res1.ExitCode != 0 {

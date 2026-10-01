@@ -169,6 +169,14 @@ func (uc *ProvisionWorkerUseCase) ExecuteWithPlanAndRegion(config domain.ServerC
 		slog.Debug("código de salida al encender docker en worker", "exitCode", resWkrUfw.ExitCode)
 	}
 
+	// Permitir que el worker haga pull del registry Docker privado interno (sin TLS,
+	// solo alcanzable dentro de la red overlay) para build-from-source.
+	daemonJSON := fmt.Sprintf(`{"insecure-registries": ["%s"]}`, RegistryInternalAddress)
+	daemonCmd := fmt.Sprintf("mkdir -p /etc/docker && echo '%s' > /etc/docker/daemon.json && systemctl restart docker", daemonJSON)
+	if _, errDaemon := workerSSH.RunCommand(daemonCmd); errDaemon != nil {
+		slog.Debug("aviso al configurar insecure-registries en worker", "error", errDaemon)
+	}
+
 	joinCmd := fmt.Sprintf("docker swarm join --token %s %s:2377", joinToken, managerIP)
 	joinRes, joinErr := workerSSH.RunCommand(joinCmd)
 	if joinErr != nil || (joinRes != nil && joinRes.ExitCode != 0) {

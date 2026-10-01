@@ -35,6 +35,14 @@ type SavedService struct {
 	CustomDomains  string `json:"customDomains"`  // Dominios adicionales y alias (JSON o coma separados)
 	TargetNode     string `json:"targetNode"`     // Restricción de nodo Swarm (manager/worker/hostname)
 	PreDeployHook  string `json:"preDeployHook"`  // Pre-deploy migration hook (ej. "npx prisma db push")
+	WebhookSecret  string `json:"webhookSecret"`  // Secreto HMAC para validar el webhook de auto-despliegue de este servicio
+
+	// Build-from-source: origen alternativo de la imagen, además de image/archive.
+	SourceType     string `json:"sourceType"`     // "" o "image" (default), "archive" (zip de imagen ya armada), "git" (build desde repo)
+	GitRepoURL     string `json:"gitRepoUrl"`     // ej: https://github.com/org/repo.git
+	GitBranch      string `json:"gitBranch"`      // default "main"
+	GitAccessToken string `json:"gitAccessToken"` // PAT opcional para repos privados, cifrado en reposo
+	DockerfilePath string `json:"dockerfilePath"` // default "Dockerfile", relativo a la raíz del repo
 }
 
 // SavedDatabase representa una base de datos gestionada en el catálogo local.

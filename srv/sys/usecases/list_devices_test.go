@@ -26,6 +26,10 @@ func (m *mockDeviceSSHExecutor) RunCommand(cmd string) (*domain.CommandResult, e
 	return m.cmdResult, nil
 }
 
+func (m *mockDeviceSSHExecutor) RunCommandStreaming(cmd string, onLine func(string)) (*domain.CommandResult, error) {
+	return m.RunCommand(cmd)
+}
+
 func (m *mockDeviceSSHExecutor) InteractiveShell() error {
 	return nil
 }

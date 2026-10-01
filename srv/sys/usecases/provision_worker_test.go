@@ -33,6 +33,7 @@ func TestProvisionWorker_Execute(t *testing.T) {
 			expectedIP:  "2.2.2.2",
 			expectWorkerCmds: []string{
 				"cloud-init status --wait",
+				"insecure-registries",
 				"docker swarm join",
 			},
 			expectManagerCmds: []string{

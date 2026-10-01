@@ -71,7 +71,15 @@ func (m *MockConfigRepository) DeleteServerConfig(name string) error {
 	return nil
 }
 
+// SaveService simula el upsert-por-nombre del repositorio real (ON CONFLICT DO UPDATE):
+// reemplaza el servicio existente con ese nombre en vez de duplicarlo con append.
 func (m *MockConfigRepository) SaveService(svc domain.SavedService) error {
+	for i, s := range m.Services {
+		if s.Name == svc.Name {
+			m.Services[i] = svc
+			return nil
+		}
+	}
 	m.Services = append(m.Services, svc)
 	return nil
 }

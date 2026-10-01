@@ -69,6 +69,7 @@ type WebServer struct {
 	cacheMu   sync.RWMutex
 	cache     map[string]cacheItem
 	echo      *echo.Echo
+	builds    *usecases.BuildRegistry
 }
 
 func isLocalConfig(cfg *domain.ServerConfig) bool {
@@ -160,6 +161,7 @@ func NewWebServer(repo ports.ConfigRepository, config *domain.ServerConfig) *Web
 		apiKey:    apiKey,
 		isExposed: isExposed,
 		cache:     make(map[string]cacheItem),
+		builds:    usecases.NewBuildRegistry(),
 	}
 }
 
@@ -425,6 +427,8 @@ func (w *WebServer) Echo() *echo.Echo {
 	e.Any("/api/nodes/drain", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleNodeDrain))))
 	e.Any("/api/nodes/activate", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleNodeActivate))))
 	e.Any("/api/webhooks/deploy", echo.WrapHandler(http.HandlerFunc(w.handleWebhookDeploy)))
+	e.Any("/api/services/rebuild", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServiceRebuild))))
+	e.Any("/api/builds/stream", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleBuildStream))))
 	e.Any("/api/stats", echo.WrapHandler(http.HandlerFunc(w.handleContainerStats)))
 	e.Any("/api/databases/health", echo.WrapHandler(http.HandlerFunc(w.handleDBHealth)))
 	e.Any("/api/vultr/plans", echo.WrapHandler(http.HandlerFunc(w.handleVultrPlans)))
@@ -1604,6 +1608,19 @@ func (w *WebServer) handleServiceItem(rw http.ResponseWriter, req *http.Request)
 		}
 		if name != "update" {
 			svc.Name = name
+		}
+		// Los secretos (token de git, secreto de webhook) no viajan de vuelta al cliente
+		// en los formularios de edición; si llegan vacíos, se conserva el valor ya
+		// guardado en vez de borrarlo en cada edición de cualquier otro campo.
+		if strings.TrimSpace(svc.GitAccessToken) == "" || strings.TrimSpace(svc.WebhookSecret) == "" {
+			if existing, errExisting := w.repo.GetService(svc.Name); errExisting == nil && existing != nil {
+				if strings.TrimSpace(svc.GitAccessToken) == "" {
+					svc.GitAccessToken = existing.GitAccessToken
+				}
+				if strings.TrimSpace(svc.WebhookSecret) == "" {
+					svc.WebhookSecret = existing.WebhookSecret
+				}
+			}
 		}
 		if err := w.repo.SaveService(svc); err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
@@ -4894,7 +4911,6 @@ func (w *WebServer) handleWebhookDeploy(rw http.ResponseWriter, req *http.Reques
 	}
 
 	serviceName := req.URL.Query().Get("service")
-	token := req.URL.Query().Get("token")
 	imageTag := req.URL.Query().Get("image")
 
 	bodyBytes, err := io.ReadAll(req.Body)
@@ -4923,18 +4939,56 @@ func (w *WebServer) handleWebhookDeploy(rw http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	// Validación opcional de firma HMAC si viene en header
+	// Validación de firma HMAC obligatoria contra el secreto guardado del lado del
+	// servidor para este servicio (nunca contra un valor que venga en la propia request:
+	// eso le permitiría a quien manda la petición controlar ambos lados de la comparación).
+	svc, errSvc := w.repo.GetService(serviceName)
+	if errSvc != nil {
+		jsonError(rw, fmt.Sprintf("Error obteniendo servicio: %v", errSvc), http.StatusInternalServerError)
+		return
+	}
+	if svc == nil || strings.TrimSpace(svc.WebhookSecret) == "" {
+		jsonError(rw, "Este servicio no tiene un secreto de webhook configurado; configúralo antes de usar el auto-despliegue", http.StatusForbidden)
+		return
+	}
 	sigHeader := req.Header.Get("X-Hub-Signature-256")
-	if sigHeader != "" && token != "" {
-		if !usecases.VerifySignature(token, bodyBytes, sigHeader) {
-			jsonError(rw, "Firma de webhook inválida (HMAC SHA-256 mismatch)", http.StatusUnauthorized)
-			return
-		}
+	if sigHeader == "" {
+		jsonError(rw, "Falta el header X-Hub-Signature-256", http.StatusUnauthorized)
+		return
+	}
+	if !usecases.VerifySignature(svc.WebhookSecret, bodyBytes, sigHeader) {
+		jsonError(rw, "Firma de webhook inválida (HMAC SHA-256 mismatch)", http.StatusUnauthorized)
+		return
 	}
 
 	cfg := w.getConfig()
 	if cfg == nil || (cfg.Host == "" && !isLocalConfig(cfg)) {
 		jsonError(rw, "Servidor VPS no configurado", http.StatusBadRequest)
+		return
+	}
+
+	// Build-from-source: en vez de re-pullear un tag existente, disparamos el build en
+	// background (GitHub/GitLab/Gitea no esperan streaming, solo una respuesta rápida)
+	// y el dashboard se engancha a verlo vía /api/builds/stream.
+	if svc.SourceType == "git" {
+		commitSHA := usecases.ExtractCommitSHA(bodyBytes)
+		job := w.builds.NewJob(serviceName)
+		go func() {
+			tag, errBuild := w.runBuildAndDeploy(*svc, commitSHA, *cfg, job.AppendLine)
+			if errBuild != nil {
+				job.Finish("failed", tag, errBuild.Error())
+				return
+			}
+			_ = w.repo.SaveAuditLog(domain.AuditLog{
+				Action:       "DEPLOY",
+				ResourceType: "service",
+				ResourceName: serviceName,
+				Details:      fmt.Sprintf("Auto-despliegue por Git Webhook (build desde fuente, imagen: %s)", tag),
+				Timestamp:    time.Now(),
+			})
+			job.Finish("success", tag, "")
+		}()
+		jsonResponse(rw, map[string]string{"status": "building", "buildId": job.ID})
 		return
 	}
 
@@ -4985,5 +5039,130 @@ func (w *WebServer) handleWebhookDeploy(rw http.ResponseWriter, req *http.Reques
 		"record":  rec,
 		"message": fmt.Sprintf("Servicio '%s' actualizado exitosamente a '%s'", serviceName, rec.ImageTag),
 	})
+}
+
+// runBuildAndDeploy construye la imagen desde el repo del servicio y, si el build sale
+// bien, redespliega el servicio con esa imagen (reusa TriggerWebhookDeployUseCase tal
+// cual existe, sin duplicar lógica de despliegue). commitRef vacío = HEAD del branch.
+func (w *WebServer) runBuildAndDeploy(svc domain.SavedService, commitRef string, config domain.ServerConfig, onLine func(string)) (string, error) {
+	buildUC := usecases.NewBuildFromSourceUseCase(repositories.NewCryptoSSHExecutor())
+	tag, err := buildUC.Execute(svc, commitRef, config, onLine)
+	if err != nil {
+		return "", err
+	}
+
+	onLine(fmt.Sprintf("▶ Desplegando %s...", tag))
+	deployUC := usecases.NewTriggerWebhookDeployUseCase(w.repo, repositories.NewCryptoSSHExecutor())
+	rec, err := deployUC.Execute(svc.Name, tag, config)
+	if err != nil {
+		return tag, fmt.Errorf("build exitoso pero falló el redeploy: %w", err)
+	}
+	onLine(fmt.Sprintf("✅ Desplegado %s", rec.ImageTag))
+	return tag, nil
+}
+
+// --- Build-from-source: rebuild manual y streaming de logs ---
+
+func (w *WebServer) handleServiceRebuild(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		jsonError(rw, "Método no permitido", http.StatusMethodNotAllowed)
+		return
+	}
+	name := strings.TrimSpace(req.URL.Query().Get("name"))
+	if name == "" {
+		var reqData struct {
+			Name string `json:"name"`
+		}
+		if req.Body != nil {
+			if err := json.NewDecoder(req.Body).Decode(&reqData); err == nil {
+				name = strings.TrimSpace(reqData.Name)
+			}
+		}
+	}
+	if !isValidNodeID(name) {
+		jsonError(rw, "Parámetro 'name' de servicio requerido o inválido", http.StatusBadRequest)
+		return
+	}
+
+	svc, err := w.repo.GetService(name)
+	if err != nil || svc == nil {
+		jsonError(rw, fmt.Sprintf("Servicio '%s' no encontrado", name), http.StatusNotFound)
+		return
+	}
+	if svc.SourceType != "git" {
+		jsonError(rw, "Este servicio no está configurado con origen 'git' (build-from-source)", http.StatusBadRequest)
+		return
+	}
+
+	cfg := w.getConfig()
+	if cfg == nil || (cfg.Host == "" && !isLocalConfig(cfg)) {
+		jsonError(rw, "Servidor VPS no configurado", http.StatusBadRequest)
+		return
+	}
+
+	flusher, ok := setupStreaming(rw)
+	if !ok {
+		http.Error(rw, "Streaming no soportado", http.StatusInternalServerError)
+		return
+	}
+	send := func(t, m string) { streamJSON(rw, flusher, t, m) }
+
+	tag, errBuild := w.runBuildAndDeploy(*svc, "", *cfg, func(line string) { send("log", line) })
+	if errBuild != nil {
+		send("error", errBuild.Error())
+		return
+	}
+
+	_ = w.repo.SaveAuditLog(domain.AuditLog{
+		Action:       "DEPLOY",
+		ResourceType: "service",
+		ResourceName: name,
+		Details:      fmt.Sprintf("Rebuild manual desde git (imagen: %s)", tag),
+		Timestamp:    time.Now(),
+	})
+
+	streamDoneJSON(rw, flusher, map[string]string{"imageTag": tag})
+}
+
+// handleBuildStream transmite (NDJSON) el log de un build disparado por webhook: las
+// líneas ya acumuladas primero, y las nuevas en vivo hasta que el build termina.
+func (w *WebServer) handleBuildStream(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		jsonError(rw, "Método no permitido", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimSpace(req.URL.Query().Get("id"))
+	if id == "" {
+		jsonError(rw, "Parámetro 'id' de build requerido", http.StatusBadRequest)
+		return
+	}
+	job := w.builds.Get(id)
+	if job == nil {
+		jsonError(rw, "Build no encontrado (puede que el proceso se haya reiniciado)", http.StatusNotFound)
+		return
+	}
+
+	flusher, ok := setupStreaming(rw)
+	if !ok {
+		http.Error(rw, "Streaming no soportado", http.StatusInternalServerError)
+		return
+	}
+	send := func(t, m string) { streamJSON(rw, flusher, t, m) }
+
+	linesSoFar, live := job.Subscribe()
+	for _, l := range linesSoFar {
+		send("log", l)
+	}
+	if live != nil {
+		for l := range live {
+			send("log", l)
+		}
+	}
+
+	if job.Status == "failed" {
+		send("error", job.Error)
+		return
+	}
+	streamDoneJSON(rw, flusher, map[string]string{"status": job.Status, "imageTag": job.ImageTag})
 }
 

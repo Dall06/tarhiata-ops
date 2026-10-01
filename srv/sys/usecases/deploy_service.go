@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Dall06/tarhiata-ops/pkg/validator"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 )
@@ -140,7 +141,7 @@ func (uc *DeployServiceUseCase) Execute(service domain.CustomService, config dom
 func (uc *DeployServiceUseCase) provisionImage(config domain.DeployConfig) error {
 	if !config.IsURL {
 		// Asumimos Docker Hub (Por ahora público. Aquí luego se inyecta docker login)
-		res, err := uc.ssh.RunCommand(fmt.Sprintf("docker pull %s", config.ImageSource))
+		res, err := uc.ssh.RunCommand(fmt.Sprintf("docker pull %s", validator.ShellQuote(config.ImageSource)))
 		if err != nil || res.ExitCode != 0 {
 			return fmt.Errorf("falló docker pull: %s", res.Output)
 		}
@@ -148,7 +149,7 @@ func (uc *DeployServiceUseCase) provisionImage(config domain.DeployConfig) error
 	}
 
 	// Es una URL (wget -> unzip -> docker load) procesado directo en el server
-	cmd := fmt.Sprintf("wget -qO /tmp/img.zip %s && unzip -o /tmp/img.zip -d /tmp/img_ext && docker load -i /tmp/img_ext/*.tar && rm -rf /tmp/img.zip /tmp/img_ext", config.ImageSource)
+	cmd := fmt.Sprintf("wget -qO /tmp/img.zip %s && unzip -o /tmp/img.zip -d /tmp/img_ext && docker load -i /tmp/img_ext/*.tar && rm -rf /tmp/img.zip /tmp/img_ext", validator.ShellQuote(config.ImageSource))
 	res, err := uc.ssh.RunCommand(cmd)
 	if err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("falló descarga/carga desde URL: %s", res.Output)

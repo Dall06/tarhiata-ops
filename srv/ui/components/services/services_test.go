@@ -34,6 +34,18 @@ func TestGetJSContent(t *testing.T) {
 			name:     "el modal de métricas etiqueta Disco en MB, no en %",
 			contains: "{ label: 'Disco',   unit: 'MB'",
 		},
+		{
+			name:     "el selector de origen de servicio incluye la opción git",
+			contains: `id="editServiceSourceType"`,
+		},
+		{
+			name:     "el botón de rebuild manual existe en el dropdown de apps",
+			contains: "btn-rebuild-svc",
+		},
+		{
+			name:     "el rebuild usa fetch() directo, no apiFetch, para poder streamear",
+			contains: "/api/services/rebuild?name=",
+		},
 	}
 
 	for _, tt := range tests {

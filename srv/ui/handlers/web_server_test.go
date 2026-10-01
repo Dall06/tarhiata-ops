@@ -2,6 +2,9 @@ package handlers
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -2284,6 +2287,180 @@ func TestWebServer_HandleSystemReport(t *testing.T) {
 	}
 	if res.Telemetry.ServerName != "local" {
 		t.Errorf("expected Telemetry.ServerName 'local' (InspectHostUseCase debió correr con su propia conexión), got '%s'", res.Telemetry.ServerName)
+	}
+}
+
+// TestWebServer_HandleWebhookDeploy_SignatureEnforcement valida el flujo completo del fix:
+// antes, el "secreto" venía de la misma query string de la request entrante (un atacante
+// controlaba ambos lados de la comparación) y, sin firma, el deploy se ejecutaba igual.
+// Ahora el secreto debe venir guardado del lado del servidor para ese servicio, y sin
+// firma válida el deploy se rechaza.
+func TestWebServer_HandleWebhookDeploy_SignatureEnforcement(t *testing.T) {
+	body := []byte(`{"service":"web-api","image":"myrepo/web-api:v2"}`)
+
+	sign := func(secret string) string {
+		mac := hmac.New(sha256.New, []byte(secret))
+		mac.Write(body)
+		return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	}
+
+	newServer := func(webhookSecret string) *WebServer {
+		repo := mocks.NewMockConfigRepository()
+		repo.Services = []domain.SavedService{{Name: "web-api", WebhookSecret: webhookSecret}}
+		return NewWebServer(repo, &domain.ServerConfig{Name: "local", Host: "localhost", CloudProvider: "local"})
+	}
+
+	t.Run("sin secreto configurado se rechaza (antes el ataque de query-string self-referencial pasaba)", func(t *testing.T) {
+		ws := newServer("") // servicio sin webhook secret configurado
+		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/deploy?service=web-api&token=atacante-controla-esto", bytes.NewReader(body))
+		req.Header.Set("X-Hub-Signature-256", sign("atacante-controla-esto"))
+		rr := httptest.NewRecorder()
+		ws.handleWebhookDeploy(rr, req)
+		if rr.Code != http.StatusForbidden {
+			t.Fatalf("expected 403 (sin secreto configurado), got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("sin header de firma se rechaza aunque el secreto exista", func(t *testing.T) {
+		ws := newServer("secreto-real-del-servidor")
+		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/deploy?service=web-api", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		ws.handleWebhookDeploy(rr, req)
+		if rr.Code != http.StatusUnauthorized {
+			t.Fatalf("expected 401 (sin firma), got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("firma calculada con el secreto que manda el atacante ya no sirve", func(t *testing.T) {
+		ws := newServer("secreto-real-del-servidor")
+		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/deploy?service=web-api&token=secreto-falso-del-atacante", bytes.NewReader(body))
+		req.Header.Set("X-Hub-Signature-256", sign("secreto-falso-del-atacante"))
+		rr := httptest.NewRecorder()
+		ws.handleWebhookDeploy(rr, req)
+		if rr.Code != http.StatusUnauthorized {
+			t.Fatalf("expected 401 (firma calculada con el secreto equivocado), got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("firma calculada con el secreto real guardado en el servidor pasa la validación de auth", func(t *testing.T) {
+		ws := newServer("secreto-real-del-servidor")
+		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/deploy?service=web-api", bytes.NewReader(body))
+		req.Header.Set("X-Hub-Signature-256", sign("secreto-real-del-servidor"))
+		rr := httptest.NewRecorder()
+		ws.handleWebhookDeploy(rr, req)
+		// No afirmamos 200: el despliegue real depende de que exista un servicio "web-api"
+		// en Docker en esta máquina. Lo que valida este caso es que la capa de
+		// autenticación (lo que se rompió) ya no bloquea una firma válida.
+		if rr.Code == http.StatusUnauthorized || rr.Code == http.StatusForbidden {
+			t.Fatalf("una firma válida no debería fallar en la capa de auth, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+}
+
+// TestWebServer_HandleWebhookDeploy_GitSourceTriggersAsyncBuild valida el flujo completo
+// del build-from-source disparado por webhook: para un servicio SourceType=git, el
+// handler debe responder rápido (sin esperar al build) con un buildId, y ese build debe
+// quedar consultable vía /api/builds/stream.
+func TestWebServer_HandleWebhookDeploy_GitSourceTriggersAsyncBuild(t *testing.T) {
+	body := []byte(`{"service":"git-app","after":"abc123"}`)
+	repo := mocks.NewMockConfigRepository()
+	repo.Services = []domain.SavedService{{
+		Name:          "git-app",
+		WebhookSecret: "s3cret",
+		SourceType:    "git",
+		GitRepoURL:    "https://github.com/org/repo.git",
+	}}
+	ws := NewWebServer(repo, &domain.ServerConfig{Name: "local", Host: "localhost", CloudProvider: "local"})
+
+	mac := hmac.New(sha256.New, []byte("s3cret"))
+	mac.Write(body)
+	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/deploy?service=git-app", bytes.NewReader(body))
+	req.Header.Set("X-Hub-Signature-256", sig)
+	rr := httptest.NewRecorder()
+	ws.handleWebhookDeploy(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		Status  string `json:"status"`
+		BuildID string `json:"buildId"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Status != "building" || resp.BuildID == "" {
+		t.Fatalf("respuesta inesperada: %+v", resp)
+	}
+	if ws.builds.Get(resp.BuildID) == nil {
+		t.Fatal("el build disparado no quedó registrado en el BuildRegistry")
+	}
+}
+
+// TestWebServer_HandleBuildStream_UnknownIDReturns404 valida el caso de un ID de build
+// que no existe (ej. el proceso se reinició desde que se disparó el webhook).
+func TestWebServer_HandleBuildStream_UnknownIDReturns404(t *testing.T) {
+	ws := NewWebServer(&mockRepo{}, &domain.ServerConfig{Name: "local"})
+	req := httptest.NewRequest(http.MethodGet, "/api/builds/stream?id=no-existe", nil)
+	rr := httptest.NewRecorder()
+	ws.handleBuildStream(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestWebServer_HandleServiceRebuild_RejectsNonGitService valida que un servicio que no
+// es build-from-source no pueda usar el endpoint de rebuild manual.
+func TestWebServer_HandleServiceRebuild_RejectsNonGitService(t *testing.T) {
+	repo := mocks.NewMockConfigRepository()
+	repo.Services = []domain.SavedService{{Name: "image-app", SourceType: "image"}}
+	ws := NewWebServer(repo, &domain.ServerConfig{Name: "local", Host: "localhost", CloudProvider: "local"})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/services/rebuild?name=image-app", nil)
+	rr := httptest.NewRecorder()
+	ws.handleServiceRebuild(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 para un servicio que no es git, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestWebServer_HandleServiceItem_PreservesSecretsOnEmptyUpdate valida el flujo
+// completo: un PUT de edición que no manda GitAccessToken/WebhookSecret (porque el
+// formulario no los re-muestra) no debe borrar los que ya estaban guardados.
+func TestWebServer_HandleServiceItem_PreservesSecretsOnEmptyUpdate(t *testing.T) {
+	repo := mocks.NewMockConfigRepository()
+	repo.Services = []domain.SavedService{{
+		Name:           "git-app",
+		SourceType:     "git",
+		GitAccessToken: "ghp_existing_token",
+		WebhookSecret:  "existing_webhook_secret",
+		Domain:         "old.example.com",
+	}}
+	ws := NewWebServer(repo, &domain.ServerConfig{Name: "local"})
+
+	body := []byte(`{"name":"git-app","domain":"new.example.com","expose":true,"sourceType":"git"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/services/git-app", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	ws.handleServiceItem(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	saved, err := repo.GetService("git-app")
+	if err != nil || saved == nil {
+		t.Fatalf("error leyendo servicio actualizado: %v", err)
+	}
+	if saved.Domain != "new.example.com" {
+		t.Errorf("el campo editado (domain) no se actualizó: got %q", saved.Domain)
+	}
+	if saved.GitAccessToken != "ghp_existing_token" {
+		t.Errorf("el GitAccessToken se borró en vez de conservarse: got %q", saved.GitAccessToken)
+	}
+	if saved.WebhookSecret != "existing_webhook_secret" {
+		t.Errorf("el WebhookSecret se borró en vez de conservarse: got %q", saved.WebhookSecret)
 	}
 }
 

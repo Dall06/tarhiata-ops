@@ -84,6 +84,43 @@ func TestSQLiteServiceCatalog(t *testing.T) {
 			t.Errorf("El servicio api no se eliminó correctamente")
 		}
 	})
+
+	// TestSQLiteServiceCatalog_GitSourceFields valida el flujo completo de persistencia
+	// de los campos nuevos de build-from-source, incluyendo que el PAT quede cifrado en
+	// reposo pero se devuelva en claro al leer (igual que WebhookSecret/Password).
+	t.Run("Campos de origen git se persisten y el PAT queda cifrado en reposo", func(t *testing.T) {
+		svc := domain.SavedService{
+			Name:           "git-app",
+			SourceType:     "git",
+			GitRepoURL:     "https://github.com/org/repo.git",
+			GitBranch:      "main",
+			GitAccessToken: "ghp_super_secret_token",
+			DockerfilePath: "docker/Dockerfile",
+		}
+		if err := repo.SaveService(svc); err != nil {
+			t.Fatalf("error guardando servicio git: %v", err)
+		}
+
+		saved, err := repo.GetService("git-app")
+		if err != nil || saved == nil {
+			t.Fatalf("error leyendo servicio git: %v", err)
+		}
+		if saved.SourceType != "git" || saved.GitRepoURL != svc.GitRepoURL || saved.GitBranch != "main" || saved.DockerfilePath != "docker/Dockerfile" {
+			t.Errorf("campos de origen git no coinciden: %+v", saved)
+		}
+		if saved.GitAccessToken != "ghp_super_secret_token" {
+			t.Errorf("el PAT debió descifrarse correctamente al leer, got %q", saved.GitAccessToken)
+		}
+
+		// El valor crudo en la base de datos NO debe ser el PAT en texto plano.
+		var rawToken string
+		if err := repo.db.QueryRow("SELECT git_access_token FROM services WHERE name = ?", "git-app").Scan(&rawToken); err != nil {
+			t.Fatalf("error leyendo valor crudo: %v", err)
+		}
+		if rawToken == "ghp_super_secret_token" {
+			t.Errorf("el PAT se guardó en texto plano en vez de cifrado")
+		}
+	})
 }
 
 func TestSQLiteDatabaseCatalog(t *testing.T) {

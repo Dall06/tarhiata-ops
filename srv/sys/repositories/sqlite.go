@@ -162,6 +162,12 @@ func (r *SQLiteRepository) migrate() error {
 	r.addColumnIfMissing("services", "target_node", "TEXT NOT NULL DEFAULT ''")
 	r.addColumnIfMissing("services", "pre_deploy_hook", "TEXT NOT NULL DEFAULT ''")
 	r.addColumnIfMissing("services", "custom_domains", "TEXT NOT NULL DEFAULT ''")
+	r.addColumnIfMissing("services", "webhook_secret", "TEXT NOT NULL DEFAULT ''")
+	r.addColumnIfMissing("services", "source_type", "TEXT NOT NULL DEFAULT ''")
+	r.addColumnIfMissing("services", "git_repo_url", "TEXT NOT NULL DEFAULT ''")
+	r.addColumnIfMissing("services", "git_branch", "TEXT NOT NULL DEFAULT ''")
+	r.addColumnIfMissing("services", "git_access_token", "TEXT NOT NULL DEFAULT ''")
+	r.addColumnIfMissing("services", "dockerfile_path", "TEXT NOT NULL DEFAULT ''")
 
 	// Tabla de Bases de Datos
 	queryDBs := `
@@ -546,8 +552,8 @@ func (r *SQLiteRepository) Close() error {
 
 func (r *SQLiteRepository) SaveService(svc domain.SavedService) error {
 	query := `
-	INSERT INTO services (name, image_source, is_url, port, domain, expose, env_file_path, enable_ssl, healthcheck_cmd, mounts_json, env_vars, target_node, pre_deploy_hook, custom_domains)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	INSERT INTO services (name, image_source, is_url, port, domain, expose, env_file_path, enable_ssl, healthcheck_cmd, mounts_json, env_vars, target_node, pre_deploy_hook, custom_domains, webhook_secret, source_type, git_repo_url, git_branch, git_access_token, dockerfile_path)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(name) DO UPDATE SET
 		image_source=excluded.image_source,
 		is_url=excluded.is_url,
@@ -561,14 +567,20 @@ func (r *SQLiteRepository) SaveService(svc domain.SavedService) error {
 		env_vars=excluded.env_vars,
 		target_node=excluded.target_node,
 		pre_deploy_hook=excluded.pre_deploy_hook,
-		custom_domains=excluded.custom_domains;`
+		custom_domains=excluded.custom_domains,
+		webhook_secret=excluded.webhook_secret,
+		source_type=excluded.source_type,
+		git_repo_url=excluded.git_repo_url,
+		git_branch=excluded.git_branch,
+		git_access_token=excluded.git_access_token,
+		dockerfile_path=excluded.dockerfile_path;`
 
-	_, err := r.db.Exec(query, svc.Name, svc.ImageSource, svc.IsURL, svc.Port, svc.Domain, svc.Expose, svc.EnvFilePath, svc.EnableSSL, svc.HealthcheckCmd, svc.MountsJSON, svc.EnvVars, svc.TargetNode, svc.PreDeployHook, svc.CustomDomains)
+	_, err := r.db.Exec(query, svc.Name, svc.ImageSource, svc.IsURL, svc.Port, svc.Domain, svc.Expose, svc.EnvFilePath, svc.EnableSSL, svc.HealthcheckCmd, svc.MountsJSON, svc.EnvVars, svc.TargetNode, svc.PreDeployHook, svc.CustomDomains, encryptSecret(svc.WebhookSecret), svc.SourceType, svc.GitRepoURL, svc.GitBranch, encryptSecret(svc.GitAccessToken), svc.DockerfilePath)
 	return err
 }
 
 func (r *SQLiteRepository) GetServices() ([]domain.SavedService, error) {
-	query := `SELECT id, name, image_source, is_url, port, domain, expose, env_file_path, enable_ssl, healthcheck_cmd, mounts_json, env_vars, target_node, pre_deploy_hook, custom_domains FROM services ORDER BY name ASC;`
+	query := `SELECT id, name, image_source, is_url, port, domain, expose, env_file_path, enable_ssl, healthcheck_cmd, mounts_json, env_vars, target_node, pre_deploy_hook, custom_domains, webhook_secret, source_type, git_repo_url, git_branch, git_access_token, dockerfile_path FROM services ORDER BY name ASC;`
 	rows, err := r.db.Query(query)
 	if err != nil {
 		return nil, err
@@ -578,26 +590,30 @@ func (r *SQLiteRepository) GetServices() ([]domain.SavedService, error) {
 	var services []domain.SavedService
 	for rows.Next() {
 		var s domain.SavedService
-		if err := rows.Scan(&s.ID, &s.Name, &s.ImageSource, &s.IsURL, &s.Port, &s.Domain, &s.Expose, &s.EnvFilePath, &s.EnableSSL, &s.HealthcheckCmd, &s.MountsJSON, &s.EnvVars, &s.TargetNode, &s.PreDeployHook, &s.CustomDomains); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.ImageSource, &s.IsURL, &s.Port, &s.Domain, &s.Expose, &s.EnvFilePath, &s.EnableSSL, &s.HealthcheckCmd, &s.MountsJSON, &s.EnvVars, &s.TargetNode, &s.PreDeployHook, &s.CustomDomains, &s.WebhookSecret, &s.SourceType, &s.GitRepoURL, &s.GitBranch, &s.GitAccessToken, &s.DockerfilePath); err != nil {
 			return nil, err
 		}
+		s.WebhookSecret = decryptSecret(s.WebhookSecret)
+		s.GitAccessToken = decryptSecret(s.GitAccessToken)
 		services = append(services, s)
 	}
 	return services, nil
 }
 
 func (r *SQLiteRepository) GetService(name string) (*domain.SavedService, error) {
-	query := `SELECT id, name, image_source, is_url, port, domain, expose, env_file_path, enable_ssl, healthcheck_cmd, mounts_json, env_vars, target_node, pre_deploy_hook, custom_domains FROM services WHERE name = ?;`
+	query := `SELECT id, name, image_source, is_url, port, domain, expose, env_file_path, enable_ssl, healthcheck_cmd, mounts_json, env_vars, target_node, pre_deploy_hook, custom_domains, webhook_secret, source_type, git_repo_url, git_branch, git_access_token, dockerfile_path FROM services WHERE name = ?;`
 	row := r.db.QueryRow(query, name)
 
 	var s domain.SavedService
-	err := row.Scan(&s.ID, &s.Name, &s.ImageSource, &s.IsURL, &s.Port, &s.Domain, &s.Expose, &s.EnvFilePath, &s.EnableSSL, &s.HealthcheckCmd, &s.MountsJSON, &s.EnvVars, &s.TargetNode, &s.PreDeployHook, &s.CustomDomains)
+	err := row.Scan(&s.ID, &s.Name, &s.ImageSource, &s.IsURL, &s.Port, &s.Domain, &s.Expose, &s.EnvFilePath, &s.EnableSSL, &s.HealthcheckCmd, &s.MountsJSON, &s.EnvVars, &s.TargetNode, &s.PreDeployHook, &s.CustomDomains, &s.WebhookSecret, &s.SourceType, &s.GitRepoURL, &s.GitBranch, &s.GitAccessToken, &s.DockerfilePath)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil // No encontrado
 		}
 		return nil, err
 	}
+	s.WebhookSecret = decryptSecret(s.WebhookSecret)
+	s.GitAccessToken = decryptSecret(s.GitAccessToken)
 	return &s, nil
 }
 

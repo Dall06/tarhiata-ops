@@ -2,7 +2,7 @@
 
 # ⚡ Tarhiata-Ops (100% Stateless & Local-First Private PaaS)
 
-![Go Version](https://img.shields.io/badge/Go-1.25%2B-00ADD8?style=for-the-badge&logo=go)
+![Go Version](https://img.shields.io/badge/Go-1.27%2B-00ADD8?style=for-the-badge&logo=go)
 ![Docker Swarm](https://img.shields.io/badge/Docker_Swarm-2496ED?style=for-the-badge&logo=docker&logoColor=white)
 ![Traefik](https://img.shields.io/badge/Traefik_v3-24A1C1?style=for-the-badge&logo=traefik&logoColor=white)
 ![Vultr](https://img.shields.io/badge/Vultr_API_v2-007BFF?style=for-the-badge&logo=vultr&logoColor=white)
@@ -112,7 +112,7 @@ Tarhiata-Ops works **100% with any existing VPS host or bare-metal server** (Ubu
 ## 🛠️ Quickstart & Setup
 
 ### Prerequisites
-- **Go 1.25+** installed on your workstation.
+- **Go 1.27+** installed on your workstation.
 - A fresh VPS (Ubuntu 22.04 / 24.04 recommended) with SSH root access.
 
 ### Running Locally

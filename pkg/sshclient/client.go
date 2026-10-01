@@ -1,8 +1,10 @@
 package sshclient
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -238,6 +240,68 @@ func (c *Client) InteractiveCommand(cmd string) error {
 	}
 
 	return nil
+}
+
+// RunCommandStreaming ejecuta un comando entregando cada línea de salida a onLine a
+// medida que se produce, en vez de esperar a que el comando termine (como RunCommand).
+// Pensado para comandos largos (ej. "docker build") donde se quiere mostrar progreso en vivo.
+func (c *Client) RunCommandStreaming(cmd string, onLine func(line string)) (string, int, error) {
+	c.mu.RLock()
+	conn := c.conn
+	c.mu.RUnlock()
+
+	if conn == nil {
+		return "", -1, fmt.Errorf("no hay una conexión SSH activa")
+	}
+
+	session, err := conn.NewSession()
+	if err != nil {
+		return "", -1, fmt.Errorf("no se pudo crear la sesión ssh: %w", err)
+	}
+	defer func() {
+		if clErr := session.Close(); clErr != nil {
+			slog.Debug("falló cierre de sesión tras streaming", "error", clErr)
+		}
+	}()
+
+	pr, pw := io.Pipe()
+	session.Stdout = pw
+	session.Stderr = pw
+
+	var fullOutput strings.Builder
+	scanDone := make(chan struct{})
+	go func() {
+		defer close(scanDone)
+		scanner := bufio.NewScanner(pr)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			line := scanner.Text()
+			fullOutput.WriteString(line)
+			fullOutput.WriteString("\n")
+			if onLine != nil {
+				onLine(line)
+			}
+		}
+		if scanErr := scanner.Err(); scanErr != nil {
+			slog.Debug("error escaneando salida en streaming", "error", scanErr)
+		}
+	}()
+
+	runErr := session.Run(cmd)
+	if clErr := pw.Close(); clErr != nil {
+		slog.Debug("falló cierre del pipe writer tras streaming", "error", clErr)
+	}
+	<-scanDone
+
+	exitCode := 0
+	if runErr != nil {
+		if exitError, ok := runErr.(*ssh.ExitError); ok {
+			exitCode = exitError.ExitStatus()
+		} else {
+			exitCode = -1
+		}
+	}
+	return fullOutput.String(), exitCode, runErr
 }
 
 // SetMockConnected permite configurar el estado de conectividad simulado en entornos de prueba.

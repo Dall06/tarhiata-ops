@@ -87,6 +87,11 @@ type SSHExecutor interface {
 	// RunCommand ejecuta un comando de forma síncrona y devuelve el resultado.
 	RunCommand(cmd string) (*domain.CommandResult, error)
 
+	// RunCommandStreaming ejecuta un comando y entrega cada línea de salida a onLine a
+	// medida que se produce (no al final, como RunCommand). Pensado para comandos
+	// largos (ej. "docker build") donde se quiere mostrar progreso en vivo.
+	RunCommandStreaming(cmd string, onLine func(line string)) (*domain.CommandResult, error)
+
 	// InteractiveShell abre una consola interactiva en el servidor.
 	InteractiveShell() error
 

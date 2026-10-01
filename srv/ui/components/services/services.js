@@ -7,7 +7,7 @@ import { state } from '/pkg/store/state.js';
 import { showToast } from '/pkg/toast/toast.js';
 import { escapeHtml, getDefaultPort } from '/pkg/jsutil/utils.js';
 import { openModal, closeModal } from '/pkg/modal/modal.js';
-import { apiFetch, consumeNDJSONStream } from '/pkg/apiclient/api.js';
+import { apiFetch } from '/pkg/apiclient/api.js';
 import { sendDesktopNotification } from '/pkg/notify/notify.js';
 
 export function renderMasterServicesTable(services, databases, links, callbacks = {}) {
@@ -180,6 +180,7 @@ export function renderMasterServicesTable(services, databases, links, callbacks 
                         <button type="button" class="dd-item btn-restart-svc" data-name="${n}">🔄 Reiniciar</button>
                         <button type="button" class="dd-item btn-history-svc" data-name="${n}">⏳ Versiones</button>
                         <button type="button" class="dd-item btn-vol-svc" data-name="${n}">📁 Archivos</button>
+                        <button type="button" class="dd-item btn-rebuild-svc" data-name="${n}">🔧 Rebuild &amp; Deploy</button>
                         <button type="button" class="dd-item btn-edit-svc" data-name="${n}" data-expose="${it.expose}" data-domain="${escapeHtml(it.domain)}">⚙️ Configurar</button>
                         <div class="dd-sep"></div>
                         <button type="button" class="dd-item dd-danger btn-del-svc" data-name="${n}">✕ Eliminar</button>
@@ -358,6 +359,84 @@ export function wireMasterTableActions(callbacks = {}) {
             const { openVolumeModal } = window;
             if (openVolumeModal) openVolumeModal(`/opt/data/${name}`);
             else if (callbacks.onOpenVolume) callbacks.onOpenVolume(`/opt/data/${name}`);
+        };
+    });
+
+    document.querySelectorAll('.btn-rebuild-svc').forEach(btn => {
+        btn.onclick = async () => {
+            const name = btn.getAttribute('data-name');
+            if (!name) return;
+            if (!confirm(`¿Reconstruir '${name}' desde su repo git y redesplegarlo? Esto solo funciona si el servicio tiene origen "git" configurado.`)) return;
+
+            ensureServicesModalsMounted();
+            const titleEl = document.getElementById('buildLogsServiceName');
+            const contentEl = document.getElementById('buildLogsContent');
+            if (titleEl) titleEl.textContent = name;
+            if (contentEl) contentEl.textContent = '';
+            openModal('buildLogsModal');
+
+            const appendLog = (line) => {
+                if (!contentEl) return;
+                contentEl.textContent += line + '\n';
+                contentEl.scrollTop = contentEl.scrollHeight;
+            };
+
+            btn.disabled = true;
+            try {
+                // fetch() directo (no apiFetch): apiFetch consume el body entero antes de
+                // devolverlo, lo que rompería el streaming línea por línea en vivo.
+                const res = await fetch(`/api/services/rebuild?name=${encodeURIComponent(name)}&server=${encodeURIComponent(state.selectedServerName || '')}`, {
+                    method: 'POST'
+                });
+                if (!res.ok) {
+                    const errText = await res.text();
+                    appendLog(`✕ Error: ${errText || 'no se pudo iniciar el rebuild'}`);
+                    showToast(`Error en rebuild de '${name}'`, 'error');
+                    return;
+                }
+                // Parser propio en vez de consumeNDJSONStream: el backend emite {t,m}/
+                // {t:"done",d} (mismo formato que streamJSON/WriteEvent en Go), no
+                // {type,data} como espera ese helper genérico.
+                let failed = false;
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+                let buffer = '';
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const parts = buffer.split('\n');
+                    buffer = parts.pop();
+                    for (const line of parts) {
+                        if (!line.trim()) continue;
+                        try {
+                            const event = JSON.parse(line);
+                            if (event.t === 'error') {
+                                failed = true;
+                                appendLog(`✕ ${event.m}`);
+                            } else if (event.t === 'done') {
+                                // nada que imprimir: el resumen final lo da el toast
+                            } else {
+                                appendLog(event.m || line);
+                            }
+                        } catch (e) {
+                            console.debug('línea NDJSON no parseable:', line, e);
+                        }
+                    }
+                }
+
+                if (failed) {
+                    showToast(`Error en rebuild de '${name}'`, 'error');
+                } else {
+                    showToast(`'${name}' reconstruido y redesplegado.`, 'success');
+                    if (state.selectedServerName) {
+                        const { refreshServerTelemetry } = await import('/components/telemetry/telemetry.js');
+                        refreshServerTelemetry(state.selectedServerName, false);
+                    }
+                }
+            } finally {
+                btn.disabled = false;
+            }
         };
     });
 
@@ -560,6 +639,34 @@ export function ensureServicesModalsMounted() {
                         <label for="editServicePort">Puerto Interno del Contenedor</label>
                         <input type="number" id="editServicePort" class="t-input" value="80">
                     </div>
+
+                    <div class="form-field full-span">
+                        <label for="editServiceSourceType">Origen de la Imagen</label>
+                        <select id="editServiceSourceType" class="t-input">
+                            <option value="image">🐋 Imagen Docker (Hub/registry)</option>
+                            <option value="archive">📦 Zip de imagen pre-armada</option>
+                            <option value="git">🔧 Construir desde repo Git (Dockerfile)</option>
+                        </select>
+                    </div>
+
+                    <div id="editGitSourceFields" style="display:none;">
+                        <div class="form-field full-span">
+                            <label for="editServiceGitRepoURL">URL del repo</label>
+                            <input type="text" id="editServiceGitRepoURL" class="t-input" placeholder="https://github.com/org/repo.git">
+                        </div>
+                        <div class="form-field">
+                            <label for="editServiceGitBranch">Branch</label>
+                            <input type="text" id="editServiceGitBranch" class="t-input" placeholder="main">
+                        </div>
+                        <div class="form-field">
+                            <label for="editServiceDockerfilePath">Ruta del Dockerfile</label>
+                            <input type="text" id="editServiceDockerfilePath" class="t-input" placeholder="Dockerfile">
+                        </div>
+                        <div class="form-field full-span">
+                            <label for="editServiceGitAccessToken">Token de acceso (solo repos privados)</label>
+                            <input type="password" id="editServiceGitAccessToken" class="t-input" placeholder="Dejar vacío para no cambiar / repo público" autocomplete="new-password">
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="t-modal-footer">
@@ -572,6 +679,25 @@ export function ensureServicesModalsMounted() {
                 </button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- Modal: Logs de Build (build-from-source) -->
+<div class="t-modal-overlay" id="buildLogsModal" style="display:none;" role="dialog" aria-modal="true">
+    <div class="t-modal-card" style="max-width: 720px;">
+        <div class="t-modal-header">
+            <div>
+                <h2 class="t-modal-title">🔧 Build: <span id="buildLogsServiceName" style="color:var(--brand-primary); font-family:var(--font-mono);">—</span></h2>
+                <span class="t-modal-desc">Clone → build → push → deploy, en vivo</span>
+            </div>
+            <button type="button" class="t-close-btn" id="btnCloseBuildLogsModal" aria-label="Cerrar">×</button>
+        </div>
+        <div class="form-body">
+            <pre id="buildLogsContent" style="background:#0a0a0a; color:#d1d5db; padding:14px; border-radius:8px; max-height:420px; overflow-y:auto; font-family:var(--font-mono); font-size:0.78rem; white-space:pre-wrap;"></pre>
+        </div>
+        <div class="t-modal-footer">
+            <button type="button" class="t-btn t-btn-secondary" id="btnCloseBuildLogs2">Cerrar</button>
+        </div>
     </div>
 </div>
 
@@ -637,21 +763,53 @@ export function closeDeployModal() {
     closeModal('deployModal');
 }
 
-export function openEditServiceModal(name, expose, domain) {
+function toggleEditGitSourceFields() {
+    const sourceType = document.getElementById('editServiceSourceType');
+    const gitFields = document.getElementById('editGitSourceFields');
+    if (gitFields) gitFields.style.display = (sourceType && sourceType.value === 'git') ? 'contents' : 'none';
+}
+
+export async function openEditServiceModal(name, expose, domain) {
     ensureServicesModalsMounted();
     const editSvcName = document.getElementById('editServiceName') || document.getElementById('editSvcName');
     const editSvcExpose = document.getElementById('editServiceExpose') || document.getElementById('editSvcExpose');
     const editSvcDomain = document.getElementById('editServiceDomain') || document.getElementById('editSvcDomain');
     const editDomainField = document.getElementById('editDomainField') || document.getElementById('editDomainGroup');
     const editFeedback = document.getElementById('editFeedback');
+    const sourceType = document.getElementById('editServiceSourceType');
+    const gitRepoURL = document.getElementById('editServiceGitRepoURL');
+    const gitBranch = document.getElementById('editServiceGitBranch');
+    const dockerfilePath = document.getElementById('editServiceDockerfilePath');
+    const gitAccessToken = document.getElementById('editServiceGitAccessToken');
 
     if (editSvcName) editSvcName.value = name || '';
     if (editSvcExpose) editSvcExpose.value = (expose ? 'true' : 'false');
     if (editSvcDomain) editSvcDomain.value = domain || '';
     if (editDomainField) editDomainField.style.display = expose ? 'flex' : 'none';
     if (editFeedback) editFeedback.style.display = 'none';
+    if (sourceType) sourceType.value = 'image';
+    if (gitRepoURL) gitRepoURL.value = '';
+    if (gitBranch) gitBranch.value = '';
+    if (dockerfilePath) dockerfilePath.value = '';
+    if (gitAccessToken) gitAccessToken.value = '';
+    toggleEditGitSourceFields();
 
     openModal('editServiceModal');
+
+    // Cargar el resto de la config (origen git) de forma asíncrona: el llamador solo
+    // tiene name/expose/domain a mano (vienen de la tabla ya renderizada).
+    try {
+        const res = await apiFetch(`/api/services/${encodeURIComponent(name)}`);
+        if (res.ok && res.data) {
+            if (sourceType) sourceType.value = res.data.sourceType || 'image';
+            if (gitRepoURL) gitRepoURL.value = res.data.gitRepoUrl || '';
+            if (gitBranch) gitBranch.value = res.data.gitBranch || '';
+            if (dockerfilePath) dockerfilePath.value = res.data.dockerfilePath || '';
+            toggleEditGitSourceFields();
+        }
+    } catch (e) {
+        console.debug('No se pudo precargar el origen git del servicio:', e);
+    }
 }
 
 export function closeEditServiceModal() {
@@ -800,6 +958,15 @@ export function setupServicesEvents(onReloadStatus) {
     if (btnCloseHistoryModal) btnCloseHistoryModal.addEventListener('click', closeHistoryModal);
     if (btnCancelHistory) btnCancelHistory.addEventListener('click', closeHistoryModal);
 
+    const editServiceSourceType = document.getElementById('editServiceSourceType');
+    if (editServiceSourceType) editServiceSourceType.addEventListener('change', toggleEditGitSourceFields);
+
+    const btnCloseBuildLogsModal = document.getElementById('btnCloseBuildLogsModal');
+    const btnCloseBuildLogs2 = document.getElementById('btnCloseBuildLogs2');
+    const closeBuildLogs = () => closeModal('buildLogsModal');
+    if (btnCloseBuildLogsModal) btnCloseBuildLogsModal.addEventListener('click', closeBuildLogs);
+    if (btnCloseBuildLogs2) btnCloseBuildLogs2.addEventListener('click', closeBuildLogs);
+
     if (btnEditServiceOpenEnv) {
         btnEditServiceOpenEnv.addEventListener('click', async () => {
             const editSvcName = document.getElementById('editServiceName') || document.getElementById('editSvcName');
@@ -911,13 +1078,23 @@ export function setupServicesEvents(onReloadStatus) {
             const editSvcExpose = document.getElementById('editServiceExpose') || document.getElementById('editSvcExpose');
             const editFeedback = document.getElementById('editFeedback');
             const btnSubmitEdit = document.getElementById('btnSubmitEditService') || document.getElementById('btnSubmitEdit');
+            const sourceType = document.getElementById('editServiceSourceType');
+            const gitRepoURL = document.getElementById('editServiceGitRepoURL');
+            const gitBranch = document.getElementById('editServiceGitBranch');
+            const dockerfilePath = document.getElementById('editServiceDockerfilePath');
+            const gitAccessToken = document.getElementById('editServiceGitAccessToken');
 
             const isExpose = editSvcExpose ? (editSvcExpose.value === 'true' || editSvcExpose.checked) : false;
             const payload = {
                 name: editSvcName ? editSvcName.value.trim() : '',
                 domain: editSvcDomain ? editSvcDomain.value.trim() : '',
                 expose: isExpose,
-                server: state.selectedServerName || ''
+                server: state.selectedServerName || '',
+                sourceType: sourceType ? sourceType.value : 'image',
+                gitRepoUrl: gitRepoURL ? gitRepoURL.value.trim() : '',
+                gitBranch: gitBranch ? gitBranch.value.trim() : '',
+                dockerfilePath: dockerfilePath ? dockerfilePath.value.trim() : '',
+                gitAccessToken: gitAccessToken ? gitAccessToken.value : ''
             };
 
             if (btnSubmitEdit) btnSubmitEdit.disabled = true;
