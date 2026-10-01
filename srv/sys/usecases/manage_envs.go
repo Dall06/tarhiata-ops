@@ -80,9 +80,7 @@ func (uc *ManageEnvVarsUseCase) GetEnvVars(serviceName, serverName string) (*Env
 func (uc *ManageEnvVarsUseCase) UpdateEnvVars(serviceName string, rawEnvContent string, config domain.ServerConfig) error {
 	svc, err := uc.repo.GetService(serviceName, config.Name)
 	if err != nil || svc == nil {
-		svc = &domain.SavedService{
-			Name: serviceName,
-		}
+		return fmt.Errorf("servicio '%s' no encontrado", serviceName)
 	}
 
 	// 1. Guardar en SQLite

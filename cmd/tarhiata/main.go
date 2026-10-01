@@ -792,6 +792,7 @@ func handleDeployServiceCommand(repo *repositories.SQLiteRepository, config *dom
 			Expose:         svc.Expose,
 			EnableSSL:      svc.EnableSSL,
 			HealthcheckCmd: svc.HealthcheckCmd,
+			ServerName:     config.Name,
 		}
 		customSvc := domain.CustomService{
 			Name:          svc.Name,

@@ -130,7 +130,7 @@ func (uc *DeployServiceUseCase) Execute(service domain.CustomService, config dom
 
 	// 6. Exportar estado de referencias al VPS Host para sincronización multi-PC
 	syncUC := NewSyncClusterStateUseCase(nil, uc.ssh)
-	if errSync := syncUC.ExportStateToRemote(""); errSync != nil {
+	if errSync := syncUC.ExportStateToRemote(config.ServerName); errSync != nil {
 		slog.Warn("Fallo al exportar estado de sincronización al VPS", "error", errSync)
 	}
 

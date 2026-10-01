@@ -136,6 +136,8 @@ func (uc *bootstrapMasterServiceUseCase) Execute(input ports.BootstrapMasterInpu
 		Domain:      input.Domain,
 		Expose:      input.ExposePublic,
 		EnableSSL:   input.ExposePublic,
+		TargetNode:  input.TargetNode,
+		ServerName:  config.Name,
 	}
 
 	customSvc := domain.CustomService{

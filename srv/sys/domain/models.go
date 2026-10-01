@@ -62,6 +62,7 @@ type DeployConfig struct {
 	EnableSSL      bool   `json:"enableSSL"`      // Si es true, añade el resolver de Let's Encrypt
 	HealthcheckCmd string `json:"healthcheckCmd"` // Comando para healthcheck
 	TargetNode     string `json:"targetNode"`     // Restricción de afinidad de nodo (manager, worker, hostname)
+	ServerName     string `json:"serverName"`     // Nombre del servidor del fleet donde se despliega, para sincronización de estado
 }
 
 // DatabaseMigrationRequest contiene los parámetros para la ejecución interactiva de migraciones y regresiones.

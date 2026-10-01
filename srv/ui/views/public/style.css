@@ -163,6 +163,20 @@ body {
     align-items: center;
 }
 
+.nav-tools-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+.nav-tools-wrap .row-actions-dropdown {
+    min-width: 200px;
+}
+
+#btnNavTools.open .switcher-arrow {
+    transform: rotate(180deg);
+}
+
 .server-switcher-btn {
     background: var(--surface-card);
     border: 1px solid var(--border-subtle);

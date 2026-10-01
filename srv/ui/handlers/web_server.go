@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -202,7 +203,7 @@ func (w *WebServer) isAuthorized(req *http.Request) bool {
 				reqKey = strings.TrimPrefix(authHeader, "Bearer ")
 			}
 		}
-		return reqKey == apiKey
+		return subtle.ConstantTimeCompare([]byte(reqKey), []byte(apiKey)) == 1
 	}
 	if isExposed && !isLoopback(req.RemoteAddr) {
 		return false
@@ -347,7 +348,7 @@ func (w *WebServer) Echo() *echo.Echo {
 	// API REST Controllers vía Echo
 	e.Any("/api/status", echo.WrapHandler(http.HandlerFunc(w.handleStatus)))
 	e.Any("/api/dashboard", echo.WrapHandler(http.HandlerFunc(w.handleStatus)))
-	e.Any("/api/services", echo.WrapHandler(http.HandlerFunc(w.handleServices)))
+	e.Any("/api/services", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServices))))
 	e.Any("/api/services/rollback", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServiceRollback))))
 	e.Any("/api/services/restart", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServiceRestart))))
 	e.Any("/api/databases/restart", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServiceRestart))))
@@ -361,38 +362,38 @@ func (w *WebServer) Echo() *echo.Echo {
 	e.Any("/api/config/test", echo.WrapHandler(http.HandlerFunc(w.handleConnect)))
 	e.Any("/api/connect", echo.WrapHandler(http.HandlerFunc(w.handleConnect)))
 	e.Any("/api/connect/all", echo.WrapHandler(http.HandlerFunc(w.handleConnectAll)))
-	e.Any("/api/servers", echo.WrapHandler(http.HandlerFunc(w.handleServers)))
-	e.Any("/api/servers/active", echo.WrapHandler(http.HandlerFunc(w.handleSetActiveServer)))
+	e.Any("/api/servers", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServers))))
+	e.Any("/api/servers/active", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleSetActiveServer))))
 	e.Any("/api/servers/provision", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleProvisionServer))))
 	e.Any("/api/servers/open-terminal", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleOpenTerminal))))
 	e.Any("/api/servers/terminal", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleTerminalExec))))
-	e.Any("/api/host/metrics", echo.WrapHandler(http.HandlerFunc(w.handleHostMetrics)))
-	e.Any("/api/host/services", echo.WrapHandler(http.HandlerFunc(w.handleHostServices)))
-	e.Any("/api/host/inspect", echo.WrapHandler(http.HandlerFunc(w.handleHostInspect)))
-	e.Any("/api/host/devices", echo.WrapHandler(http.HandlerFunc(w.handleHostDevices)))
-	e.Any("/api/host/security", echo.WrapHandler(http.HandlerFunc(w.handleHostSecurity)))
-	e.Any("/api/system/report", echo.WrapHandler(http.HandlerFunc(w.handleSystemReport)))
-	e.Any("/api/swarm/status", echo.WrapHandler(http.HandlerFunc(w.handleSwarmStatus)))
+	e.Any("/api/host/metrics", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleHostMetrics))))
+	e.Any("/api/host/services", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleHostServices))))
+	e.Any("/api/host/inspect", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleHostInspect))))
+	e.Any("/api/host/devices", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleHostDevices))))
+	e.Any("/api/host/security", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleHostSecurity))))
+	e.Any("/api/system/report", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleSystemReport))))
+	e.Any("/api/swarm/status", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleSwarmStatus))))
 	e.Any("/api/bootstrap", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleBootstrap))))
 	e.Any("/api/create-vm-bootstrap", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleCreateVMBootstrap))))
 	e.Any("/api/workers", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleWorkerProvision))))
 	e.Any("/api/provision-worker", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleWorkerProvision))))
 	e.Any("/api/swarm/provision-worker", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleWorkerProvision))))
-	e.Any("/api/observability", echo.WrapHandler(http.HandlerFunc(w.handleObservability)))
+	e.Any("/api/observability", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleObservability))))
 	e.Any("/api/update", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServerUpdate))))
 	e.Any("/api/bootstrap-master", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleBootstrapMaster))))
-	e.Any("/api/previews", echo.WrapHandler(http.HandlerFunc(w.handlePreviewEnvs)))
-	e.Any("/api/registries", echo.WrapHandler(http.HandlerFunc(w.handleRegistries)))
+	e.Any("/api/previews", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handlePreviewEnvs))))
+	e.Any("/api/registries", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleRegistries))))
 	e.Any("/api/migrations", echo.WrapHandler(http.HandlerFunc(w.handleMigrations)))
-	e.Any("/api/migrations/file", echo.WrapHandler(http.HandlerFunc(w.handleMigrationFile)))
+	e.Any("/api/migrations/file", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleMigrationFile))))
 	e.Any("/api/migrations/run", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleRunMigrations))))
 	e.Any("/api/observability/metrics", echo.WrapHandler(http.HandlerFunc(w.handleObservabilityMetrics)))
 	e.Any("/api/backups", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleBackups))))
 	e.Any("/api/databases/backup", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleBackups))))
 	e.Any("/api/backups/restore", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleRestoreBackup))))
-	e.Any("/api/backups/download", echo.WrapHandler(http.HandlerFunc(w.handleDownloadBackup)))
-	e.Any("/api/env", echo.WrapHandler(http.HandlerFunc(w.handleEnvVars)))
-	e.Any("/api/env/export", echo.WrapHandler(http.HandlerFunc(w.handleExportEnvVars)))
+	e.Any("/api/backups/download", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleDownloadBackup))))
+	e.Any("/api/env", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleEnvVars))))
+	e.Any("/api/env/export", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleExportEnvVars))))
 	e.Any("/api/volumes", echo.WrapHandler(http.HandlerFunc(w.handleVolumes)))
 	e.Any("/api/volumes/files", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleVolumeFiles))))
 	e.Any("/api/volumes/read", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleVolumeRead))))
@@ -404,16 +405,16 @@ func (w *WebServer) Echo() *echo.Echo {
 	e.Any("/api/ssl/inspect", echo.WrapHandler(http.HandlerFunc(w.handleSSLInspect)))
 	e.Any("/api/ssl/reload", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleSSLReload))))
 	e.Any("/api/maintenance/toggle", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleMaintenanceToggle))))
-	e.Any("/api/domains", echo.WrapHandler(http.HandlerFunc(w.handleCustomDomains)))
+	e.Any("/api/domains", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleCustomDomains))))
 	e.Any("/api/dns/check", echo.WrapHandler(http.HandlerFunc(w.handleDNSCheck)))
 	e.Any("/api/prune", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handlePrune))))
 	e.Any("/api/tools/prune", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handlePrune))))
 	e.Any("/api/tools/restart-traefik", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleRestartTraefik))))
 	e.Any("/api/tools/repair-traefik", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleRepairTraefik))))
-	e.Any("/api/topology", echo.WrapHandler(http.HandlerFunc(w.handleTopology)))
+	e.Any("/api/topology", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleTopology))))
 	e.Any("/api/links", echo.WrapHandler(http.HandlerFunc(w.handleLinks)))
 	e.Any("/api/nodes", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleNodes))))
-	e.Any("/api/nodes/join-token", echo.WrapHandler(http.HandlerFunc(w.handleNodeJoinToken)))
+	e.Any("/api/nodes/join-token", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleNodeJoinToken))))
 	e.Any("/api/nodes/update", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleNodeUpdate))))
 	e.Any("/api/nodes/labels", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleNodeLabels))))
 	e.Any("/api/terminal/exec", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleTerminalExec))))
@@ -423,7 +424,7 @@ func (w *WebServer) Echo() *echo.Echo {
 	e.Any("/api/alerts/test", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleAlertTest))))
 	e.Any("/api/services/history", echo.WrapHandler(http.HandlerFunc(w.handleServiceHistory)))
 	e.Any("/api/services/rollback-version", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleServiceRollbackToVersion))))
-	e.Any("/api/ssl/certificates", echo.WrapHandler(http.HandlerFunc(w.handleSSLCertificates)))
+	e.Any("/api/ssl/certificates", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleSSLCertificates))))
 	e.Any("/api/nodes/drain", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleNodeDrain))))
 	e.Any("/api/nodes/activate", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleNodeActivate))))
 	e.Any("/api/webhooks/deploy", echo.WrapHandler(http.HandlerFunc(w.handleWebhookDeploy)))
@@ -433,8 +434,8 @@ func (w *WebServer) Echo() *echo.Echo {
 	e.Any("/api/databases/health", echo.WrapHandler(http.HandlerFunc(w.handleDBHealth)))
 	e.Any("/api/vultr/plans", echo.WrapHandler(http.HandlerFunc(w.handleVultrPlans)))
 	e.Any("/api/vultr/regions", echo.WrapHandler(http.HandlerFunc(w.handleVultrRegions)))
-	e.Any("/api/sync", echo.WrapHandler(http.HandlerFunc(w.handleSyncState)))
-	e.Any("/api/ssh-keys", echo.WrapHandler(http.HandlerFunc(w.handleSSHKeys)))
+	e.Any("/api/sync", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleSyncState))))
+	e.Any("/api/ssh-keys", echoAuth(echo.WrapHandler(http.HandlerFunc(w.handleSSHKeys))))
 
 	w.echo = e
 	return e
@@ -908,10 +909,13 @@ func (w *WebServer) getTargetServerConfig(req *http.Request) (*domain.ServerConf
 		if err != nil {
 			return nil, err
 		}
-		if found != nil {
-			return found, nil
+		if found == nil {
+			return nil, fmt.Errorf("servidor '%s' no encontrado", name)
 		}
-		return nil, fmt.Errorf("servidor '%s' no encontrado", name)
+		if found.Host == "" && !isLocalConfig(found) {
+			return nil, fmt.Errorf("servidor '%s' no tiene Host configurado", name)
+		}
+		return found, nil
 	}
 
 	cfg := w.getConfig()
@@ -1486,6 +1490,7 @@ func (w *WebServer) handleServices(rw http.ResponseWriter, req *http.Request) {
 				EnableSSL:      svc.EnableSSL,
 				HealthcheckCmd: svc.HealthcheckCmd,
 				TargetNode:     svc.TargetNode,
+				ServerName:     cfg.Name,
 			}
 			customSvc := domain.CustomService{
 				Name:          svc.Name,
@@ -1671,6 +1676,7 @@ func (w *WebServer) handleServiceItem(rw http.ResponseWriter, req *http.Request)
 					EnableSSL:      svc.EnableSSL,
 					HealthcheckCmd: svc.HealthcheckCmd,
 					TargetNode:     svc.TargetNode,
+					ServerName:     cfg.Name,
 				}
 				customSvc := domain.CustomService{
 					Name:          svc.Name,
@@ -1969,7 +1975,7 @@ func (w *WebServer) handleDatabaseItem(rw http.ResponseWriter, req *http.Request
 			jsonError(rw, "Operación no autorizada: API key requerida", http.StatusUnauthorized)
 			return
 		}
-		cfg := w.getConfig()
+		cfg := w.resolveTargetServer(req.URL.Query().Get("server"))
 		deleteServerName := ""
 		if cfg != nil {
 			deleteServerName = cfg.Name
@@ -2751,9 +2757,11 @@ func (w *WebServer) handleServiceRestart(rw http.ResponseWriter, req *http.Reque
 
 
 func (w *WebServer) handleServerUpdate(rw http.ResponseWriter, req *http.Request) {
-	if w.config != nil && w.config.Host != "" {
+	serverTarget := req.URL.Query().Get("server")
+	cfg := w.resolveTargetServer(serverTarget)
+	if cfg != nil && cfg.Host != "" {
 		sshExec := repositories.NewCryptoSSHExecutor()
-		if err := sshExec.Connect(*w.config); err == nil {
+		if err := sshExec.Connect(*cfg); err == nil {
 			defer sshExec.Close()
 			if err := usecases.NewUpdateServerUseCase(sshExec).Execute(); err != nil {
 				slog.Warn("falló actualización del servidor", "error", err)
@@ -2764,8 +2772,9 @@ func (w *WebServer) handleServerUpdate(rw http.ResponseWriter, req *http.Request
 }
 
 func (w *WebServer) handlePrune(rw http.ResponseWriter, req *http.Request) {
-	cfg := w.getConfig()
-	if cfg == nil || cfg.Host == "" {
+	serverTarget := req.URL.Query().Get("server")
+	cfg := w.resolveTargetServer(serverTarget)
+	if (cfg == nil || cfg.Host == "") && serverTarget == "" {
 		if loaded, err := w.repo.GetServerConfig(); err == nil && loaded != nil && loaded.Host != "" {
 			w.setConfig(loaded)
 			cfg = loaded
@@ -2798,8 +2807,9 @@ func (w *WebServer) handlePrune(rw http.ResponseWriter, req *http.Request) {
 }
 
 func (w *WebServer) handleRestartTraefik(rw http.ResponseWriter, req *http.Request) {
-	cfg := w.getConfig()
-	if cfg == nil || cfg.Host == "" {
+	serverTarget := req.URL.Query().Get("server")
+	cfg := w.resolveTargetServer(serverTarget)
+	if (cfg == nil || cfg.Host == "") && serverTarget == "" {
 		if loaded, err := w.repo.GetServerConfig(); err == nil && loaded != nil && loaded.Host != "" {
 			w.setConfig(loaded)
 			cfg = loaded
@@ -2841,8 +2851,9 @@ func (w *WebServer) handleRepairTraefik(rw http.ResponseWriter, req *http.Reques
 		}
 	}
 
-	cfg := w.getConfig()
-	if cfg == nil || cfg.Host == "" {
+	serverTarget := req.URL.Query().Get("server")
+	cfg := w.resolveTargetServer(serverTarget)
+	if (cfg == nil || cfg.Host == "") && serverTarget == "" {
 		if loaded, err := w.repo.GetServerConfig(); err == nil && loaded != nil && loaded.Host != "" {
 			w.setConfig(loaded)
 			cfg = loaded
@@ -2976,18 +2987,20 @@ func (w *WebServer) handleLinks(rw http.ResponseWriter, req *http.Request) {
 		if reqData.TargetSvc == "" { reqData.TargetSvc = reqData.TargetSvcSnake }
 		if reqData.EnvVarName == "" { reqData.EnvVarName = reqData.EnvVarNameSnake }
 
+		cfg := w.resolveTargetServer(req.URL.Query().Get("server"))
+
 		var sshExec ports.SSHExecutor
-		if w.config != nil && w.config.Host != "" {
+		if cfg != nil && cfg.Host != "" {
 			se := repositories.NewCryptoSSHExecutor()
-			if err := se.Connect(*w.config); err == nil {
+			if err := se.Connect(*cfg); err == nil {
 				sshExec = se
 				defer se.Close()
 			}
 		}
 
 		serverName := ""
-		if w.config != nil {
-			serverName = w.config.Name
+		if cfg != nil {
+			serverName = cfg.Name
 		}
 		linkUseCase := usecases.NewLinkServicesUseCase(w.repo, sshExec)
 		link, err := linkUseCase.Execute(reqData.SourceSvc, reqData.TargetSvc, reqData.EnvVarName, serverName)
@@ -3008,18 +3021,20 @@ func (w *WebServer) handleLinks(rw http.ResponseWriter, req *http.Request) {
 			return
 		}
 
+		cfg := w.resolveTargetServer(req.URL.Query().Get("server"))
+
 		var sshExec ports.SSHExecutor
-		if w.config != nil && w.config.Host != "" {
+		if cfg != nil && cfg.Host != "" {
 			se := repositories.NewCryptoSSHExecutor()
-			if err := se.Connect(*w.config); err == nil {
+			if err := se.Connect(*cfg); err == nil {
 				sshExec = se
 				defer se.Close()
 			}
 		}
 
 		serverName := ""
-		if w.config != nil {
-			serverName = w.config.Name
+		if cfg != nil {
+			serverName = cfg.Name
 		}
 		unlinkUseCase := usecases.NewUnlinkServicesUseCase(w.repo, sshExec)
 		if err := unlinkUseCase.Execute(sourceSvc, targetSvc, serverName); err != nil {
@@ -3162,9 +3177,12 @@ func (w *WebServer) handleNodes(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	// GET: List all nodes
+	serverTarget := req.URL.Query().Get("server")
+	targetCfg := w.resolveTargetServer(serverTarget)
+
 	managerHost := "Local / Master VPS"
-	if w.config != nil && w.config.Host != "" {
-		managerHost = w.config.Host
+	if targetCfg != nil && targetCfg.Host != "" {
+		managerHost = targetCfg.Host
 	}
 
 	nodes := []map[string]interface{}{
@@ -3181,9 +3199,9 @@ func (w *WebServer) handleNodes(rw http.ResponseWriter, req *http.Request) {
 		},
 	}
 
-	if w.config != nil && w.config.Host != "" {
+	if targetCfg != nil && targetCfg.Host != "" {
 		sshExec := repositories.NewCryptoSSHExecutor()
-		if err := sshExec.Connect(*w.config); err == nil {
+		if err := sshExec.Connect(*targetCfg); err == nil {
 			defer sshExec.Close()
 			res, err := sshExec.RunCommand("docker node ls --format '{{.ID}}|{{.Hostname}}|{{.Status}}|{{.Availability}}|{{.ManagerStatus}}|{{.EngineVersion}}'")
 			if err == nil && res.Output != "" {
@@ -3393,10 +3411,13 @@ func (w *WebServer) handleNodeLabels(rw http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	cfg := domain.ServerConfig{}
-	if w.config != nil {
-		cfg = *w.config
+	serverTarget := req.URL.Query().Get("server")
+	targetCfg := w.resolveTargetServer(serverTarget)
+	if targetCfg == nil || (targetCfg.Host == "" && !isLocalConfig(targetCfg)) {
+		jsonError(rw, "VPS no configurado", http.StatusBadRequest)
+		return
 	}
+	cfg := *targetCfg
 	sshExec := repositories.NewCryptoSSHExecutor()
 	uc := usecases.NewManageNodesUseCase(w.repo, sshExec)
 
@@ -3531,11 +3552,13 @@ func (w *WebServer) handleLogs(rw http.ResponseWriter, req *http.Request) {
 	}
 	lines := strconv.Itoa(linesInt)
 
-	if w.config != nil && w.config.Host != "" {
+	serverTarget := req.URL.Query().Get("server")
+	cfg := w.resolveTargetServer(serverTarget)
+	if cfg != nil && cfg.Host != "" {
 		sshExec := repositories.NewCryptoSSHExecutor()
-		if err := sshExec.Connect(*w.config); err == nil {
+		if err := sshExec.Connect(*cfg); err == nil {
 			defer sshExec.Close()
-			
+
 			candidates := []string{
 				serviceName,
 				"tarhiata-db-" + serviceName,
@@ -3813,9 +3836,11 @@ func (w *WebServer) handleRunMigrations(rw http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	serverTarget := req.URL.Query().Get("server")
+	targetCfg := w.resolveTargetServer(serverTarget)
 	cfg := domain.ServerConfig{}
-	if w.config != nil {
-		cfg = *w.config
+	if targetCfg != nil {
+		cfg = *targetCfg
 	}
 
 	sshExec := repositories.NewCryptoSSHExecutor()
@@ -3835,9 +3860,11 @@ func (w *WebServer) handleObservabilityMetrics(rw http.ResponseWriter, req *http
 		service = "all"
 	}
 
+	serverTarget := req.URL.Query().Get("server")
+	targetCfg := w.resolveTargetServer(serverTarget)
 	cfg := domain.ServerConfig{}
-	if w.config != nil {
-		cfg = *w.config
+	if targetCfg != nil {
+		cfg = *targetCfg
 	}
 
 	sshExec := repositories.NewCryptoSSHExecutor()
@@ -4465,7 +4492,8 @@ func (w *WebServer) handleContainerStats(rw http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	cfg := w.getConfig()
+	serverTarget := req.URL.Query().Get("server")
+	cfg := w.resolveTargetServer(serverTarget)
 	if cfg == nil || cfg.Host == "" {
 		jsonError(rw, "VPS no configurado", http.StatusBadRequest)
 		return
@@ -4498,7 +4526,8 @@ func (w *WebServer) handleDBHealth(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	cfg := w.getConfig()
+	serverTarget := req.URL.Query().Get("server")
+	cfg := w.resolveTargetServer(serverTarget)
 	if cfg == nil || cfg.Host == "" {
 		jsonError(rw, "VPS no configurado", http.StatusBadRequest)
 		return
@@ -5057,11 +5086,11 @@ func (w *WebServer) handleWebhookDeploy(rw http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	cfg := w.getConfig()
-	if cfg == nil || (cfg.Host == "" && !isLocalConfig(cfg)) {
-		jsonError(rw, "Servidor VPS no configurado", http.StatusBadRequest)
-		return
-	}
+	// Reutilizamos webhookCfg (ya resuelto y validado arriba para la firma HMAC) en vez de
+	// re-resolver contra el servidor activo global: un servicio puede vivir en un servidor
+	// del fleet distinto al que esté marcado como activo en ese momento, y desplegar contra
+	// el servidor equivocado sobrescribiría/fallaría el servicio homónimo de otra máquina.
+	cfg := webhookCfg
 
 	// Build-from-source: en vez de re-pullear un tag existente, disparamos el build en
 	// background (GitHub/GitLab/Gitea no esperan streaming, solo una respuesta rápida)
@@ -5180,7 +5209,8 @@ func (w *WebServer) handleServiceRebuild(rw http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	cfg := w.getConfig()
+	serverTarget := req.URL.Query().Get("server")
+	cfg := w.resolveTargetServer(serverTarget)
 	if cfg == nil || (cfg.Host == "" && !isLocalConfig(cfg)) {
 		jsonError(rw, "Servidor VPS no configurado", http.StatusBadRequest)
 		return

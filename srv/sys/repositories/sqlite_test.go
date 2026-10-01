@@ -285,6 +285,88 @@ func TestSQLiteMultiServerCatalog(t *testing.T) {
 	}
 }
 
+// TestSQLiteDeleteServerConfig_PromotesNewActive regresión: borrar el servidor activo
+// no debe dejar el fleet sin ningún servidor activo. Antes del fix, GetServerConfig()
+// caía al fallback legacy con Name="default", que no coincide con ningún server_name
+// real y hacía que GetServices/GetDatabases devolvieran vacío para todo el fleet.
+func TestSQLiteDeleteServerConfig_PromotesNewActive(t *testing.T) {
+	tempDir := t.TempDir()
+	repo, err := NewSQLiteRepository(filepath.Join(tempDir, "promote.db"))
+	if err != nil {
+		t.Fatalf("error initializing db: %v", err)
+	}
+	defer repo.Close()
+
+	if err := repo.SaveServerConfig(domain.ServerConfig{Name: "local", Host: "localhost", CloudProvider: "local", IsActive: true}); err != nil {
+		t.Fatalf("error saving 'local': %v", err)
+	}
+	if err := repo.SaveServerConfig(domain.ServerConfig{Name: "vps-prod", Host: "108.61.33.61", CloudProvider: "vps-direct", IsActive: false}); err != nil {
+		t.Fatalf("error saving 'vps-prod': %v", err)
+	}
+
+	if err := repo.DeleteServerConfig("local"); err != nil {
+		t.Fatalf("error deleting active server 'local': %v", err)
+	}
+
+	active, err := repo.GetServerConfig()
+	if err != nil {
+		t.Fatalf("error getting active server after deletion: %v", err)
+	}
+	if active == nil {
+		t.Fatal("expected a promoted active server, got nil")
+	}
+	if active.Name != "vps-prod" {
+		t.Fatalf("expected 'vps-prod' promoted to active, got %+v", active)
+	}
+
+	if _, err := repo.GetServices(active.Name); err != nil {
+		t.Fatalf("error getting services for promoted active server: %v", err)
+	}
+}
+
+// TestSQLiteSetActiveServerConfig_LegacyFallbackStaysDecryptable regresión: tras
+// SetActiveServerConfig, la tabla legacy server_config debía quedar con los secretos
+// en texto plano (SetActiveServerConfig los tomaba ya desencriptados de
+// GetServerConfigByName y los escribía tal cual), mientras GetServerConfig() siempre
+// intenta desencriptar lo que lee de ahí — corrompiendo la llave privada en el
+// fallback. Este test fuerza ese fallback borrando todas las filas de server_configs.
+func TestSQLiteSetActiveServerConfig_LegacyFallbackStaysDecryptable(t *testing.T) {
+	tempDir := t.TempDir()
+	repo, err := NewSQLiteRepository(filepath.Join(tempDir, "legacy_fallback.db"))
+	if err != nil {
+		t.Fatalf("error initializing db: %v", err)
+	}
+	defer repo.Close()
+
+	rawKey := "-----BEGIN OPENSSH PRIVATE KEY-----\nsecret_key_data\n-----END OPENSSH PRIVATE KEY-----"
+	if err := repo.SaveServerConfig(domain.ServerConfig{Name: "local", Host: "localhost", CloudProvider: "local", IsActive: true}); err != nil {
+		t.Fatalf("error saving 'local': %v", err)
+	}
+	if err := repo.SaveServerConfig(domain.ServerConfig{Name: "vps-prod", Host: "108.61.33.61", CloudProvider: "vps-direct", PrivateKey: rawKey, IsActive: false}); err != nil {
+		t.Fatalf("error saving 'vps-prod': %v", err)
+	}
+
+	if err := repo.SetActiveServerConfig("vps-prod"); err != nil {
+		t.Fatalf("error switching active server: %v", err)
+	}
+
+	// Forzar el camino de fallback legacy: vaciar server_configs directamente.
+	if _, err := repo.db.Exec("DELETE FROM server_configs"); err != nil {
+		t.Fatalf("error clearing server_configs: %v", err)
+	}
+
+	fallback, err := repo.GetServerConfig()
+	if err != nil {
+		t.Fatalf("error reading legacy fallback config: %v", err)
+	}
+	if fallback == nil {
+		t.Fatal("expected legacy fallback config, got nil")
+	}
+	if fallback.PrivateKey != rawKey {
+		t.Fatalf("private key corrupted through legacy fallback: got %q, want %q", fallback.PrivateKey, rawKey)
+	}
+}
+
 func TestSQLiteEncryptionAtRest(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "crypto_test.db")

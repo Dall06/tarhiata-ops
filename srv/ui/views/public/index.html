@@ -64,26 +64,34 @@
                     <span>Spotlight</span>
                     <kbd class="nav-kbd-hint">⌘K</kbd>
                 </button>
-                <button type="button" class="action-btn action-btn-ghost" id="btnTestAll" title="Probar conectividad de los servidores">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-                    <span>Sondear Red</span>
-                </button>
-                <button type="button" class="action-btn action-btn-ghost" id="btnDownloadReport" title="Descargar reporte de diagnóstico completo (.md)">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                    <span>Reporte</span>
-                </button>
-                <button type="button" class="action-btn action-btn-ghost" id="btnTopAudit" title="Explorador de bitácora de auditoría histórica">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                    <span>Auditoría</span>
-                </button>
-                <button type="button" class="action-btn action-btn-ghost" id="btnTopAlerts" title="Configuración de alertas salientes (Discord/Telegram/Slack)">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-                    <span>Alertas</span>
-                </button>
-                <button type="button" class="action-btn action-btn-ghost" id="btnTopSSL" title="Inspección de certificados SSL y mantenimiento Traefik">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                    <span>SSL</span>
-                </button>
+                <div class="nav-tools-wrap" id="navToolsWrap">
+                    <button type="button" class="action-btn action-btn-ghost" id="btnNavTools" title="Herramientas de red, diagnóstico y seguridad">
+                        <span>⚙️ Herramientas</span>
+                        <svg class="switcher-arrow" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                    </button>
+                    <div class="row-actions-dropdown" id="navToolsDropdown">
+                        <button type="button" class="dd-item" id="btnTestAll" title="Probar conectividad de los servidores">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                            <span>Sondear Red</span>
+                        </button>
+                        <button type="button" class="dd-item" id="btnDownloadReport" title="Descargar reporte de diagnóstico completo (.md)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                            <span>Reporte</span>
+                        </button>
+                        <button type="button" class="dd-item" id="btnTopAudit" title="Explorador de bitácora de auditoría histórica">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                            <span>Auditoría</span>
+                        </button>
+                        <button type="button" class="dd-item" id="btnTopAlerts" title="Configuración de alertas salientes (Discord/Telegram/Slack)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                            <span>Alertas</span>
+                        </button>
+                        <button type="button" class="dd-item" id="btnTopSSL" title="Inspección de certificados SSL y mantenimiento Traefik">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                            <span>SSL</span>
+                        </button>
+                    </div>
+                </div>
                 <button type="button" class="action-btn action-btn-terminal" id="btnTopActiveTerminal" title="Abrir terminal SSH interactiva">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
                     <span>Terminal</span>

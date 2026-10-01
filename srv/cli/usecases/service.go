@@ -683,7 +683,7 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec syspor
 			}
 			if redeploy {
 				fmt.Printf("\n🚀 Redesplegando %s en el clúster...\n", svc.Name)
-				deployConfig := sysdomain.DeployConfig{ImageSource: svc.ImageSource, IsURL: svc.IsURL, Port: svc.Port, Domain: svc.Domain, Expose: svc.Expose, EnableSSL: svc.EnableSSL, HealthcheckCmd: svc.HealthcheckCmd}
+				deployConfig := sysdomain.DeployConfig{ImageSource: svc.ImageSource, IsURL: svc.IsURL, Port: svc.Port, Domain: svc.Domain, Expose: svc.Expose, EnableSSL: svc.EnableSSL, HealthcheckCmd: svc.HealthcheckCmd, ServerName: config.Name}
 				customService := sysdomain.CustomService{Name: svc.Name, EnvVars: make(map[string]string)}
 				if svc.EnvFilePath != "" {
 					customService.Files = append(customService.Files, sysdomain.ServiceFile{FileName: ".env", LocalPath: svc.EnvFilePath})
@@ -782,6 +782,7 @@ func (h *serviceHandler) runManageServiceMenu(serviceName string, sshExec syspor
 			Expose:         svc.Expose,
 			EnableSSL:      svc.EnableSSL,
 			HealthcheckCmd: svc.HealthcheckCmd,
+			ServerName:     config.Name,
 		}
 
 		customService := sysdomain.CustomService{

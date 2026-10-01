@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Dall06/tarhiata-ops/pkg/validator"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 )
@@ -189,6 +190,12 @@ func (uc *ManageNodesUseCase) AddNodeLabel(nodeID, key, value string, config dom
 	if key == "" {
 		return fmt.Errorf("la clave de la etiqueta no puede estar vacía")
 	}
+	if !validator.IsIdentifier(key) || (value != "" && !validator.IsIdentifier(value)) {
+		return fmt.Errorf("clave o valor de etiqueta inválido: deben ser alfanuméricos (guiones, puntos y guiones bajos permitidos)")
+	}
+	if !validator.IsNodeID(nodeID) {
+		return fmt.Errorf("ID de nodo inválido: %q", nodeID)
+	}
 
 	if uc.ssh == nil {
 		return fmt.Errorf("ejecutor SSH no configurado")
@@ -217,6 +224,12 @@ func (uc *ManageNodesUseCase) RemoveNodeLabel(nodeID, key string, config domain.
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return fmt.Errorf("la clave de la etiqueta no puede estar vacía")
+	}
+	if !validator.IsIdentifier(key) {
+		return fmt.Errorf("clave de etiqueta inválida: %q", key)
+	}
+	if !validator.IsNodeID(nodeID) {
+		return fmt.Errorf("ID de nodo inválido: %q", nodeID)
 	}
 
 	if uc.ssh == nil {

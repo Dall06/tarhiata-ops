@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Dall06/tarhiata-ops/pkg/dockerutil"
+	"github.com/Dall06/tarhiata-ops/pkg/validator"
 	"github.com/Dall06/tarhiata-ops/srv/sys/domain"
 	"github.com/Dall06/tarhiata-ops/srv/sys/ports"
 )
@@ -25,6 +26,9 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 
 	if db.VolumeHostPath == "" {
 		db.VolumeHostPath = fmt.Sprintf("/opt/data/db-%s", db.Name)
+	}
+	if !validator.IsSafePath(db.VolumeHostPath) {
+		return fmt.Errorf("ruta de volumen inválida: %q", db.VolumeHostPath)
 	}
 	if db.Password == "" {
 		db.Password = fmt.Sprintf("admin_%s_pass", db.Name)
@@ -67,7 +71,7 @@ func (uc *DeployDatabaseUseCase) Execute(db domain.SavedDatabase, config domain.
 	fmt.Printf("🔌 URI Interna (Oculta): %s\n", dockerutil.BuildSafeURI(db.Engine, serviceName, db.InternalPort))
 
 	syncUC := NewSyncClusterStateUseCase(nil, uc.ssh)
-	if errSync := syncUC.ExportStateToRemote(""); errSync != nil {
+	if errSync := syncUC.ExportStateToRemote(config.Name); errSync != nil {
 		slog.Warn("Fallo al exportar estado de sincronización al VPS", "error", errSync)
 	}
 

@@ -8,6 +8,7 @@ import (
 
 var identifierRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`)
 var whitespaceRegex = regexp.MustCompile(`\s+`)
+var safePathRegex = regexp.MustCompile(`^/[a-zA-Z0-9_\-./]*$`)
 
 // IsIdentifier valida si una cadena es un identificador alfanumérico seguro (para nombres de servicio, BD o contenedores).
 func IsIdentifier(s string) bool {
@@ -69,6 +70,19 @@ func IsSafeCommand(cmd string) bool {
 		}
 	}
 	return true
+}
+
+// IsSafePath valida que una ruta absoluta de filesystem no contenga metacaracteres de shell
+// (espacios, comillas, $, `, ;, |, &) ni secuencias de traversal, antes de interpolarla
+// cruda en comandos de shell remotos vía SSH (mkdir, rm, docker --mount, etc).
+func IsSafePath(path string) bool {
+	if path == "" || len(path) > 512 {
+		return false
+	}
+	if !safePathRegex.MatchString(path) {
+		return false
+	}
+	return !strings.Contains(path, "..")
 }
 
 // ShellQuote envuelve s en comillas simples POSIX-seguras para interpolarlo en un

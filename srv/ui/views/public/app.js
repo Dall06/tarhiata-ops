@@ -131,6 +131,9 @@ function initApp() {
     const btnTopAudit = document.getElementById('btnTopAudit');
     const btnTopAlerts = document.getElementById('btnTopAlerts');
     const btnTopSSL = document.getElementById('btnTopSSL');
+    const btnNavTools = document.getElementById('btnNavTools');
+    const navToolsWrap = document.getElementById('navToolsWrap');
+    const navToolsDropdown = document.getElementById('navToolsDropdown');
 
     if (tabSwarmServices) tabSwarmServices.addEventListener('click', () => activateTab('services'));
     if (tabSwarmDatabases) tabSwarmDatabases.addEventListener('click', () => activateTab('databases'));
@@ -143,6 +146,25 @@ function initApp() {
     if (btnTopAudit) btnTopAudit.addEventListener('click', () => openAuditModal());
     if (btnTopAlerts) btnTopAlerts.addEventListener('click', () => openAlertsModal());
     if (btnTopSSL) btnTopSSL.addEventListener('click', () => openSSLModal());
+
+    if (btnNavTools && navToolsDropdown) {
+        btnNavTools.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = navToolsDropdown.classList.contains('open');
+            navToolsDropdown.classList.toggle('open', !isOpen);
+            btnNavTools.classList.toggle('open', !isOpen);
+        });
+        navToolsDropdown.addEventListener('click', () => {
+            navToolsDropdown.classList.remove('open');
+            btnNavTools.classList.remove('open');
+        });
+    }
+    document.addEventListener('click', (e) => {
+        if (navToolsWrap && navToolsDropdown && !navToolsWrap.contains(e.target)) {
+            navToolsDropdown.classList.remove('open');
+            if (btnNavTools) btnNavTools.classList.remove('open');
+        }
+    });
 
     // 4. Initial Load
     const initialHash = (location.hash || '#services').replace('#', '');

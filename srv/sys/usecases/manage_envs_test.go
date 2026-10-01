@@ -85,12 +85,31 @@ func TestManageEnvVarsUseCase_UpdateAndGet(t *testing.T) {
 	}
 }
 
+// TestManageEnvVarsUseCase_UpdateRejectsUnknownService regresión: actualizar envs de un
+// servicio que no existe en el catálogo debe fallar, no fabricar un SavedService nuevo
+// con ServerName="" (eso dejaba un duplicado fantasma, con UNIQUE(name, server_name)
+// permitiéndolo convivir junto al servicio real de otro servidor con el mismo nombre).
+func TestManageEnvVarsUseCase_UpdateRejectsUnknownService(t *testing.T) {
+	repo := mocks.NewMockConfigRepository()
+	mockSSH := mocks.NewMockSSHExecutor()
+	uc := NewManageEnvVarsUseCase(repo, mockSSH)
+
+	err := uc.UpdateEnvVars("no-existe", "KEY=val\n", domain.ServerConfig{Name: "vps-prod", Host: "1.2.3.4"})
+	if err == nil {
+		t.Fatal("expected error for unknown service, got nil")
+	}
+	if len(repo.Services) != 0 {
+		t.Fatalf("expected no service to be created, got: %+v", repo.Services)
+	}
+}
+
 // TestManageEnvVarsUseCase_ShellInjectionPrevention valida el flujo completo: un valor
 // con metacaracteres de shell debe llegar citado al "docker service update" real (no solo
 // con comillas dobles escapadas, que $(...) / backticks siguen expandiendo dentro de
 // ellas), y una key con formato inválido debe omitirse en vez de interpolarse cruda.
 func TestManageEnvVarsUseCase_ShellInjectionPrevention(t *testing.T) {
 	repo := mocks.NewMockConfigRepository()
+	repo.Services = []domain.SavedService{{Name: "web-api"}}
 	mockSSH := mocks.NewMockSSHExecutor()
 	uc := NewManageEnvVarsUseCase(repo, mockSSH)
 

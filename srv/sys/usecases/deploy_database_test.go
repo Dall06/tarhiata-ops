@@ -60,6 +60,17 @@ func TestDeployDatabase_Execute(t *testing.T) {
 			},
 			expectError: true,
 		},
+		{
+			name: "Fail on command injection in VolumeHostPath",
+			db: domain.SavedDatabase{
+				Name:           "evil",
+				Engine:         "postgres",
+				DeployType:     "single-node",
+				Password:       "secure-pass",
+				VolumeHostPath: "/opt/data/evil; rm -rf /",
+			},
+			expectError: true,
+		},
 	}
 
 	for _, tt := range tests {

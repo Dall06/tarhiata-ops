@@ -349,6 +349,27 @@ func (r *SQLiteRepository) addColumnIfMissing(table, column, colDef string) {
 	}
 }
 
+// syncLegacyServerConfig mantiene sincronizada la tabla legacy server_config (id = 1,
+// usada como fallback por GetServerConfig cuando server_configs aún no tiene filas) con
+// el servidor activo. Los secretos que recibe deben venir ya encriptados (encryptSecret):
+// GetServerConfig descifra lo que lee de esta tabla, así que escribir aquí un valor en
+// texto plano lo deja corrupto en la siguiente lectura.
+func syncLegacyServerConfig(tx *sql.Tx, host string, port int, user, encKey, encVultr, encDO, cloudProvider string) error {
+	query := `
+	INSERT INTO server_config (id, host, port, user, private_key, vultr_api_token, do_api_token, cloud_provider)
+	VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET
+		host=excluded.host,
+		port=excluded.port,
+		user=excluded.user,
+		private_key=excluded.private_key,
+		vultr_api_token=excluded.vultr_api_token,
+		do_api_token=excluded.do_api_token,
+		cloud_provider=excluded.cloud_provider;`
+	_, err := tx.Exec(query, host, port, user, encKey, encVultr, encDO, cloudProvider)
+	return err
+}
+
 func (r *SQLiteRepository) SaveServerConfig(config domain.ServerConfig) error {
 	name := strings.TrimSpace(config.Name)
 	if name == "" {
@@ -364,14 +385,20 @@ func (r *SQLiteRepository) SaveServerConfig(config domain.ServerConfig) error {
 	}
 	config.Name = name
 
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("error iniciando transacción: %w", err)
+	}
+	defer tx.Rollback()
+
 	// Si no hay servidores guardados aún, marcarlo como activo por defecto
 	var totalConfigs int
-	if err := r.db.QueryRow("SELECT COUNT(*) FROM server_configs").Scan(&totalConfigs); err == nil && totalConfigs == 0 {
+	if err := tx.QueryRow("SELECT COUNT(*) FROM server_configs").Scan(&totalConfigs); err == nil && totalConfigs == 0 {
 		config.IsActive = true
 	}
 
 	if config.IsActive {
-		if _, err := r.db.Exec("UPDATE server_configs SET is_active = 0"); err != nil {
+		if _, err := tx.Exec("UPDATE server_configs SET is_active = 0"); err != nil {
 			return fmt.Errorf("error al desmarcar servidores activos: %w", err)
 		}
 	}
@@ -393,29 +420,17 @@ func (r *SQLiteRepository) SaveServerConfig(config domain.ServerConfig) error {
 	encVultr := encryptSecret(config.VultrAPIToken)
 	encDO := encryptSecret(config.DOAPIToken)
 
-	if _, err := r.db.Exec(query, config.Name, config.Host, config.Port, config.User, encKey, encVultr, encDO, config.CloudProvider, config.IsActive); err != nil {
+	if _, err := tx.Exec(query, config.Name, config.Host, config.Port, config.User, encKey, encVultr, encDO, config.CloudProvider, config.IsActive); err != nil {
 		return fmt.Errorf("error guardando servidor en catálogo: %w", err)
 	}
 
-	// Mantener sincronizada la tabla legacy server_config (id = 1) con la conexión activa
 	if config.IsActive {
-		legacyQuery := `
-		INSERT INTO server_config (id, host, port, user, private_key, vultr_api_token, do_api_token, cloud_provider)
-		VALUES (1, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET
-			host=excluded.host,
-			port=excluded.port,
-			user=excluded.user,
-			private_key=excluded.private_key,
-			vultr_api_token=excluded.vultr_api_token,
-			do_api_token=excluded.do_api_token,
-			cloud_provider=excluded.cloud_provider;`
-		if _, err := r.db.Exec(legacyQuery, config.Host, config.Port, config.User, encKey, encVultr, encDO, config.CloudProvider); err != nil {
+		if err := syncLegacyServerConfig(tx, config.Host, config.Port, config.User, encKey, encVultr, encDO, config.CloudProvider); err != nil {
 			return fmt.Errorf("error sincronizando servidor activo: %w", err)
 		}
 	}
 
-	return nil
+	return tx.Commit()
 }
 
 func (r *SQLiteRepository) GetServerConfig() (*domain.ServerConfig, error) {
@@ -506,35 +521,40 @@ func (r *SQLiteRepository) SetActiveServerConfig(name string) error {
 		return fmt.Errorf("servidor '%s' no encontrado", name)
 	}
 
-	if _, err := r.db.Exec("UPDATE server_configs SET is_active = 0"); err != nil {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("error iniciando transacción: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("UPDATE server_configs SET is_active = 0"); err != nil {
 		return fmt.Errorf("error desactivando servidores: %w", err)
 	}
 
-	if _, err := r.db.Exec("UPDATE server_configs SET is_active = 1 WHERE name = ?", name); err != nil {
+	if _, err := tx.Exec("UPDATE server_configs SET is_active = 1 WHERE name = ?", name); err != nil {
 		return fmt.Errorf("error activando servidor '%s': %w", name, err)
 	}
 
-	// Sincronizar tabla legacy
-	legacyQuery := `
-	INSERT INTO server_config (id, host, port, user, private_key, vultr_api_token, do_api_token, cloud_provider)
-	VALUES (1, ?, ?, ?, ?, ?, ?, ?)
-	ON CONFLICT(id) DO UPDATE SET
-		host=excluded.host,
-		port=excluded.port,
-		user=excluded.user,
-		private_key=excluded.private_key,
-		vultr_api_token=excluded.vultr_api_token,
-		do_api_token=excluded.do_api_token,
-		cloud_provider=excluded.cloud_provider;`
-	if _, err := r.db.Exec(legacyQuery, cfg.Host, cfg.Port, cfg.User, cfg.PrivateKey, cfg.VultrAPIToken, cfg.DOAPIToken, cfg.CloudProvider); err != nil {
+	// cfg viene desencriptado de GetServerConfigByName; hay que re-encriptar antes de
+	// escribirlo en la tabla legacy, que GetServerConfig siempre lee como encriptada.
+	encKey := encryptSecret(cfg.PrivateKey)
+	encVultr := encryptSecret(cfg.VultrAPIToken)
+	encDO := encryptSecret(cfg.DOAPIToken)
+	if err := syncLegacyServerConfig(tx, cfg.Host, cfg.Port, cfg.User, encKey, encVultr, encDO, cfg.CloudProvider); err != nil {
 		return fmt.Errorf("error sincronizando tabla legacy: %w", err)
 	}
 
-	return nil
+	return tx.Commit()
 }
 
 func (r *SQLiteRepository) DeleteServerConfig(name string) error {
-	res, err := r.db.Exec("DELETE FROM server_configs WHERE name = ?", name)
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("error iniciando transacción: %w", err)
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec("DELETE FROM server_configs WHERE name = ?", name)
 	if err != nil {
 		return fmt.Errorf("error eliminando servidor '%s': %w", name, err)
 	}
@@ -545,7 +565,21 @@ func (r *SQLiteRepository) DeleteServerConfig(name string) error {
 	if rowsAffected == 0 {
 		return fmt.Errorf("servidor '%s' no encontrado", name)
 	}
-	return nil
+
+	// Si el servidor borrado era el activo, promover otro (el de menor id) para que el
+	// fleet no quede sin ningún servidor activo: GetServerConfig() caería a la tabla
+	// legacy con Name="default", que no coincide con ningún server_name real.
+	var activeCount int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM server_configs WHERE is_active = 1").Scan(&activeCount); err != nil {
+		return fmt.Errorf("error verificando servidor activo: %w", err)
+	}
+	if activeCount == 0 {
+		if _, err := tx.Exec("UPDATE server_configs SET is_active = 1 WHERE id = (SELECT id FROM server_configs ORDER BY id ASC LIMIT 1)"); err != nil {
+			return fmt.Errorf("error promoviendo nuevo servidor activo: %w", err)
+		}
+	}
+
+	return tx.Commit()
 }
 
 func (r *SQLiteRepository) Close() error {

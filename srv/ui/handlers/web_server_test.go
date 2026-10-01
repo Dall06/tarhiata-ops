@@ -628,7 +628,8 @@ func TestWebServer_HandleEnvVars(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			repo := &mockRepo{}
+			repo := mocks.NewMockConfigRepository()
+			repo.Services = []domain.SavedService{{Name: "api-gateway"}}
 			ws := NewWebServer(repo, tc.cfg)
 
 			var req *http.Request
@@ -2355,6 +2356,41 @@ func TestWebServer_HandleWebhookDeploy_SignatureEnforcement(t *testing.T) {
 			t.Fatalf("una firma válida no debería fallar en la capa de auth, got %d: %s", rr.Code, rr.Body.String())
 		}
 	})
+}
+
+// TestWebServer_HandleWebhookDeploy_UsesServiceOwnServerNotGlobalActive regresión: el
+// deploy disparado por webhook debe usar el servidor del fleet donde vive el servicio
+// (resuelto para la firma HMAC), no el servidor marcado como activo globalmente, que
+// puede ser otra máquina. Antes del fix, el handler re-resolvía con w.getConfig() y
+// aplicaba el deploy contra el servidor equivocado (o, como acá, uno sin Host
+// configurado, lo que rechazaba el request con un 400 que no debería ocurrir).
+func TestWebServer_HandleWebhookDeploy_UsesServiceOwnServerNotGlobalActive(t *testing.T) {
+	body := []byte(`{"service":"img-app","image":"myrepo/img-app:v3"}`)
+	mac := hmac.New(sha256.New, []byte("s3cret"))
+	mac.Write(body)
+	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	repo := mocks.NewMockConfigRepository()
+	repo.Services = []domain.SavedService{{
+		Name:          "img-app",
+		WebhookSecret: "s3cret",
+		SourceType:    "image",
+		ServerName:    "remote-vps",
+	}}
+	// El servidor activo globalmente no tiene Host (simula que el admin dejó otro
+	// servidor como activo mientras este servicio vive en "remote-vps").
+	ws := NewWebServer(repo, &domain.ServerConfig{Name: "active-no-host", Host: "", CloudProvider: "do"})
+	// "remote-vps" sí tiene Host: es el servidor real donde vive el servicio.
+	repo.Config = &domain.ServerConfig{Name: "remote-vps", Host: "remote-vps.invalid", CloudProvider: "do"}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/deploy?service=img-app&server=remote-vps", bytes.NewReader(body))
+	req.Header.Set("X-Hub-Signature-256", sig)
+	rr := httptest.NewRecorder()
+	ws.handleWebhookDeploy(rr, req)
+
+	if rr.Code == http.StatusBadRequest && strings.Contains(rr.Body.String(), "Servidor VPS no configurado") {
+		t.Fatalf("el deploy usó el servidor activo global (sin host) en vez del servidor propio del servicio 'remote-vps': %d %s", rr.Code, rr.Body.String())
+	}
 }
 
 // TestWebServer_HandleWebhookDeploy_GitSourceTriggersAsyncBuild valida el flujo completo

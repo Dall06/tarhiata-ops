@@ -130,3 +130,31 @@ func TestShellQuote(t *testing.T) {
 		})
 	}
 }
+
+func TestIsSafePath(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{name: "ruta absoluta simple", input: "/opt/data/db-api", expected: true},
+		{name: "ruta absoluta con subdirectorios", input: "/opt/data/db-api/sub.dir", expected: true},
+		{name: "vacia", input: "", expected: false},
+		{name: "relativa", input: "opt/data", expected: false},
+		{name: "traversal con ..", input: "/opt/data/../../etc/passwd", expected: false},
+		{name: "inyeccion de comando con punto y coma", input: "/opt/data; rm -rf /", expected: false},
+		{name: "inyeccion con subshell", input: "/opt/data/$(whoami)", expected: false},
+		{name: "inyeccion con backtick", input: "/opt/data/`id`", expected: false},
+		{name: "espacio en la ruta", input: "/opt/data/my db", expected: false},
+		{name: "comilla simple", input: "/opt/data/it's", expected: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := IsSafePath(tc.input)
+			if got != tc.expected {
+				t.Errorf("IsSafePath(%q) = %v; want %v", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
